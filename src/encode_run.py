@@ -30,7 +30,7 @@ import torch.utils.data as Data
 from torch.utils.data import DataLoader, DistributedSampler
 import torch.nn.functional as F
 
-from template import text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word
+from template import text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, img_prompt_no_special_llava_v1_5
 from model import MLLMRetrievalModel
 
 
@@ -163,6 +163,10 @@ def main():
     with torch.no_grad():
         for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                      total=len(test_dataloader)):
+            if model_args.model_name_or_path == './checkpoints/llava-hf-llava-1.5-7b-hf' or model_args.model_name_or_path == './checkpoints/llava-hf-llava-v1.6-vicuna-7b-hf':
+                prompt = img_prompt_no_special_llava_v1_5
+            else:
+                prompt = img_prompt
             text_list = list(texts)
             print(imgs_path)
             # print(texts)
@@ -170,15 +174,15 @@ def main():
             #                         return_tensors="pt",
             #                         padding=True).to(device)
 
-            text_logits, text_embs = model.encode_data(texts, 'text', processor, device)
+            text_logits, text_embs = model.encode_data(texts, 'text', processor, device, model_args)
             # print(text_embs.shape)
             raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-            img_inputs = processor(images=raw_images, text=[img_prompt] * len(imgs_path), return_tensors="pt",
+            img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path), return_tensors="pt",
                                    padding=True)
             print(img_inputs['pixel_values'].shape)
             imgs = img_inputs.to(device)
             # print(imgs.pixel_values.shape)
-            image_logits, image_embs = model.encode_data(imgs, 'image', processor, device)
+            image_logits, image_embs = model.encode_data(imgs, 'image', processor, device, model_args)
             # print(image_embs.shape)
 
             if dist.is_initialized():

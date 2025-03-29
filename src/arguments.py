@@ -27,6 +27,10 @@ class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
     sparse_output_dir: str = field(default='./sparse_output/')
     per_device_batch_size: int = field(default=4)
     encode_is_query: bool = field(default=False)
+    num_expended_tokens: int = field(default=0, metadata={"help": "Number of expended tokens. Default is 0, "
+                                                                  "meaning exact term matching only."})
+    is_filtered: bool = field(default=False)
+
 
 
 @dataclass

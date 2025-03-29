@@ -129,7 +129,6 @@ class CrossModalRetrievalDataset(Dataset):
         # text_with_prompt = text_prompt.replace('<sent>', text)
         # text_input = self.processor(text_with_prompt, return_tensors="pt", padding=True)
 
-
         '''
         image = Image.open(image_path).convert('RGB')
         # image_tensor = self.processor.image_processor(image, return_tensors='pt')['pixel_values'][0]
@@ -146,3 +145,9 @@ class CrossModalRetrievalDataset(Dataset):
         # return text, img_input['pixel_values'], img_input['input_ids'], img_input['attention_mask'], text_id, img_id
         # return text, img_input, text_id, img_id
         # return text, image_path, text_id, img_id
+
+    def get_target(self, idx, query_type):
+        if query_type == 'text':
+            return self.text2img[idx]
+        else:
+            return self.img2text[idx]

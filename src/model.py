@@ -10,7 +10,7 @@ from peft import LoraConfig, TaskType, get_peft_model, PeftModel
 from transformers import AutoProcessor
 
 from transformers.file_utils import ModelOutput
-from template import text_prompt, img_prompt, img_prompt_no_one_word, text_prompt_no_one_word
+from template import text_prompt, img_prompt, img_prompt_no_one_word, text_prompt_no_one_word, text_prompt_no_special_llava_v1_5
 import torch.nn.functional as F
 
 import logging
@@ -38,7 +38,7 @@ class MLLMRetrievalModel(nn.Module):
             self.world_size = dist.get_world_size()
 
     # 这个函数中，input是输入的数据，input_type为输入的类型，指定输入是text还是image, transform是为了提供转换的函数, device
-    def encode_data(self, input, input_type, processor, device):
+    def encode_data(self, input, input_type, processor, device, model_args):
         '''
 
         :param input: 输入的数据
@@ -47,8 +47,12 @@ class MLLMRetrievalModel(nn.Module):
         :param device: 指定数据所在的硬件设备
         :return:
         '''
+        if model_args.model_name_or_path == './checkpoints/llava-hf-llava-1.5-7b-hf' or model_args.model_name_or_path == './checkpoints/llava-hf-llava-v1.6-vicuna-7b-hf':
+            prompt = text_prompt_no_special_llava_v1_5
+        else:
+            prompt = text_prompt
         if input_type == 'text':
-            text_inputs = processor([text_prompt.replace('<sent>', text) for text in input], return_tensors="pt",
+            text_inputs = processor([prompt.replace('<sent>', text) for text in input], return_tensors="pt",
                                     padding=True).to('cuda')
             output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
             # print(output.logits.shape)

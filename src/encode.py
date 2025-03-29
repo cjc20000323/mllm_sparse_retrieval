@@ -23,8 +23,9 @@ from arguments import TrainingArguments
 from dataset import CrossModalRetrievalDataset
 import torch
 import torch.utils.data as Data
+import torch.nn.functional as F
 
-from template import text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word
+from template import text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, img_prompt_no_special_llava_v1_5, text_prompt_no_special_llava_v1_5
 from model import MLLMRetrievalModel
 
 
@@ -38,6 +39,12 @@ def get_filtered_ids(tokenizer):
         if ord('a') <= ord(token[0]) <= ord('z'):
             filtered_ids.add(id)
     return filtered_ids
+
+
+def filter_token(token):
+    if ord(token[0]) < ord('a') or ord(token[0]) > ord('z'):
+        token = token[1:]
+    return token
 
 
 def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filtered_ids):
@@ -54,10 +61,24 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
     # TODO： 这里默认选128个了，但是文本大多数是没有128那么长的，不知道会不会对最终结果有影响
     top_k = 128
     top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
+    # print(top_k_indices)
     # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
     values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
     # 把token id换成对应的单词，保存在tokens中
-    tokens = [vocab_dict[i.item()] for i in top_k_indices.cpu().detach().float().numpy()]
+    # e5-v模型会预测出超过词表长度的id，所以过滤一下，这个现象很普遍，目前不知道为什么会预测出这样的结果
+    if data_args.is_filtered:
+        tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy() if i < len(vocab_dict)]
+    else:
+        tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy() if i < len(vocab_dict)]
+
+    # top tokens not in the text for expansion.
+    if data_args.num_expended_tokens > 0:
+        token_ids_out_text = torch.tensor(list(filtered_ids - set(top_k_values)))
+        top_k = min(data_args.num_expended_tokens, len(token_ids_out_text))
+        top_k_values, top_k_indices = logits[token_ids_out_text].topk(top_k, dim=-1)
+        values = np.append(values, np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int))
+        for i in token_ids_out_text[top_k_indices.cpu().detach().float().numpy()]:
+            tokens.append(vocab_dict[i.item()].lower())
     return tokens, values
 
 
@@ -72,7 +93,10 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
     if len(token_ids_in_text) == 0:  # if no tokens in the text (rare case), we use top 10 tokens
         top_k_values, top_k_indices = logits.topk(10, dim=-1)
         values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
-        tokens = [vocab_dict[i.item()] for i in top_k_indices.cpu().detach().float().numpy()]
+        if data_args.is_filtered:
+            tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()]
+        else:
+            tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy()]
     else:
         # 根据原文，他们遵循了SPLADE设置，为了加强logit离散性，只保留最多128个值
         # 这里应该是先获得了logit，然后再来筛选哪些值，正常来说词表所有位置上的logit都很难是0，
@@ -82,18 +106,23 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
         # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
         values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
         # 把token id换成对应的单词，保存在tokens中
-        tokens = [vocab_dict[i.item()] for i in token_ids_in_text[top_k_indices.cpu().detach().float().numpy()]]
+        if data_args.is_filtered:
+            tokens = [filter_token(vocab_dict[i.item()].lower()) for i in
+                      token_ids_in_text[top_k_indices.cpu().detach().float().numpy()]]
+        else:
+            tokens = [vocab_dict[i.item()].lower() for i in token_ids_in_text[top_k_indices.cpu().detach().float().numpy()]]
 
     # top tokens not in the text for expansion.
-    '''
     if data_args.num_expended_tokens > 0:
         token_ids_out_text = torch.tensor(list(filtered_ids - token_ids))
         top_k = min(data_args.num_expended_tokens, len(token_ids_out_text))
         top_k_values, top_k_indices = logits[token_ids_out_text].topk(top_k, dim=-1)
         values = np.append(values, np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int))
         for i in token_ids_out_text[top_k_indices.cpu().detach().float().numpy()]:
-            tokens.append(vocab_dict[i.item()])
-    '''
+            if data_args.is_filtered:
+                tokens.append(filter_token(vocab_dict[i.item()].lower()))
+            else:
+                tokens.append(vocab_dict[i.item()].lower())
     return tokens, values
 
 
@@ -150,13 +179,16 @@ def main():
                                                                     device_map=device_map,
                                                                     torch_dtype=torch_type)
         processor = LlavaNextProcessor.from_pretrained(model_args.model_name_or_path)
+        if model_args.model_name_or_path == './checkpoints/royokong-e5-v':
+            setattr(processor, "patch_size", 14)  # hack for pass
 
     if training_args.encode_type == 'text':
         dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
     else:
         dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
     sampler = Data.DistributedSampler(dataset, num_replicas=dist.get_world_size(), shuffle=True, rank=dist.get_rank())
-    test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, pin_memory=True, batch_size=data_args.per_device_batch_size, shuffle=False)
+    test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, pin_memory=True,
+                                      batch_size=data_args.per_device_batch_size, shuffle=False)
 
     model = MLLMRetrievalModel(encoder)
     model = model.eval()
@@ -173,20 +205,26 @@ def main():
 
     with torch.no_grad():
         sampler.set_epoch(0)
+        if model_args.model_name_or_path == './checkpoints/llava-hf-llava-1.5-7b-hf' or model_args.model_name_or_path == './checkpoints/llava-hf-llava-v1.6-vicuna-7b-hf':
+            prompt = img_prompt_no_special_llava_v1_5
+        else:
+            prompt = img_prompt
         for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                      total=len(test_dataloader)):
             if len(texts) != data_args.per_device_batch_size:
                 print(len(texts))
                 print(dist.get_rank())
             if training_args.encode_type == 'text':
-                logits, reps = model.encode_data(texts, 'text', processor, device)
+                logits, reps = model.encode_data(texts, 'text', processor, device, model_args)
             else:
                 raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                img_inputs = processor(images=raw_images, text=[img_prompt] * len(imgs_path), return_tensors="pt",
+                img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path), return_tensors="pt",
                                        padding=True)
                 imgs = img_inputs.to(device)
-                logits, reps = model.encode_data(imgs, 'image', processor, device)
+                logits, reps = model.encode_data(imgs, 'image', processor, device, model_args)
 
+            # print(logits.shape)
+            reps = F.normalize(reps, dim=-1)
             if dist.is_initialized():
                 # reps_list = [[None] for _ in range(dist.get_world_size())]
                 # logits_list = [[None] for _ in range(dist.get_world_size())]
@@ -260,13 +298,30 @@ def main():
             print(len(lookup_indices))
             print(len(jsonl_data))
 
-            os.makedirs(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}', exist_ok=True)
-            os.makedirs(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}', exist_ok=True)
+            if data_args.is_filtered:
+                filtered = "filter"
+            else:
+                filtered = "no_filter"
 
-            with open(os.path.join(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/', f'query.pkl') if data_args.encode_is_query else os.path.join(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/', f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
+            os.makedirs(
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}',
+                exist_ok=True)
+            os.makedirs(
+                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}',
+                exist_ok=True)
+
+            with open(os.path.join(
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}',
+                    f'query.pkl') if data_args.encode_is_query else os.path.join(
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}',
+                    f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
                 pickle.dump((encoded, lookup_indices), f)
 
-            with open(os.path.join(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/', f'query.tsv') if data_args.encode_is_query else os.path.join(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/', f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
+            with open(os.path.join(
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}',
+                    f'query.tsv') if data_args.encode_is_query else os.path.join(
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}',
+                    f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
                 for data in jsonl_data:
                     if data_args.encode_is_query:
                         id = data['id']
