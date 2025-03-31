@@ -38,7 +38,7 @@ class MLLMRetrievalModel(nn.Module):
             self.world_size = dist.get_world_size()
 
     # 这个函数中，input是输入的数据，input_type为输入的类型，指定输入是text还是image, transform是为了提供转换的函数, device
-    def encode_data(self, input, input_type, processor, device, model_args):
+    def encode_data(self, input, input_type, processor, device, model_args, data_args):
         '''
 
         :param input: 输入的数据
@@ -57,13 +57,17 @@ class MLLMRetrievalModel(nn.Module):
             output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
             # print(output.logits.shape)
             # print(output.hidden_states[-1].shape)
-            # logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
-            logits = output.logits
-            # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
-            # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
-            sequence_lengths = text_inputs['attention_mask'].sum(dim=-1) - 1
-            batch_ids = torch.arange(len(text_inputs['input_ids']), device=logits.device)
-            logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][batch_ids, sequence_lengths]
+            if data_args.reps_loc == 'after_pad':
+                logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+            else:
+                # logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+                logits = output.logits
+                # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                sequence_lengths = text_inputs['attention_mask'].sum(dim=-1) - 1
+                batch_ids = torch.arange(len(text_inputs['input_ids']), device=logits.device)
+                logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
+                    batch_ids, sequence_lengths]
             # 这里对应原文的log+relu操作
             logits = torch.log(1 + torch.relu(logits))
             return logits, embs
@@ -78,12 +82,16 @@ class MLLMRetrievalModel(nn.Module):
                     input[key] = input[key].unsqueeze(0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
                     # print(input[key].shape)
             output = self.encoder(**input, output_hidden_states=True, return_dict=True)
-            logits = output.logits
-            # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
-            # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
-            sequence_lengths = input['attention_mask'].sum(dim=-1) - 1
-            batch_ids = torch.arange(len(input['input_ids']), device=logits.device)
-            logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][batch_ids, sequence_lengths]
+            if data_args.reps_loc == 'after_pad':
+                logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+            else:
+                logits = output.logits
+                # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                sequence_lengths = input['attention_mask'].sum(dim=-1) - 1
+                batch_ids = torch.arange(len(input['input_ids']), device=logits.device)
+                logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
+                    batch_ids, sequence_lengths]
             # 这里对应原文的log+relu操作
             logits = torch.log(1 + torch.relu(logits))
             return logits, embs

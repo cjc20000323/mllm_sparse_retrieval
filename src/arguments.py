@@ -30,6 +30,7 @@ class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
     num_expended_tokens: int = field(default=0, metadata={"help": "Number of expended tokens. Default is 0, "
                                                                   "meaning exact term matching only."})
     is_filtered: bool = field(default=False)
+    reps_loc: str = field(default='before_pad')
 
 
 

@@ -152,7 +152,8 @@ def main():
     else:
         dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
     sampler = Data.DistributedSampler(dataset, num_replicas=world_size, shuffle=True, rank=rank)
-    test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, batch_size=data_args.per_device_batch_size, shuffle=False)
+    test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, batch_size=data_args.per_device_batch_size,
+                                      shuffle=False)
 
     model = MLLMRetrievalModel(encoder)
     model = model.eval()
@@ -258,14 +259,14 @@ def main():
                 # batch['qids'] = batch_ids
                 # model_output: EncoderOutput = model(query=batch)
                 if search_args.query_type == 'text':
-                    query_logits, query_dense_reps = model.encode_data(texts, 'text', processor, device, model_args)
+                    query_logits, query_dense_reps = model.encode_data(texts, 'text', processor, device, model_args, data_args)
                 else:
                     raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                     img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
                                            return_tensors="pt",
                                            padding=True)
                     imgs = img_inputs.to(device)
-                    query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device, model_args)
+                    query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
 
                 if search_args.query_type == 'text':
                     batch_ids = text_ids
@@ -399,10 +400,20 @@ def main():
         )
     '''
     del model
+
+    if search_args.passage_reps is not None and search_args.sparse_index is not None:
+        fusion_run.update(
+            fuse(
+                runs=[dense_run, sparse_run],
+                weights=[search_args.alpha, (1 - search_args.alpha)]
+            )
+        )
     dense_count = 0
     sparse_count = 0
+    fusion_count = 0
     dense_recall_list = [[None] for _ in range(dist.get_world_size())]
     sparse_recall_list = [[None] for _ in range(dist.get_world_size())]
+    fusion_recall_list = [[None] for _ in range(dist.get_world_size())]
     if len(dense_run) > 0:
         for k, v in tqdm(dense_run.items()):
             target = dataset.get_target(k, search_args.query_type)
@@ -430,6 +441,36 @@ def main():
             search_result = torch.tensor([int(i) for i in search_result]).cuda()
             if True in torch.isin(search_result, target):
                 sparse_count += 1
+    if len(fusion_run) > 0:
+        for k, v in tqdm(fusion_run.items()):
+            target = dataset.get_target(k, search_args.query_type)
+            if isinstance(target, list):
+                target = torch.tensor([int(i) for i in target]).cuda()
+            else:
+                target = int(target)
+            if len(v) == 0:
+                continue
+
+            '''
+            if search_args.depth == 1:
+                search_result = list(v.keys())
+                search_result = torch.tensor([int(i) for i in search_result]).cuda()
+                if True in torch.isin(search_result, target):
+                    fusion_count += 1
+            else:
+            '''
+            # 这一段代码是要把密集检索和稀疏检索联合计算的分数从大到小排序，然后再取出前K个
+            sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)[:search_args.depth]
+            largest_dict = dict(sorted_by_value)
+            '''
+            if dist.get_rank() == 0:
+                print(sorted(v.items(), key=lambda x: x[1], reverse=True))
+                print(largest_dict)
+            '''
+            search_result = list(largest_dict.keys())
+            search_result = torch.tensor([int(i) for i in search_result]).cuda()
+            if True in torch.isin(search_result, target):
+                fusion_count += 1
 
     if len(dense_run) > 0:
         dense_count /= (len(lookup_indices) * dist.get_world_size())
@@ -438,6 +479,10 @@ def main():
     if len(sparse_run) > 0:
         sparse_count /= (len(lookup_indices) * dist.get_world_size())
         dist.all_gather_object(object_list=sparse_recall_list, obj=sparse_count)
+
+    if len(fusion_run) > 0:
+        fusion_count /= (len(lookup_indices) * dist.get_world_size())
+        dist.all_gather_object(object_list=fusion_recall_list, obj=fusion_count)
 
     if dist.get_rank() == 0:
         print(len(lookup_indices) * dist.get_world_size())
@@ -451,6 +496,11 @@ def main():
             sparse_recall = sum(sparse_recall_list)
             print(sparse_recall_list)
             print('Sparse reps recall: ', sparse_recall)
+
+        if len(fusion_run) > 0:
+            fusion_recall = sum(fusion_recall_list)
+            print(fusion_recall_list)
+            print('Sparse reps recall: ', fusion_recall)
 
 
 if __name__ == '__main__':

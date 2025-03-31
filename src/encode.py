@@ -215,13 +215,13 @@ def main():
                 print(len(texts))
                 print(dist.get_rank())
             if training_args.encode_type == 'text':
-                logits, reps = model.encode_data(texts, 'text', processor, device, model_args)
+                logits, reps = model.encode_data(texts, 'text', processor, device, model_args, data_args)
             else:
                 raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                 img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path), return_tensors="pt",
                                        padding=True)
                 imgs = img_inputs.to(device)
-                logits, reps = model.encode_data(imgs, 'image', processor, device, model_args)
+                logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
 
             # print(logits.shape)
             reps = F.normalize(reps, dim=-1)
