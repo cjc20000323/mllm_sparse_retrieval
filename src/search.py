@@ -19,7 +19,7 @@ from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments
 import torch.distributed as dist
 from arguments import TrainingArguments
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
-    LlavaNextForConditionalGeneration
+    LlavaNextForConditionalGeneration, Qwen2_5_VLForConditionalGeneration, Qwen2_5_VLProcessor, AutoProcessor, AutoModelForCausalLM, AutoModel
 from encode import get_filtered_ids
 from dataset import CrossModalRetrievalDataset
 
@@ -31,7 +31,7 @@ from nltk import word_tokenize
 from nltk.corpus import stopwords
 import string
 from template import text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
-    img_prompt_no_special_llava_v1_5
+    img_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, img_prompt_qwen_v2_5
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values
 from hybrid import fuse, write_trec_run, read_trec_run
 
@@ -134,17 +134,32 @@ def main():
         torch_type = torch.float32
 
     # 指定模型
-    if model_args.model_name_or_path == './checkpoints/llava-hf-llava-1.5-7b-hf':
+    if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
         encoder = LlavaForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
                                                                 device_map=device_map,
                                                                 torch_dtype=torch_type)
         processor = LlavaProcessor.from_pretrained(model_args.model_name_or_path)
+    elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+        encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
+                                                                     device_map=device_map,
+                                                                     torch_dtype=torch_type)
+        processor = Qwen2_5_VLProcessor.from_pretrained(model_args.model_name_or_path)
+    elif 'InternVL2_5-8B' in model_args.model_name_or_path:
+        # device_map = split_model('InternVL2_5-8B')
+        encoder = AutoModel.from_pretrained(model_args.model_name_or_path,
+                                            device_map=device_map,
+                                            torch_dtype=torch_type,
+                                            trust_remote_code=True,
+                                            use_flash_attn=True,
+                                            low_cpu_mem_usage=True, )
+        processor = AutoProcessor.from_pretrained(model_args.model_name_or_path,
+                                                  trust_remote_code=True, )
     else:
         encoder = LlavaNextForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
                                                                     device_map=device_map,
                                                                     torch_dtype=torch_type)
         processor = LlavaNextProcessor.from_pretrained(model_args.model_name_or_path)
-        if model_args.model_name_or_path == './checkpoints/royokong-e5-v':
+        if 'royokong-e5-v' in model_args.model_name_or_path:
             setattr(processor, "patch_size", 14)  # hack for pass
 
     if search_args.query_type == 'text':
@@ -159,11 +174,15 @@ def main():
     model = model.eval()
     print(model.is_ddp)
 
-    filtered_ids = get_filtered_ids(processor.tokenizer)
-
     lookup_indices = []
 
-    vocab_dict = processor.tokenizer.get_vocab()
+    # 加载词表并获取过滤后的单词id，但目前尚不清楚filtered_ids是做什么的
+    if 'InternVL2_5-8B' in model_args.model_name_or_path:
+        vocab_dict = processor.get_vocab()
+        filtered_ids = get_filtered_ids(processor)
+    else:
+        vocab_dict = processor.tokenizer.get_vocab()
+        filtered_ids = get_filtered_ids(processor.tokenizer)
     vocab_dict = {v: k for k, v in vocab_dict.items()}
 
     model.eval()
@@ -253,6 +272,8 @@ def main():
                     lookup_indices.extend(img_ids)
                 if model_args.model_name_or_path == './checkpoints/llava-hf-llava-1.5-7b-hf' or model_args.model_name_or_path == './checkpoints/llava-hf-llava-v1.6-vicuna-7b-hf':
                     prompt = img_prompt_no_special_llava_v1_5
+                elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                    prompt = img_prompt_qwen_v2_5
                 else:
                     prompt = img_prompt
                 # batch = batch.to(training_args.device)
@@ -261,6 +282,10 @@ def main():
                 if search_args.query_type == 'text':
                     query_logits, query_dense_reps = model.encode_data(texts, 'text', processor, device, model_args, data_args)
                 else:
+                    if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                        prompt = processor.apply_chat_template(
+                            img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
+                        )
                     raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                     img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
                                            return_tensors="pt",

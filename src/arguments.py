@@ -31,6 +31,8 @@ class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
                                                                   "meaning exact term matching only."})
     is_filtered: bool = field(default=False)
     reps_loc: str = field(default='before_pad')
+    sparse_manual: bool = field(default=False)
+    sparse_length: int = field(default=128)
 
 
 
