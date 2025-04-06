@@ -55,7 +55,7 @@ class MLLMRetrievalModel(nn.Module):
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
-        elif 'InternVL2_5-8B' in model_args.model_name_or_path:
+        elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
             prompt = text_prompt_intern_vl_v2_5
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
@@ -63,7 +63,7 @@ class MLLMRetrievalModel(nn.Module):
         else:
             prompt = text_prompt
         if input_type == 'text':
-            if 'InternVL2_5-8B' in model_args.model_name_or_path:
+            if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
                 text_inputs = processor([prompt.replace('<sent>', text) for text in input], return_tensors='pt', padding=True)
                 input_ids = text_inputs['input_ids'].to(device)
                 attention_mask = text_inputs['attention_mask'].to(device)
@@ -103,7 +103,7 @@ class MLLMRetrievalModel(nn.Module):
                 logits = torch.log(1 + torch.relu(logits))
             return logits, embs
         elif input_type == 'image':
-            if 'InternVL2_5-8B' in model_args.model_name_or_path:
+            if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
                 prompt = img_prompt_intern_vl_v2_5
                 prompt = processor.apply_chat_template(
                     prompt, tokenize=False, add_generation_prompt=True

@@ -198,14 +198,14 @@ def main():
                                                                      device_map=device_map,
                                                                      torch_dtype=torch_type)
         processor = Qwen2_5_VLProcessor.from_pretrained(model_args.model_name_or_path)
-    elif 'InternVL2_5-8B' in model_args.model_name_or_path:
+    elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
         # device_map = split_model('InternVL2_5-8B')
         encoder = AutoModel.from_pretrained(model_args.model_name_or_path,
                                             device_map=device_map,
                                             torch_dtype=torch_type,
                                             trust_remote_code=True,
-                                            use_flash_attn=True,
-                                            low_cpu_mem_usage=True, )
+                                            low_cpu_mem_usage=True,
+                                            )
         processor = AutoProcessor.from_pretrained(model_args.model_name_or_path,
                                                   trust_remote_code=True,)
     else:
@@ -233,7 +233,7 @@ def main():
     lookup_indices = []
 
     # 加载词表并获取过滤后的单词id，但目前尚不清楚filtered_ids是做什么的
-    if 'InternVL2_5-8B' in model_args.model_name_or_path:
+    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
         vocab_dict = processor.get_vocab()
         filtered_ids = get_filtered_ids(processor)
     else:
@@ -247,7 +247,7 @@ def main():
             prompt = img_prompt_no_special_llava_v1_5
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
             prompt = img_prompt_qwen_v2_5
-        elif 'InternVL2_5-8B' in model_args.model_name_or_path:
+        elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
             prompt = img_prompt_intern_vl_v2_5
             if dist.get_rank() == 0:
                 print(prompt)
@@ -262,7 +262,7 @@ def main():
                 logits, reps = model.encode_data(texts, 'text', processor, device, model_args, data_args)
             else:
                 # Preparation for inference
-                if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
                     prompt = processor.apply_chat_template(
                         img_prompt_intern_vl_v2_5, tokenize=False, add_generation_prompt=True
                     )
@@ -320,7 +320,7 @@ def main():
                     if training_args.encode_type == 'text':
                         for id, logits, text in zip(ids, batch_logits, batch_texts):
                             vector = dict()
-                            if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                            if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
                                 tokens, values = get_text_valid_tokens_values(text, processor, logits,
                                                                               vocab_dict,
                                                                               data_args,
@@ -342,7 +342,7 @@ def main():
                     else:
                         for id, logits, text in zip(ids, batch_logits, batch_texts):
                             vector = dict()
-                            if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                            if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
                                 tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
                                                                              data_args, filtered_ids)
                             else:
@@ -370,24 +370,29 @@ def main():
             else:
                 filtered = "no_filter"
 
+            if data_args.sparse_manual:
+                manual = 'manual'
+            else:
+                manual = "no_manual"
+
             os.makedirs(
-                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}',
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
                 exist_ok=True)
             os.makedirs(
-                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}',
+                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
                 exist_ok=True)
 
             with open(os.path.join(
-                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}',
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
                     f'query.pkl') if data_args.encode_is_query else os.path.join(
-                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}',
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
                 f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
                 pickle.dump((encoded, lookup_indices), f)
 
             with open(os.path.join(
-                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}',
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
                     f'query.tsv') if data_args.encode_is_query else os.path.join(
-                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}',
+                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
                 f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
                 for data in jsonl_data:
                     if data_args.encode_is_query:

@@ -19,7 +19,8 @@ from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments
 import torch.distributed as dist
 from arguments import TrainingArguments
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
-    LlavaNextForConditionalGeneration, Qwen2_5_VLForConditionalGeneration, Qwen2_5_VLProcessor, AutoProcessor, AutoModelForCausalLM, AutoModel
+    LlavaNextForConditionalGeneration, Qwen2_5_VLForConditionalGeneration, Qwen2_5_VLProcessor, AutoProcessor, \
+    AutoModelForCausalLM, AutoModel
 from encode import get_filtered_ids
 from dataset import CrossModalRetrievalDataset
 
@@ -31,9 +32,11 @@ from nltk import word_tokenize
 from nltk.corpus import stopwords
 import string
 from template import text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
-    img_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, img_prompt_qwen_v2_5
+    img_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, \
+    text_prompt_intern_vl_v2_5
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values
 from hybrid import fuse, write_trec_run, read_trec_run
+from utils import load_image
 
 stopwords = set(stopwords.words('english') + list(string.punctuation))
 
@@ -274,24 +277,36 @@ def main():
                     prompt = img_prompt_no_special_llava_v1_5
                 elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
                     prompt = img_prompt_qwen_v2_5
+                elif 'InternVL2_5-8B' in model_args.model_name_or_path:
+                    prompt = img_prompt_intern_vl_v2_5
                 else:
                     prompt = img_prompt
                 # batch = batch.to(training_args.device)
                 # batch['qids'] = batch_ids
                 # model_output: EncoderOutput = model(query=batch)
                 if search_args.query_type == 'text':
-                    query_logits, query_dense_reps = model.encode_data(texts, 'text', processor, device, model_args, data_args)
+                    query_logits, query_dense_reps = model.encode_data(texts, 'text', processor, device, model_args,
+                                                                       data_args)
                 else:
-                    if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                    if 'InternVL2_5-8B' in model_args.model_name_or_path:
                         prompt = processor.apply_chat_template(
-                            img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
+                            img_prompt_intern_vl_v2_5, tokenize=False, add_generation_prompt=True
                         )
-                    raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                    img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
-                                           return_tensors="pt",
-                                           padding=True)
-                    imgs = img_inputs.to(device)
-                    query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
+                        imgs = [load_image(path, max_num=12).to(torch.bfloat16).cuda() for path in imgs_path]
+                        query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device, model_args,
+                                                                           data_args)
+                    else:
+                        if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                            prompt = processor.apply_chat_template(
+                                img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
+                            )
+                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                        img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                               return_tensors="pt",
+                                               padding=True)
+                        imgs = img_inputs.to(device)
+                        query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device, model_args,
+                                                                           data_args)
 
                 if search_args.query_type == 'text':
                     batch_ids = text_ids
@@ -328,9 +343,15 @@ def main():
                             for qid, reps, text in zip(batch_ids, query_logits, texts):
                                 batch_topics = []
                                 for logits in reps:
-                                    tokens, values = get_text_valid_tokens_values(text, processor.tokenizer, logits,
-                                                                                  vocab_dict,
-                                                                                  data_args, filtered_ids)
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                        tokens, values = get_text_valid_tokens_values(text, processor, logits,
+                                                                                      vocab_dict,
+                                                                                      data_args,
+                                                                                      filtered_ids)
+                                    else:
+                                        tokens, values = get_text_valid_tokens_values(text, processor.tokenizer, logits,
+                                                                                      vocab_dict,
+                                                                                      data_args, filtered_ids)
                                     query = ""
                                     for token, v in zip(tokens, values):
                                         query += (' ' + token) * v
@@ -351,9 +372,13 @@ def main():
                             for qid, reps in zip(batch_ids, query_logits):
                                 batch_topics = []
                                 for logits in reps:
-                                    tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits,
-                                                                                 vocab_dict,
-                                                                                 data_args, filtered_ids)
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                        tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
+                                                                                     data_args, filtered_ids)
+                                    else:
+                                        tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits,
+                                                                                     vocab_dict,
+                                                                                     data_args, filtered_ids)
                                     query = ""
                                     for token, v in zip(tokens, values):
                                         query += (' ' + token) * v
@@ -375,10 +400,14 @@ def main():
                         batch_topics = []
                         if search_args.query_type == 'text':
                             for _, logits, text in zip(batch_ids, query_logits, texts):
-                                tokens, values = get_text_valid_tokens_values(text, processor.tokenizer, logits,
-                                                                              vocab_dict,
-                                                                              data_args,
-                                                                              filtered_ids)
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
+                                                                                 data_args, filtered_ids)
+                                else:
+                                    tokens, values = get_text_valid_tokens_values(text, processor.tokenizer, logits,
+                                                                                  vocab_dict,
+                                                                                  data_args,
+                                                                                  filtered_ids)
                                 query = ""
                                 for token, v in zip(tokens, values):
                                     query += (' ' + token) * v
@@ -391,10 +420,14 @@ def main():
 
                         else:
                             for _, logits in zip(batch_ids, query_logits):
-                                tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits,
-                                                                             vocab_dict,
-                                                                             data_args,
-                                                                             filtered_ids)
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
+                                                                                 data_args, filtered_ids)
+                                else:
+                                    tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits,
+                                                                                 vocab_dict,
+                                                                                 data_args,
+                                                                                 filtered_ids)
                                 query = ""
                                 for token, v in zip(tokens, values):
                                     query += (' ' + token) * v
@@ -409,21 +442,6 @@ def main():
             del dense_retriever
             torch.cuda.empty_cache()
 
-    '''
-    if data_args.multi_reps:
-        dense_run = max_pooling_run(dense_run, search_args)
-        sparse_run = max_pooling_run(sparse_run, search_args)
-    '''
-
-    '''
-    if search_args.passage_reps is not None and search_args.sparse_index is not None:
-        fusion_run.update(
-            fuse(
-                runs=[dense_run, sparse_run],
-                weights=[search_args.alpha, (1 - search_args.alpha)]
-            )
-        )
-    '''
     del model
 
     if search_args.passage_reps is not None and search_args.sparse_index is not None:
@@ -433,12 +451,36 @@ def main():
                 weights=[search_args.alpha, (1 - search_args.alpha)]
             )
         )
-    dense_count = 0
-    sparse_count = 0
-    fusion_count = 0
-    dense_recall_list = [[None] for _ in range(dist.get_world_size())]
-    sparse_recall_list = [[None] for _ in range(dist.get_world_size())]
-    fusion_recall_list = [[None] for _ in range(dist.get_world_size())]
+    dense_count_1 = 0
+    dense_count_5 = 0
+    dense_count_10 = 0
+    dense_count_100 = 0
+    dense_count_200 = 0
+    sparse_count_1 = 0
+    sparse_count_5 = 0
+    sparse_count_10 = 0
+    sparse_count_100 = 0
+    sparse_count_200 = 0
+    fusion_count_1 = 0
+    fusion_count_5 = 0
+    fusion_count_10 = 0
+    fusion_count_100 = 0
+    fusion_count_200 = 0
+    dense_recall_1_list = [[None] for _ in range(dist.get_world_size())]
+    dense_recall_5_list = [[None] for _ in range(dist.get_world_size())]
+    dense_recall_10_list = [[None] for _ in range(dist.get_world_size())]
+    dense_recall_100_list = [[None] for _ in range(dist.get_world_size())]
+    dense_recall_200_list = [[None] for _ in range(dist.get_world_size())]
+    sparse_recall_1_list = [[None] for _ in range(dist.get_world_size())]
+    sparse_recall_5_list = [[None] for _ in range(dist.get_world_size())]
+    sparse_recall_10_list = [[None] for _ in range(dist.get_world_size())]
+    sparse_recall_100_list = [[None] for _ in range(dist.get_world_size())]
+    sparse_recall_200_list = [[None] for _ in range(dist.get_world_size())]
+    fusion_recall_1_list = [[None] for _ in range(dist.get_world_size())]
+    fusion_recall_5_list = [[None] for _ in range(dist.get_world_size())]
+    fusion_recall_10_list = [[None] for _ in range(dist.get_world_size())]
+    fusion_recall_100_list = [[None] for _ in range(dist.get_world_size())]
+    fusion_recall_200_list = [[None] for _ in range(dist.get_world_size())]
     if len(dense_run) > 0:
         for k, v in tqdm(dense_run.items()):
             target = dataset.get_target(k, search_args.query_type)
@@ -448,10 +490,35 @@ def main():
                 target = int(target)
             if len(v['docs']) == 0:
                 continue
-            search_result = list(v['docs'].keys())
-            search_result = torch.tensor([int(i) for i in search_result]).cuda()
-            if True in torch.isin(search_result, target):
-                dense_count += 1
+
+            sorted_by_value = sorted(v['docs'].items(), key=lambda x: x[1], reverse=True)
+            sorted_by_value_1 = dict(sorted_by_value[:1])
+            sorted_by_value_5 = dict(sorted_by_value[:5])
+            sorted_by_value_10 = dict(sorted_by_value[:10])
+            sorted_by_value_100 = dict(sorted_by_value[:100])
+            sorted_by_value_200 = dict(sorted_by_value[:200])
+
+            search_result_1 = list(sorted_by_value_1.keys())
+            search_result_5 = list(sorted_by_value_5.keys())
+            search_result_10 = list(sorted_by_value_10.keys())
+            search_result_100 = list(sorted_by_value_100.keys())
+            search_result_200 = list(sorted_by_value_200.keys())
+            search_result_1 = torch.tensor([int(i) for i in search_result_1]).cuda()
+            search_result_5 = torch.tensor([int(i) for i in search_result_5]).cuda()
+            search_result_10 = torch.tensor([int(i) for i in search_result_10]).cuda()
+            search_result_100 = torch.tensor([int(i) for i in search_result_100]).cuda()
+            search_result_200 = torch.tensor([int(i) for i in search_result_200]).cuda()
+
+            if True in torch.isin(search_result_1, target):
+                dense_count_1 += 1
+            if True in torch.isin(search_result_5, target):
+                dense_count_5 += 1
+            if True in torch.isin(search_result_10, target):
+                dense_count_10 += 1
+            if True in torch.isin(search_result_100, target):
+                dense_count_100 += 1
+            if True in torch.isin(search_result_200, target):
+                dense_count_200 += 1
 
     if len(sparse_run) > 0:
         for k, v in tqdm(sparse_run.items()):
@@ -462,10 +529,34 @@ def main():
                 target = int(target)
             if len(v['docs']) == 0:
                 continue
-            search_result = list(v['docs'].keys())
-            search_result = torch.tensor([int(i) for i in search_result]).cuda()
-            if True in torch.isin(search_result, target):
-                sparse_count += 1
+            sorted_by_value = sorted(v['docs'].items(), key=lambda x: x[1], reverse=True)
+            sorted_by_value_1 = dict(sorted_by_value[:1])
+            sorted_by_value_5 = dict(sorted_by_value[:5])
+            sorted_by_value_10 = dict(sorted_by_value[:10])
+            sorted_by_value_100 = dict(sorted_by_value[:100])
+            sorted_by_value_200 = dict(sorted_by_value[:200])
+
+            search_result_1 = list(sorted_by_value_1.keys())
+            search_result_5 = list(sorted_by_value_5.keys())
+            search_result_10 = list(sorted_by_value_10.keys())
+            search_result_100 = list(sorted_by_value_100.keys())
+            search_result_200 = list(sorted_by_value_200.keys())
+            search_result_1 = torch.tensor([int(i) for i in search_result_1]).cuda()
+            search_result_5 = torch.tensor([int(i) for i in search_result_5]).cuda()
+            search_result_10 = torch.tensor([int(i) for i in search_result_10]).cuda()
+            search_result_100 = torch.tensor([int(i) for i in search_result_100]).cuda()
+            search_result_200 = torch.tensor([int(i) for i in search_result_200]).cuda()
+
+            if True in torch.isin(search_result_1, target):
+                sparse_count_1 += 1
+            if True in torch.isin(search_result_5, target):
+                sparse_count_5 += 1
+            if True in torch.isin(search_result_10, target):
+                sparse_count_10 += 1
+            if True in torch.isin(search_result_100, target):
+                sparse_count_100 += 1
+            if True in torch.isin(search_result_200, target):
+                sparse_count_200 += 1
     if len(fusion_run) > 0:
         for k, v in tqdm(fusion_run.items()):
             target = dataset.get_target(k, search_args.query_type)
@@ -475,57 +566,126 @@ def main():
                 target = int(target)
             if len(v) == 0:
                 continue
-
-            '''
-            if search_args.depth == 1:
-                search_result = list(v.keys())
-                search_result = torch.tensor([int(i) for i in search_result]).cuda()
-                if True in torch.isin(search_result, target):
-                    fusion_count += 1
-            else:
-            '''
             # 这一段代码是要把密集检索和稀疏检索联合计算的分数从大到小排序，然后再取出前K个
-            sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)[:search_args.depth]
-            largest_dict = dict(sorted_by_value)
-            '''
-            if dist.get_rank() == 0:
-                print(sorted(v.items(), key=lambda x: x[1], reverse=True))
-                print(largest_dict)
-            '''
-            search_result = list(largest_dict.keys())
-            search_result = torch.tensor([int(i) for i in search_result]).cuda()
-            if True in torch.isin(search_result, target):
-                fusion_count += 1
+            sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
+            sorted_by_value_1 = dict(sorted_by_value[:1])
+            sorted_by_value_5 = dict(sorted_by_value[:5])
+            sorted_by_value_10 = dict(sorted_by_value[:10])
+            sorted_by_value_100 = dict(sorted_by_value[:100])
+            sorted_by_value_200 = dict(sorted_by_value[:200])
+
+            search_result_1 = list(sorted_by_value_1.keys())
+            search_result_5 = list(sorted_by_value_5.keys())
+            search_result_10 = list(sorted_by_value_10.keys())
+            search_result_100 = list(sorted_by_value_100.keys())
+            search_result_200 = list(sorted_by_value_200.keys())
+            search_result_1 = torch.tensor([int(i) for i in search_result_1]).cuda()
+            search_result_5 = torch.tensor([int(i) for i in search_result_5]).cuda()
+            search_result_10 = torch.tensor([int(i) for i in search_result_10]).cuda()
+            search_result_100 = torch.tensor([int(i) for i in search_result_100]).cuda()
+            search_result_200 = torch.tensor([int(i) for i in search_result_200]).cuda()
+
+            if True in torch.isin(search_result_1, target):
+                fusion_count_1 += 1
+            if True in torch.isin(search_result_5, target):
+                fusion_count_5 += 1
+            if True in torch.isin(search_result_10, target):
+                fusion_count_10 += 1
+            if True in torch.isin(search_result_100, target):
+                fusion_count_100 += 1
+            if True in torch.isin(search_result_200, target):
+                fusion_count_200 += 1
 
     if len(dense_run) > 0:
-        dense_count /= (len(lookup_indices) * dist.get_world_size())
-        dist.all_gather_object(object_list=dense_recall_list, obj=dense_count)
+        dense_count_1 /= (len(lookup_indices) * dist.get_world_size())
+        dense_count_5 /= (len(lookup_indices) * dist.get_world_size())
+        dense_count_10 /= (len(lookup_indices) * dist.get_world_size())
+        dense_count_100 /= (len(lookup_indices) * dist.get_world_size())
+        dense_count_200 /= (len(lookup_indices) * dist.get_world_size())
+        dist.all_gather_object(object_list=dense_recall_1_list, obj=dense_count_1)
+        dist.all_gather_object(object_list=dense_recall_5_list, obj=dense_count_5)
+        dist.all_gather_object(object_list=dense_recall_10_list, obj=dense_count_10)
+        dist.all_gather_object(object_list=dense_recall_100_list, obj=dense_count_100)
+        dist.all_gather_object(object_list=dense_recall_200_list, obj=dense_count_200)
 
     if len(sparse_run) > 0:
-        sparse_count /= (len(lookup_indices) * dist.get_world_size())
-        dist.all_gather_object(object_list=sparse_recall_list, obj=sparse_count)
+        sparse_count_1 /= (len(lookup_indices) * dist.get_world_size())
+        sparse_count_5 /= (len(lookup_indices) * dist.get_world_size())
+        sparse_count_10 /= (len(lookup_indices) * dist.get_world_size())
+        sparse_count_100 /= (len(lookup_indices) * dist.get_world_size())
+        sparse_count_200 /= (len(lookup_indices) * dist.get_world_size())
+        dist.all_gather_object(object_list=sparse_recall_1_list, obj=sparse_count_1)
+        dist.all_gather_object(object_list=sparse_recall_5_list, obj=sparse_count_5)
+        dist.all_gather_object(object_list=sparse_recall_10_list, obj=sparse_count_10)
+        dist.all_gather_object(object_list=sparse_recall_100_list, obj=sparse_count_100)
+        dist.all_gather_object(object_list=sparse_recall_200_list, obj=sparse_count_200)
 
     if len(fusion_run) > 0:
-        fusion_count /= (len(lookup_indices) * dist.get_world_size())
-        dist.all_gather_object(object_list=fusion_recall_list, obj=fusion_count)
+        fusion_count_1 /= (len(lookup_indices) * dist.get_world_size())
+        fusion_count_5 /= (len(lookup_indices) * dist.get_world_size())
+        fusion_count_10 /= (len(lookup_indices) * dist.get_world_size())
+        fusion_count_100 /= (len(lookup_indices) * dist.get_world_size())
+        fusion_count_200 /= (len(lookup_indices) * dist.get_world_size())
+        dist.all_gather_object(object_list=fusion_recall_1_list, obj=fusion_count_1)
+        dist.all_gather_object(object_list=fusion_recall_5_list, obj=fusion_count_5)
+        dist.all_gather_object(object_list=fusion_recall_10_list, obj=fusion_count_10)
+        dist.all_gather_object(object_list=fusion_recall_100_list, obj=fusion_count_100)
+        dist.all_gather_object(object_list=fusion_recall_200_list, obj=fusion_count_200)
 
     if dist.get_rank() == 0:
         print(len(lookup_indices) * dist.get_world_size())
         if len(dense_run) > 0:
             print(len(look_up))
-            dense_recall = sum(dense_recall_list)
-            print(dense_recall_list)
-            print('Dense reps recall: ', dense_recall)
+            dense_recall_1 = sum(dense_recall_1_list)
+            dense_recall_5 = sum(dense_recall_5_list)
+            dense_recall_10 = sum(dense_recall_10_list)
+            dense_recall_100 = sum(dense_recall_100_list)
+            dense_recall_200 = sum(dense_recall_200_list)
+            print('Dense recall @ 1: ', dense_recall_1_list)
+            print('Dense recall @ 5: ', dense_recall_5_list)
+            print('Dense recall @ 10: ', dense_recall_10_list)
+            print('Dense recall @ 100: ', dense_recall_100_list)
+            print('Dense recall @ 200: ', dense_recall_200_list)
+            print(
+                'Dense reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}'.format(dense_recall_1, dense_recall_5,
+                                                                                        dense_recall_10,
+                                                                                        dense_recall_100,
+                                                                                        dense_recall_200))
 
         if len(sparse_run) > 0:
-            sparse_recall = sum(sparse_recall_list)
-            print(sparse_recall_list)
-            print('Sparse reps recall: ', sparse_recall)
-
+            sparse_recall_1 = sum(sparse_recall_1_list)
+            sparse_recall_5 = sum(sparse_recall_5_list)
+            sparse_recall_10 = sum(sparse_recall_10_list)
+            sparse_recall_100 = sum(sparse_recall_100_list)
+            sparse_recall_200 = sum(sparse_recall_200_list)
+            print('Sparse recall @ 1: ', sparse_recall_1_list)
+            print('Sparse recall @ 5: ', sparse_recall_5_list)
+            print('Sparse recall @ 10: ', sparse_recall_10_list)
+            print('Sparse recall @ 100: ', sparse_recall_100_list)
+            print('Sparse recall @ 200: ', sparse_recall_200_list)
+            print(
+                'Sparse reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}'.format(sparse_recall_1,
+                                                                                         sparse_recall_5,
+                                                                                         sparse_recall_10,
+                                                                                         sparse_recall_100,
+                                                                                         sparse_recall_200))
         if len(fusion_run) > 0:
-            fusion_recall = sum(fusion_recall_list)
-            print(fusion_recall_list)
-            print('Sparse reps recall: ', fusion_recall)
+            fusion_recall_1 = sum(fusion_recall_1_list)
+            fusion_recall_5 = sum(fusion_recall_5_list)
+            fusion_recall_10 = sum(fusion_recall_10_list)
+            fusion_recall_100 = sum(fusion_recall_100_list)
+            fusion_recall_200 = sum(fusion_recall_200_list)
+            print('Fusion/Hybrid recall @ 1: ', fusion_recall_1_list)
+            print('Fusion/Hybrid recall @ 5: ', fusion_recall_5_list)
+            print('Fusion/Hybrid recall @ 10: ', fusion_recall_10_list)
+            print('Fusion/Hybrid recall @ 100: ', fusion_recall_100_list)
+            print('Fusion/Hybrid recall @ 200: ', fusion_recall_200_list)
+            print(
+                'Fusion/Hybrid reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}'.format(fusion_recall_1,
+                                                                                                fusion_recall_5,
+                                                                                                fusion_recall_10,
+                                                                                                fusion_recall_100,
+                                                                                                fusion_recall_200))
 
 
 if __name__ == '__main__':
