@@ -104,16 +104,22 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
         top_k_values, top_k_indices = logits.topk(10, dim=-1)
         values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
         if data_args.is_filtered:
-            tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()]
+            tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
+                      if
+                      i < len(vocab_dict)]
         else:
-            tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy()]
+            tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy() if
+                      i < len(vocab_dict)]
     elif data_args.sparse_manual:
         top_k_values, top_k_indices = logits.topk(data_args.sparse_length, dim=-1)
         values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
         if data_args.is_filtered:
-            tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()]
+            tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
+                      if
+                      i < len(vocab_dict)]
         else:
-            tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy()]
+            tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy() if
+                      i < len(vocab_dict)]
     else:
         # 根据原文，他们遵循了SPLADE设置，为了加强logit离散性，只保留最多128个值
         # 这里应该是先获得了logit，然后再来筛选哪些值，正常来说词表所有位置上的logit都很难是0，
@@ -125,10 +131,12 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
         # 把token id换成对应的单词，保存在tokens中
         if data_args.is_filtered:
             tokens = [filter_token(vocab_dict[i.item()].lower()) for i in
-                      token_ids_in_text[top_k_indices.cpu().detach().float().numpy()]]
+                      token_ids_in_text[top_k_indices.cpu().detach().float().numpy()] if
+                      i < len(vocab_dict)]
         else:
             tokens = [vocab_dict[i.item()].lower() for i in
-                      token_ids_in_text[top_k_indices.cpu().detach().float().numpy()]]
+                      token_ids_in_text[top_k_indices.cpu().detach().float().numpy()] if
+                      i < len(vocab_dict)]
 
     # top tokens not in the text for expansion.
     if data_args.num_expended_tokens > 0:
@@ -207,7 +215,7 @@ def main():
                                             low_cpu_mem_usage=True,
                                             )
         processor = AutoProcessor.from_pretrained(model_args.model_name_or_path,
-                                                  trust_remote_code=True,)
+                                                  trust_remote_code=True, )
     else:
         encoder = LlavaNextForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
                                                                     device_map=device_map,
@@ -266,7 +274,7 @@ def main():
                     prompt = processor.apply_chat_template(
                         img_prompt_intern_vl_v2_5, tokenize=False, add_generation_prompt=True
                     )
-                    imgs = [load_image(path, max_num=12).to(torch.bfloat16).cuda() for path in imgs_path]
+                    imgs = [load_image(path, max_num=12).to(torch_type).cuda() for path in imgs_path]
                     logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
                 else:
                     if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
@@ -347,7 +355,7 @@ def main():
                                                                              data_args, filtered_ids)
                             else:
                                 tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits, vocab_dict,
-                                                                         data_args, filtered_ids)
+                                                                             data_args, filtered_ids)
                             for token, v in zip(tokens, values):
                                 vector[token] = int(v)
                             jsonl_data.append(
