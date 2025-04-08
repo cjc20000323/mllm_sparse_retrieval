@@ -1,37 +1,64 @@
-import json
-import csv
+import logging
+import os
+from tevatron.retriever.dataset import EncodeDataset, TrainDataset
+from typing import Tuple, List
+from nltk.corpus import stopwords
+import string
+from dataclasses import dataclass, field
+stopwords = set(stopwords.words('english') + list(string.punctuation))
+from tevatron.retriever.arguments import ModelArguments, DataArguments, TevatronTrainingArguments
 
-id_set = set()
-with open(f'data/coco/coco_test.csv', mode='r') as file:
-    reader = csv.reader(file)
-    for row in reader:
-        if row[0] == 'imgid':
-            continue
+logger = logging.getLogger(__name__)
+
+
+class PromptRepsEncodeDataset(EncodeDataset):
+    def __getitem__(self, item) -> Tuple[str, str]:
+        text = self.encode_data[item]
+        if self.data_args.encode_is_query:
+            text_id = text['query_id']
+            formated_text = text['query'].strip()
         else:
-            id_set.add(row[4])
+            text_id = text['docid']
+            formated_text = f"{text['title']} {text['text']}".strip()
+        return text_id, formated_text
 
-print(len(id_set))
+@dataclass
+class PromptRepsDataArguments(DataArguments):
+    query_suffix: str = field(
+        default='', metadata={"help": "suffix or instruction for query"}
+    )
+    passage_suffix: str = field(
+        default='', metadata={"help": "suffix or instruction for passage"}
+    )
+    dense_output_dir: str = field(default=None, metadata={"help": "where to save the encode dense vectors"})
+    sparse_output_dir: str = field(default=None, metadata={"help": "where to save the encode dense vectors"})
+    num_expended_tokens: int = field(default=0, metadata={"help": "Number of expended tokens. Default is 0, "
+                                                                  "meaning exact term matching only."})
+    num_pooled_tokens: int = field(default=0, metadata={"help": "Number of tokens to form the embeddings."})
+    multi_reps: bool = field(default=False, metadata={"help": "Whether to use multiple representations for retrieval (ColBERT style)"})
+    word_level_reps: bool = field(default=False, metadata={"help": "Whether to use word level representations for retrieval"})
 
-with open('corpus_0.jsonl', 'r',  encoding="utf-8") as f:
-    datas = f.readlines()
+    def __post_init__(self):
+        if os.path.exists(self.query_prefix):
+            with open(self.query_prefix, 'r') as f:
+                self.query_prefix = f.read().strip()
 
-count = 0
-id_set_1 = set()
-for data in datas:
-    dict_data = json.loads(data)
-    count += 1
-    id_set_1.add(dict_data['id'])
-    if dict_data['id'] not in id_set:
-        print(dict_data['id'])
+        if os.path.exists(self.query_suffix):
+            with open(self.query_suffix, 'r') as f:
+                self.query_suffix = f.read().strip()
 
-print(count)
+        if os.path.exists(self.passage_prefix):
+            with open(self.passage_prefix, 'r') as f:
+                self.passage_prefix = f.read().strip()
 
-with open(f'data/coco/coco_test.csv', mode='r') as file:
-    reader = csv.reader(file)
-    for row in reader:
-        if row[0] == 'imgid':
-            continue
+        if os.path.exists(self.passage_suffix):
+            with open(self.passage_suffix, 'r') as f:
+                self.passage_suffix = f.read().strip()
 
-        else:
-            if row[4] not in id_set_1:
-                print(row[4])
+
+data_args = PromptRepsDataArguments()
+data_args.dataset_name == 'Tevatron/beir-corpus'
+data_args.dataset_config == 'nfcorpus'
+encode_dataset = PromptRepsEncodeDataset(
+        data_args=data_args,
+    )
