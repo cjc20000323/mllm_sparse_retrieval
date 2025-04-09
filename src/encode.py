@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import pickle
+import string
 import sys
 import itertools
 
@@ -93,7 +94,7 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
 
 
 def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args, filtered_ids):
-    words = [i for i in word_tokenize(text.lower()) if i not in stopwords.words('english')]
+    words = [i for i in word_tokenize(text.lower()) if i not in set(stopwords.words('english') + list(string.punctuation))]
     token_ids = set()
     for word in words:
         token_ids.update(tokenizer.encode(word, add_special_tokens=False))

@@ -151,3 +151,10 @@ class CrossModalRetrievalDataset(Dataset):
             return self.text2img[idx]
         else:
             return self.img2text[idx]
+
+    def get_text(self, idx):
+        return self.text_dict[idx]
+
+
+    def get_image(self, idx):
+        return self.img_dict[idx]
