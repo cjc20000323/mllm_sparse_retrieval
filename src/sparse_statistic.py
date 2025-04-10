@@ -52,7 +52,7 @@ def text_statistic(text, tokenizer, logits, vocab_dict, data_args, filtered_ids)
 
     top_k_values, top_k_indices = logits.topk(data_args.sparse_length, dim=-1)
     values = np.rint(logits.cpu().detach().float().numpy() * 100).astype(int)
-    out_text_values = np.array([values[i] for i in top_k_indices.cpu().detach().float().numpy() if i not in token_ids])
+    out_text_values = [values[int(i.item())] for i in top_k_indices.cpu().detach().float().numpy() if i not in token_ids and i < len(vocab_dict)]
 
     return in_text_values, out_text_values
 
@@ -85,7 +85,7 @@ def image_statistic(texts, tokenizer, logits, vocab_dict, data_args, filtered_id
 
     top_k_values, top_k_indices = logits.topk(data_args.sparse_length, dim=-1)
     values = np.rint(logits.cpu().detach().float().numpy() * 100).astype(int)
-    out_text_values = [values[i] for i in top_k_indices.cpu().detach().float().numpy() if i not in token_ids]
+    out_text_values = [values[int(i.item())] for i in top_k_indices.cpu().detach().float().numpy() if i not in token_ids and i < len(vocab_dict)]
     return in_text_values, out_text_values
 
 
@@ -155,10 +155,8 @@ def main():
         if 'royokong-e5-v' in model_args.model_name_or_path:
             setattr(processor, "patch_size", 14)  # hack for pass
 
-    if training_args.encode_type == 'text':
-        dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
-    else:
-        dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
+
+    dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
     sampler = Data.DistributedSampler(dataset, num_replicas=dist.get_world_size(), shuffle=True, rank=dist.get_rank())
     test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, pin_memory=True,
                                       batch_size=data_args.per_device_batch_size, shuffle=False)
@@ -206,9 +204,15 @@ def main():
             img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path), return_tensors="pt",
                                    padding=True)
             imgs = img_inputs.to(device)
-            image_logits, image_reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
+            image_logits, _ = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
 
-            text_logits, text_reps = model.encode_data(texts, 'text', processor, device, model_args, data_args)
+            target_texts = []
+            for id in img_ids:
+                target_ids = dataset.get_target(id, 'image')
+                for target_id in target_ids:
+                    target_texts.append(dataset.get_text(target_id))
+
+            text_logits, _ = model.encode_data(target_texts, 'text', processor, device, model_args, data_args)
 
             if dist.is_initialized():
                 # reps_list = [[None] for _ in range(dist.get_world_size())]
@@ -220,17 +224,11 @@ def main():
                 text_ids_list = [[None] for _ in range(dist.get_world_size())]
                 image_ids_list = [[None] for _ in range(dist.get_world_size())]
 
-                '''
-                texts_list = [[None] for _ in range(dist.get_world_size())]
-                text_ids_list = [[None] for _ in range(dist.get_world_size())]
-                image_ids_list = [[None] for _ in range(dist.get_world_size())]
-                '''
-
                 dist.all_gather(tensor_list=image_logits_list, tensor=image_logits.contiguous())
                 dist.all_gather(tensor_list=text_logits_list, tensor=text_logits.contiguous())
                 dist.all_gather_object(object_list=text_ids_list, obj=text_ids)
                 dist.all_gather_object(object_list=image_ids_list, obj=img_ids)
-                dist.all_gather_object(object_list=texts_list, obj=texts)
+                dist.all_gather_object(object_list=texts_list, obj=target_texts)
 
                 batch_image_logits = torch.cat(image_logits_list)
                 batch_text_logits = torch.cat(text_logits_list)
@@ -246,10 +244,10 @@ def main():
 
                     for id, logits, text in zip(batch_image_ids, batch_image_logits, batch_texts):
                         target_ids = dataset.get_target(id, 'image')
-                        texts = []
+                        target_texts = []
                         for target_id in target_ids:
-                            texts.append(dataset.get_text(target_id))
-                        in_text_values, out_text_values = image_statistic(texts, processor.tokenizer, logits,
+                            target_texts.append(dataset.get_text(target_id))
+                        in_text_values, out_text_values = image_statistic(target_texts, processor.tokenizer, logits,
                                                                           vocab_dict,
                                                                           data_args,
                                                                           filtered_ids)
@@ -264,22 +262,26 @@ def main():
 
 
         if dist.get_rank() == 0:
-            plt.figure(figsize=(8, 5))
-            plt.hist(text_values_token_id_in_text, bins=30, alpha=0.5, label='text_values_token_id_in_text', color='red')
-            plt.hist(text_values_token_id_not_in_text, bins=30, alpha=0.5, label='text_values_token_id_not_in_text', color='blue')
+            print(len(text_values_token_id_in_text))
+            print(len(text_values_token_id_not_in_text))
+            print(len(image_values_token_id_in_text))
+            print(len(image_values_token_id_not_in_text))
+            plt.figure(figsize=(5, 5))
+            plt.hist(text_values_token_id_in_text, bins=70, alpha=0.5, label='text_values_token_id_in_text', color='red')
+            plt.hist(text_values_token_id_not_in_text, bins=70, alpha=0.5, label='text_values_token_id_not_in_text', color='blue')
             plt.savefig(f'text_values_{data_args.dataset_name}.png', dpi=300, bbox_inches='tight')  # 保存为文件
 
-            plt.figure(figsize=(8, 5))
-            plt.hist(image_values_token_id_in_text, bins=30, alpha=0.5, label='image_values_token_id_in_text',
+            plt.figure(figsize=(5, 5))
+            plt.hist(image_values_token_id_in_text, bins=70, alpha=0.5, label='image_values_token_id_in_text',
                      color='red')
-            plt.hist(image_values_token_id_not_in_text, bins=30, alpha=0.5, label='image_values_token_id_not_in_text',
+            plt.hist(image_values_token_id_not_in_text, bins=70, alpha=0.5, label='image_values_token_id_not_in_text',
                      color='blue')
             plt.savefig(f'image_values_{data_args.dataset_name}.png', dpi=300, bbox_inches='tight')  # 保存为文件
 
-            plt.figure(figsize=(8, 5))
-            plt.hist(text_values_token_id_in_text, bins=30, alpha=0.5, label='image_values_token_id_in_text',
+            plt.figure(figsize=(5, 5))
+            plt.hist(text_values_token_id_in_text, bins=70, alpha=0.5, label='text_values_token_id_in_text',
                      color='red')
-            plt.hist(image_values_token_id_in_text, bins=30, alpha=0.5, label='image_values_token_id_not_in_text',
+            plt.hist(image_values_token_id_in_text, bins=70, alpha=0.5, label='image_values_token_id_in_text',
                      color='blue')
             plt.savefig(f'values_in_text_{data_args.dataset_name}.png', dpi=300, bbox_inches='tight')  # 保存为文件
 
