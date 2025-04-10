@@ -1,6 +1,9 @@
 import argparse
 from tqdm import tqdm
-
+class ResultRecord:
+    def __init__(self, score, type):
+        self.score = score
+        self.type = type
 
 def read_trec_run(file):
     run = {}
@@ -48,3 +51,42 @@ def fuse(runs, weights):
                             score += 0
                     fused_run[qid][doc] = score
     return fused_run
+
+
+def fuse_statistic(runs, weights):
+    fused_run = {}
+    qids = set()
+    for run in runs:
+        qids.update(run.keys())
+    for qid in qids:
+        fused_run[qid] = {}
+        run_count = 0
+        for run in runs:
+            run_count += 1
+            for doc in run[qid]['docs']:
+                if doc not in fused_run[qid]:
+                    score = 0
+                    score_count = 0
+                    for temp_run, weight in zip(runs, weights):
+                        if doc in temp_run[qid]['docs']:
+                            min_score = temp_run[qid]['min_score']
+                            max_score = temp_run[qid]['max_score']
+                            denominator = max_score - min_score
+                            denominator = max(denominator, 1e-9)
+                            score += weight * ((temp_run[qid]['docs'][doc] - min_score) / denominator)
+                            score_count += 1
+                        else:
+                            score += 0
+                    if score_count == 1:
+                        if run_count == 1:
+                            score_type = 'dense'
+                        else:
+                            score_type = 'sparse'
+
+                    else:
+                        score_type = 'fuse'
+
+                    fused_run[qid][doc] = ResultRecord(score, score_type)
+    return fused_run
+
+

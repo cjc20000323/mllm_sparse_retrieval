@@ -170,7 +170,6 @@ def main():
     image_values_token_id_not_in_text = []
     text_values_token_id_not_in_text = []
 
-    jsonl_data = []
     lookup_indices = []
 
     # 加载词表并获取过滤后的单词id，但目前尚不清楚filtered_ids是做什么的
@@ -212,26 +211,19 @@ def main():
                 for target_id in target_ids:
                     target_texts.append(dataset.get_text(target_id))
 
-            text_logits, _ = model.encode_data(target_texts, 'text', processor, device, model_args, data_args)
-
             if dist.is_initialized():
-                # reps_list = [[None] for _ in range(dist.get_world_size())]
-                # logits_list = [[None] for _ in range(dist.get_world_size())]
 
                 image_logits_list = [torch.zeros_like(image_logits) for _ in range(dist.get_world_size())]
-                text_logits_list = [torch.zeros_like(text_logits) for _ in range(dist.get_world_size())]
                 texts_list = [[None] for _ in range(dist.get_world_size())]
                 text_ids_list = [[None] for _ in range(dist.get_world_size())]
                 image_ids_list = [[None] for _ in range(dist.get_world_size())]
 
                 dist.all_gather(tensor_list=image_logits_list, tensor=image_logits.contiguous())
-                dist.all_gather(tensor_list=text_logits_list, tensor=text_logits.contiguous())
                 dist.all_gather_object(object_list=text_ids_list, obj=text_ids)
                 dist.all_gather_object(object_list=image_ids_list, obj=img_ids)
                 dist.all_gather_object(object_list=texts_list, obj=target_texts)
 
                 batch_image_logits = torch.cat(image_logits_list)
-                batch_text_logits = torch.cat(text_logits_list)
                 batch_text_ids = list(itertools.chain(*text_ids_list))
                 batch_image_ids = list(itertools.chain(*image_ids_list))
                 batch_texts = list(itertools.chain(*texts_list))
@@ -253,11 +245,15 @@ def main():
                                                                           filtered_ids)
                         image_values_token_id_in_text.extend(in_text_values)
                         image_values_token_id_not_in_text.extend(out_text_values)
-                    for id, logits, text in zip(batch_text_ids, batch_text_logits, batch_texts):
-                        in_text_values, out_text_values = text_statistic(text, processor.tokenizer, logits, vocab_dict,
-                                                                         data_args, filtered_ids)
-                        text_values_token_id_in_text.extend(in_text_values)
-                        text_values_token_id_not_in_text.extend(out_text_values)
+
+                        target_text_logits, _ = model.encode_data(target_texts, 'text', processor, device, model_args, data_args)
+
+                        for target_id, target_text_logit, target_text in zip(target_ids, target_text_logits, target_texts):
+                            in_text_values, out_text_values = text_statistic(target_text, processor.tokenizer, target_text_logit,
+                                                                             vocab_dict,
+                                                                             data_args, filtered_ids)
+                            text_values_token_id_in_text.extend(in_text_values)
+                            text_values_token_id_not_in_text.extend(out_text_values)
 
 
 
@@ -266,6 +262,7 @@ def main():
             print(len(text_values_token_id_not_in_text))
             print(len(image_values_token_id_in_text))
             print(len(image_values_token_id_not_in_text))
+            print(len(lookup_indices))
             plt.figure(figsize=(5, 5))
             plt.hist(text_values_token_id_in_text, bins=70, alpha=0.5, label='text_values_token_id_in_text', color='red')
             plt.hist(text_values_token_id_not_in_text, bins=70, alpha=0.5, label='text_values_token_id_not_in_text', color='blue')
