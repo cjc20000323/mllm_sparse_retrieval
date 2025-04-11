@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Literal
 import transformers
 
 import tevatron.retriever.arguments
@@ -19,6 +19,16 @@ class TrainingArguments(transformers.TrainingArguments):
     hybrid_training: bool = field(default=False)
     early_stopping_patience: int = field(default=None)
     encode_type: str = field(default='text')
+    load_kbit: int = field(default=4)
+    train_vision_lora: bool = field(default=False)
+    train_projector_lora: bool = field(default=False)
+    train_mode: str = field(default='')
+
+
+@dataclass
+class ModelArguments(tevatron.retriever.arguments.ModelArguments):
+    lora_bias: Literal["none", "all", "lora_only"] = field(default="none")
+
 
 
 @dataclass
