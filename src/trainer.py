@@ -5,7 +5,7 @@ from typing import List
 import torch
 import torch.nn as nn
 import bitsandbytes as bnb
-from datasets import load_dataset,  load_from_disk
+from datasets import load_dataset, load_from_disk
 import transformers
 from transformers import Trainer
 import torch.distributed as dist
@@ -34,8 +34,11 @@ from transformers.trainer_callback import TrainerCallback
 
 
 class DenseEmbTrainer(Trainer):
-    def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
-        pass
 
-    def compute_loss(self, model, inputs, return_outputs=False):
-        pass
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        texts = inputs['texts']
+
+        loss_fct = nn.CrossEntropyLoss()
+
+
+        return 0

@@ -6,6 +6,7 @@ import string
 import sys
 import itertools
 
+import transformers
 from nltk import word_tokenize
 from nltk.corpus import stopwords
 import numpy as np
@@ -24,7 +25,7 @@ from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNex
 from arguments import PromptRepsLLMDataArguments, ModelArguments
 import torch.distributed as dist
 from arguments import TrainingArguments
-from dataset import CrossModalRetrievalDataset
+from dataset import CrossModalRetrievalDataset, PromptRepsTrainCollator
 import torch
 import torch.utils.data as Data
 import torch.nn.functional as F
@@ -77,7 +78,7 @@ def main():
     else:
         torch_type = torch.float32
 
-    accelerator = Accelerator()
+    # accelerator = Accelerator()
 
     # 指定模型
     if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
@@ -173,13 +174,72 @@ def main():
             if param.requires_grad:
                 print(f"\t{name}")
 
-    train_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'train', 'single')
+    train_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'train', 'single', data_args)
+
+    data_collator = PromptRepsTrainCollator(processor, model_args, device)
 
     if training_args.train_mode == 'dense_emb':
         trainer = DenseEmbTrainer(
             model=model,
-            train_dataset=train_dataset
+            train_dataset=train_dataset,
+            args=transformers.TrainingArguments(
+                per_device_train_batch_size=training_args.per_device_train_batch_size,
+                gradient_accumulation_steps=training_args.gradient_accumulation_steps,
+                warmup_steps=100,
+                num_train_epochs=training_args.num_train_epochs,
+                learning_rate=training_args.learning_rate,
+                fp16=True if training_args.fp16 else False,
+                bf16=True if training_args.bf16 else False,
+                eval_strategy="no",
+                save_strategy="steps",
+                eval_steps=None,
+                output_dir=training_args.output_dir,
+                save_total_limit=100,
+                load_best_model_at_end=False,
+                # ddp_find_unused_parameters=False if ddp else None,
+                ddp_find_unused_parameters=False if ddp else None,
+                report_to=None,
+                deepspeed=training_args.deepspeed,
+            ),
+            data_collator=data_collator,
         )
+        if dist.get_rank() == 0:
+            print('Trainer has been created.')
+    else:
+        trainer = DenseEmbTrainer(
+            model=model,
+            train_dataset=train_dataset,
+            args=transformers.TrainingArguments(
+                per_device_train_batch_size=training_args.per_device_train_batch_size,
+                gradient_accumulation_steps=training_args.gradient_accumulation_steps,
+                warmup_steps=100,
+                num_train_epochs=training_args.num_train_epochs,
+                learning_rate=training_args.learning_rate,
+                fp16=True if training_args.fp16 else False,
+                bf16=True if training_args.bf16 else False,
+                eval_strategy="no",
+                save_strategy="steps",
+                eval_steps=None,
+                output_dir=training_args.output_dir,
+                save_total_limit=100,
+                load_best_model_at_end=False,
+                # ddp_find_unused_parameters=False if ddp else None,
+                ddp_find_unused_parameters=False if ddp else None,
+                report_to=None,
+                deepspeed=training_args.deepspeed,
+            ),
+            data_collator=data_collator,
+        )
+        if dist.get_rank() == 0:
+            print('Trainer has been created.')
+
+    trainer.model_args = model_args
+    trainer.data_args = data_args
+    trainer.device = device
+    trainer.processor = processor
+    trainer.train()
+
+    model.save_pretrained(training_args.output_dir)
 
 
 if __name__ == "__main__":

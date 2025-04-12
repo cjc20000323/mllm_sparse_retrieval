@@ -194,3 +194,7 @@ class MLLMRetrievalModel(nn.Module):
 
     def save(self, output_dir: str):
         self.encoder.save_pretrained(output_dir)
+
+
+    def forward(self, texts, imgs):
+        pass

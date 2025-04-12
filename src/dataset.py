@@ -4,13 +4,21 @@ import os
 from torch.utils.data import Dataset
 import torch
 from PIL import Image
+import tevatron.retriever.arguments
 from arguments import coco_file_path, flickr_file_path
-from template import llama3_template, text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word
+from template import llama3_template, text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
+    img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5
+
+from dataclasses import dataclass
+from transformers import ProcessorMixin, LlavaProcessor, Qwen2_5_VLProcessor
+
+from tevatron.retriever.collator import TrainCollator
 
 
+@dataclass
 class CrossModalRetrievalDataset(Dataset):
 
-    def __init__(self, data_name, processor, split, mode):
+    def __init__(self, data_name, processor, split, mode, data_args=None):
         '''
 
         :param data_name: 指定数据集的名字，例如coco，flickr
@@ -40,7 +48,14 @@ class CrossModalRetrievalDataset(Dataset):
         self.processor = processor
         self.mode = mode  # mode为single的时候，长度按图像长度，获取文本时，找一个对应的就行，mode为full的时候，长度按文本数量来
         assert self.mode in ['single', 'full']
-        with open(f'{self.data_path}' + f'{self.data_name}_{self.split}.csv', mode='r') as file:
+        if data_args is not None:
+            if data_args.use_few_shot:
+                self.dataset_file = f'{self.data_path}' + f'{self.data_name}_{self.split}_{data_args.few_shot_sum}.csv'
+            else:
+                self.dataset_file = f'{self.data_path}' + f'{self.data_name}_{self.split}.csv'
+        else:
+            self.dataset_file = f'{self.data_path}' + f'{self.data_name}_{self.split}.csv'
+        with open(self.dataset_file, mode='r') as file:
             reader = csv.reader(file)
             # 遍历文件中的每一行
             for row in reader:
@@ -158,3 +173,36 @@ class CrossModalRetrievalDataset(Dataset):
 
     def get_image(self, idx):
         return self.img_dict[idx]
+
+
+@dataclass
+class PromptRepsTrainCollator:
+    processor: ProcessorMixin
+    model_args: tevatron.retriever.arguments.ModelArguments
+    device: torch.device
+
+    def __call__(self, features):
+        texts = []
+        imgs_path = []
+        text_ids = []
+        image_ids = []
+        for feature in features:
+            texts.append(feature[0])
+            imgs_path.append(feature[1])
+            text_ids.append(feature[2])
+            image_ids.append(feature[3])
+
+        if 'llava-hf-llava-1.5-7b-hf' in self.model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in self.model_args.model_name_or_path:
+            prompt = img_prompt_no_special_llava_v1_5
+        elif 'Qwen2.5-VL-7B-Instruct' in self.model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in self.model_args.model_name_or_path:
+            prompt = img_prompt_qwen_v2_5
+        elif 'InternVL2_5-8B' in self.model_args.model_name_or_path or 'InternVL2_5-4B' in self.model_args.model_name_or_path:
+            prompt = img_prompt_intern_vl_v2_5
+        else:
+            prompt = img_prompt
+        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+        img_inputs = self.processor(images=raw_images, text=[prompt] * len(imgs_path), return_tensors="pt", padding=True)
+        imgs = img_inputs
+        labels = torch.zeros(len(texts))
+
+        return {'texts': texts, 'imgs': imgs, 'text_ids': text_ids, 'image_ids': image_ids, 'labels': labels}
