@@ -1,19 +1,6 @@
-import json
-import logging
 import os
-import pickle
-import string
-import sys
-import itertools
 
 import transformers
-from nltk import word_tokenize
-from nltk.corpus import stopwords
-import numpy as np
-from PIL import Image
-import bitsandbytes as bnb
-
-from tqdm import tqdm
 from transformers import (
     HfArgumentParser,
     BitsAndBytesConfig
