@@ -64,7 +64,8 @@ class MLLMRetrievalModel(nn.Module):
             prompt = text_prompt
         if input_type == 'text':
             if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                text_inputs = processor([prompt.replace('<sent>', text) for text in input], return_tensors='pt', padding=True)
+                text_inputs = processor([prompt.replace('<sent>', text) for text in input], return_tensors='pt',
+                                        padding=True)
                 input_ids = text_inputs['input_ids'].to(device)
                 attention_mask = text_inputs['attention_mask'].to(device)
                 output = self.encoder.encode(processor, None, input_ids, attention_mask)
@@ -195,6 +196,11 @@ class MLLMRetrievalModel(nn.Module):
     def save(self, output_dir: str):
         self.encoder.save_pretrained(output_dir)
 
+    def forward(self, texts, imgs, processor, device, model_args, data_args):
+        text_logits, text_reps = self.encode_data(texts, 'text', processor, device, model_args,
+                                                  data_args)
 
-    def forward(self, texts, imgs):
-        pass
+        img_logits, img_reps = self.encode_data(imgs, 'image', processor, device, model_args,
+                                             data_args)
+
+        return text_reps, img_reps

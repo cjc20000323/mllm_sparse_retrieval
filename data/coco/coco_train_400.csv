@@ -1,4 +1,4 @@
-img,filepath,filename,caption,sentid
+imgid,filepath,filename,caption,sentid
 120681,train2014,COCO_train2014_000000099191.jpg,A couple of birds standing in front of a door.,729800
 120681,train2014,COCO_train2014_000000099191.jpg,Two birds stand beside each other outside a green door.,743495
 120681,train2014,COCO_train2014_000000099191.jpg,Two birds walking around outside of a door.,743573

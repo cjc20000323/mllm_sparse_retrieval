@@ -23,7 +23,6 @@ from template import text_prompt, img_prompt, text_prompt_no_one_word, img_promp
 from model import MLLMRetrievalModel
 from utils import split_model, load_image, find_all_linear_names
 from peft import get_peft_model, LoraConfig, prepare_model_for_kbit_training
-from accelerate import Accelerator
 from constant import llava_next_llama_8b_constant
 from trainer import DenseEmbTrainer
 
@@ -137,8 +136,10 @@ def main():
                 target_modules = find_all_linear_names(encoder, llava_next_llama_8b_constant['projector'])
                 lora_modules.extend(target_modules)
 
+        '''
         if dist.get_rank() == 0:
             print(lora_modules)
+        '''
 
         config = LoraConfig(
             r=model_args.lora_r,
@@ -157,9 +158,13 @@ def main():
     model = MLLMRetrievalModel(encoder)
 
     if dist.get_rank() == 0:
+        '''
         for name, param in model.named_parameters():
-            if param.requires_grad:
-                print(f"\t{name}")
+            print(f"\t{name} {param.requires_grad}")
+        '''
+
+        for name, param in model.named_parameters():
+            print(f"Param ID: {id(param)}, Name: {name}")
 
     train_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'train', 'single', data_args)
 
@@ -187,7 +192,8 @@ def main():
                 ddp_find_unused_parameters=False if ddp else None,
                 report_to=None,
                 deepspeed=training_args.deepspeed,
-                logging_steps=1
+                logging_steps=1,
+                gradient_checkpointing_kwargs={"use_reentrant": False}
             ),
             data_collator=data_collator,
         )
@@ -200,7 +206,7 @@ def main():
             args=transformers.TrainingArguments(
                 per_device_train_batch_size=training_args.per_device_train_batch_size,
                 gradient_accumulation_steps=training_args.gradient_accumulation_steps,
-                warmup_steps=100,
+                warmup_steps=10,
                 num_train_epochs=training_args.num_train_epochs,
                 learning_rate=training_args.learning_rate,
                 fp16=True if training_args.fp16 else False,
@@ -215,7 +221,8 @@ def main():
                 ddp_find_unused_parameters=False if ddp else None,
                 report_to=None,
                 deepspeed=training_args.deepspeed,
-                logging_steps=1
+                logging_steps=1,
+                gradient_checkpointing_kwargs={"use_reentrant": False}
             ),
             data_collator=data_collator,
         )

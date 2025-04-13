@@ -20,12 +20,17 @@ class DenseEmbTrainer(Trainer):
     gather_save_gradient: bool = True
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        '''
         texts = inputs['texts']
         text_logits, text_reps = model.encode_data(texts, 'text', self.processor, self.device, self.model_args,
                                                    self.data_args)
-        imgs = inputs['imgs']
+        imgs = inputs['imgs'].to(self.device)
         img_logits, img_reps = model.encode_data(imgs, 'image', self.processor, self.device, self.model_args,
                                                  self.data_args)
+        '''
+        texts = inputs['texts']
+        imgs = inputs['imgs'].to(self.device)
+        text_reps, img_reps = model(texts, imgs, self.processor, self.device, self.model_args, self.data_args)
 
         text_reps = F.normalize(text_reps, dim=-1)
         img_reps = F.normalize(img_reps, dim=-1)
@@ -36,6 +41,9 @@ class DenseEmbTrainer(Trainer):
 
             dist.all_gather(tensor_list=all_image_reps, tensor=img_reps.contiguous())
             dist.all_gather(tensor_list=all_text_reps, tensor=text_reps.contiguous())
+
+            all_image_reps[dist.get_rank()] = img_reps
+            all_text_reps[dist.get_rank()] = text_reps
 
             if self.gather_save_gradient:
                 all_image_reps = torch.cat(all_image_reps)
@@ -63,4 +71,5 @@ class DenseEmbTrainer(Trainer):
         loss_i2t = loss_fct(i2t_sim, labels)
         loss_t2i = loss_fct(t2i_sim, labels)
         loss = (loss_t2i + loss_i2t) / 2
+        print(loss)
         return loss
