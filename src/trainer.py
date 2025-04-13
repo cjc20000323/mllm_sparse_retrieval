@@ -31,12 +31,22 @@ from dataclasses import dataclass
 
 from transformers.utils import logging
 from transformers.trainer_callback import TrainerCallback
+from transformers import ProcessorMixin
+import tevatron.retriever.arguments
 
 
 class DenseEmbTrainer(Trainer):
+    processor: ProcessorMixin = None
+    model_args: tevatron.retriever.arguments.ModelArguments = None
+    data_args = None
+    device: torch.device = None
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         texts = inputs['texts']
+        text_logits, text_reps = model.encode_data(texts, 'text', self.processor, self.device, self.model_args, self.data_args)
+        imgs = inputs['imgs']
+        img_logits, img_reps = model.encode_data(imgs, 'image', self.processor, self.device, self.model_args, self.data_args)
+
 
         loss_fct = nn.CrossEntropyLoss()
 

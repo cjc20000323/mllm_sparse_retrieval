@@ -227,6 +227,7 @@ def main():
                 ddp_find_unused_parameters=False if ddp else None,
                 report_to=None,
                 deepspeed=training_args.deepspeed,
+                logging_steps=1
             ),
             data_collator=data_collator,
         )
