@@ -23,6 +23,8 @@ class TrainingArguments(transformers.TrainingArguments):
     train_vision_lora: bool = field(default=False)
     train_projector_lora: bool = field(default=False)
     train_mode: str = field(default='')
+    gather_save_gradient: bool = field(default=True)
+    tau: float = field(default=0.1)
 
 
 

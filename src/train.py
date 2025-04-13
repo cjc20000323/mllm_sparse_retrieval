@@ -225,6 +225,8 @@ def main():
     trainer.data_args = data_args
     trainer.device = device
     trainer.processor = processor
+    trainer.gather_save_gradient = training_args.gather_save_gradient
+    trainer.tau = training_args.tau
     trainer.train()
 
     model.save_pretrained(training_args.output_dir)
