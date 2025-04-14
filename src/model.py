@@ -21,7 +21,7 @@ class MLLMRetrievalModel(nn.Module):
     TRANSFORMER_CLS = AutoModelForCausalLM
 
     def __init__(self,
-                 encoder: PreTrainedModel,
+                 encoder: nn.Module,
                  pooling: str = 'cls',
                  normalize: bool = False,
                  temperature: float = 1.0,

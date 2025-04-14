@@ -38,6 +38,7 @@ from template import text_prompt, img_prompt, text_prompt_no_one_word, img_promp
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values
 from hybrid import fuse, write_trec_run, read_trec_run
 from utils import load_image
+from peft import PeftModel, PeftConfig
 
 stopwords = set(stopwords.words('english') + list(string.punctuation))
 
@@ -165,6 +166,13 @@ def main():
         processor = LlavaNextProcessor.from_pretrained(model_args.model_name_or_path)
         if 'royokong-e5-v' in model_args.model_name_or_path:
             setattr(processor, "patch_size", 14)  # hack for pass
+
+    if model_args.lora:
+        encoder = PeftModel.from_pretrained(
+            encoder,  # 原始模型
+            model_args.lora_model_path,  # LoRA 适配器目录
+        )
+        encoder = encoder.merge_and_unload()
 
     if search_args.query_type == 'text':
         dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')

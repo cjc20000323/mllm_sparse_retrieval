@@ -31,6 +31,8 @@ class TrainingArguments(transformers.TrainingArguments):
 @dataclass
 class ModelArguments(tevatron.retriever.arguments.ModelArguments):
     lora_bias: Literal["none", "all", "lora_only"] = field(default="none")
+    base_model_path: str = field(default='./checkpoints/llava-hf-llama3-llava-next-8b-hf')
+    lora_model_path: str = field(default='./output/llava-hf-llama3-llava-next-8b-hf')
 
 
 

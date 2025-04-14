@@ -177,7 +177,7 @@ def main():
             args=transformers.TrainingArguments(
                 per_device_train_batch_size=training_args.per_device_train_batch_size,
                 gradient_accumulation_steps=training_args.gradient_accumulation_steps,
-                warmup_steps=100,
+                warmup_steps=10,
                 num_train_epochs=training_args.num_train_epochs,
                 learning_rate=training_args.learning_rate,
                 fp16=True if training_args.fp16 else False,
@@ -237,7 +237,7 @@ def main():
     trainer.tau = training_args.tau
     trainer.train()
 
-    model.save_pretrained(training_args.output_dir)
+    model.encoder.save_pretrained(training_args.output_dir)
 
 
 if __name__ == "__main__":

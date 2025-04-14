@@ -19,8 +19,7 @@ from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNex
     LlavaNextForConditionalGeneration, Qwen2_5_VLProcessor, Qwen2_5_VLForConditionalGeneration, AutoModel, \
     AutoProcessor, \
     AutoTokenizer, PhiForCausalLM, Phi3ForCausalLM, AutoModelForCausalLM
-from tevatron.retriever.arguments import ModelArguments
-from arguments import PromptRepsLLMDataArguments
+from arguments import PromptRepsLLMDataArguments, ModelArguments
 import torch.distributed as dist
 from arguments import TrainingArguments
 from dataset import CrossModalRetrievalDataset
@@ -33,6 +32,7 @@ from template import text_prompt, img_prompt, text_prompt_no_one_word, img_promp
     img_prompt_intern_vl_v2_5, text_prompt_intern_vl_v2_5
 from model import MLLMRetrievalModel
 from utils import split_model, load_image
+from peft import PeftModel, PeftConfig
 
 
 def get_filtered_ids(tokenizer):
@@ -225,6 +225,13 @@ def main():
         if 'royokong-e5-v' in model_args.model_name_or_path:
             setattr(processor, "patch_size", 14)  # hack for pass
 
+    if model_args.lora:
+        encoder = PeftModel.from_pretrained(
+            encoder,  # 原始模型
+            model_args.lora_model_path,  # LoRA 适配器目录
+        )
+        encoder = encoder.merge_and_unload()
+
     if training_args.encode_type == 'text':
         dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
     else:
@@ -384,35 +391,68 @@ def main():
             else:
                 manual = "no_manual"
 
-            os.makedirs(
-                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
-                exist_ok=True)
-            os.makedirs(
-                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
-                exist_ok=True)
 
-            with open(os.path.join(
+            if model_args.lora:
+                os.makedirs(
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_lora',
+                    exist_ok=True)
+                os.makedirs(
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_lora',
+                    exist_ok=True)
+
+                with open(os.path.join(
+                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_lora',
+                        f'query.pkl') if data_args.encode_is_query else os.path.join(
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_lora',
+                    f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
+                    pickle.dump((encoded, lookup_indices), f)
+
+                with open(os.path.join(
+                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_lora',
+                        f'query.tsv') if data_args.encode_is_query else os.path.join(
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_lora',
+                    f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
+                    for data in jsonl_data:
+                        if data_args.encode_is_query:
+                            id = data['id']
+                            vector = data['vector']
+                            query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                            if len(query.strip()) == 0:
+                                continue
+                            f.write(f'{id}\t{query}\n')
+                        else:
+                            f.write(json.dumps(data) + "\n")
+
+            else:
+                os.makedirs(
                     f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
-                    f'query.pkl') if data_args.encode_is_query else os.path.join(
-                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
-                f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
-                pickle.dump((encoded, lookup_indices), f)
-
-            with open(os.path.join(
+                    exist_ok=True)
+                os.makedirs(
                     f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
-                    f'query.tsv') if data_args.encode_is_query else os.path.join(
-                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
-                f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
-                for data in jsonl_data:
-                    if data_args.encode_is_query:
-                        id = data['id']
-                        vector = data['vector']
-                        query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
-                        if len(query.strip()) == 0:
-                            continue
-                        f.write(f'{id}\t{query}\n')
-                    else:
-                        f.write(json.dumps(data) + "\n")
+                    exist_ok=True)
+
+                with open(os.path.join(
+                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
+                        f'query.pkl') if data_args.encode_is_query else os.path.join(
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
+                    f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
+                    pickle.dump((encoded, lookup_indices), f)
+
+                with open(os.path.join(
+                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
+                        f'query.tsv') if data_args.encode_is_query else os.path.join(
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
+                    f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
+                    for data in jsonl_data:
+                        if data_args.encode_is_query:
+                            id = data['id']
+                            vector = data['vector']
+                            query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                            if len(query.strip()) == 0:
+                                continue
+                            f.write(f'{id}\t{query}\n')
+                        else:
+                            f.write(json.dumps(data) + "\n")
 
 
 if __name__ == "__main__":

@@ -71,5 +71,4 @@ class DenseEmbTrainer(Trainer):
         loss_i2t = loss_fct(i2t_sim, labels)
         loss_t2i = loss_fct(t2i_sim, labels)
         loss = (loss_t2i + loss_i2t) / 2
-        print(loss)
         return loss
