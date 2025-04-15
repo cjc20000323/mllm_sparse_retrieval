@@ -226,6 +226,8 @@ def main():
             setattr(processor, "patch_size", 14)  # hack for pass
 
     if model_args.lora:
+        if dist.get_rank() == 0:
+            print('We use lora model trained few shot here.')
         encoder = PeftModel.from_pretrained(
             encoder,  # 原始模型
             model_args.lora_model_path,  # LoRA 适配器目录

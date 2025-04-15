@@ -14,8 +14,7 @@ from contextlib import nullcontext
 from PIL import Image
 
 from model import MLLMRetrievalModel
-from tevatron.retriever.arguments import ModelArguments
-from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments
+from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
 import torch.distributed as dist
 from arguments import TrainingArguments
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
