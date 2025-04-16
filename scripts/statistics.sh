@@ -3,10 +3,8 @@
 GPUS=4
 NUM_NODES=1
 
-deepspeed --num_gpus=$GPUS --num_nodes=$NUM_NODES src/encode.py \
+deepspeed --num_gpus=$GPUS --num_nodes=$NUM_NODES src/sparse_statistic.py \
 	--model_name_or_path ./checkpoints/llava-hf-llama3-llava-next-8b-hf \
-    --lora \
-    --lora_model_path ./output/llava-hf-llama3-llava-next-8b-hf \
 	--output_dir ./output \
 	--fp16 \
     --dataset_name coco \
@@ -16,4 +14,4 @@ deepspeed --num_gpus=$GPUS --num_nodes=$NUM_NODES src/encode.py \
     --reps_loc 'before_pad' \
     --num_expended_tokens 0 \
     --sparse_manual \
-    --sparse_length 128
+    --sparse_length 128 \
