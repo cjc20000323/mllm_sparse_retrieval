@@ -183,7 +183,7 @@ def main():
                 fp16=True if training_args.fp16 else False,
                 bf16=True if training_args.bf16 else False,
                 eval_strategy="no",
-                save_strategy="steps",
+                save_strategy="no",
                 eval_steps=None,
                 output_dir=training_args.output_dir,
                 save_total_limit=100,
