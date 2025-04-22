@@ -26,6 +26,7 @@ from metrices import RecallMetrics
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.utils.data as Data
 import torch.nn.functional as F
 from nltk import word_tokenize
@@ -34,7 +35,8 @@ import string
 from template import text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
     img_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, \
     text_prompt_intern_vl_v2_5
-from encode import get_img_valid_tokens_values, get_text_valid_tokens_values
+from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
+    get_text_valid_tokens_values_with_cluster
 from hybrid import fuse, write_trec_run, read_trec_run
 from utils import load_image
 from peft import PeftModel, PeftConfig
@@ -166,7 +168,74 @@ def main():
         if 'royokong-e5-v' in model_args.model_name_or_path:
             setattr(processor, "patch_size", 14)  # hack for pass
 
+    # 加载词表并获取过滤后的单词id，但目前尚不清楚filtered_ids是做什么的
+    if 'InternVL2_5-8B' in model_args.model_name_or_path:
+        vocab_dict = processor.get_vocab()
+        filtered_ids = get_filtered_ids(processor)
+    else:
+        vocab_dict = processor.tokenizer.get_vocab()
+        filtered_ids = get_filtered_ids(processor.tokenizer)
+    vocab_dict = {v: k for k, v in vocab_dict.items()}
+
+    input_token_embeddings = encoder.get_input_embeddings().weight
+    output_token_embeddings = encoder.get_output_embeddings().weight[:len(vocab_dict), :]
+    output_token_dim = output_token_embeddings.size(1)
+
+    if dist.get_rank() == 0:
+        print(input_token_embeddings.shape)
+        print(output_token_embeddings.shape)
+
+    centroids_dict = {}  # 这是用来保存各个centroids都有哪些单词
+    origin_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为token id，value为聚类中心索引
+    origin_word_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为单词字符串，value为聚类中心索引
+    if model_args.use_output_embedding_cluster:
+        output_token_embeddings_for_faiss = output_token_embeddings.detach().cpu().numpy()
+        kmeans = faiss.Kmeans(
+            d=output_token_dim,  # 特征维度
+            k=model_args.cluster_sum,  # 聚类数
+            gpu=True,  # 启用GPU加速
+            niter=100,  # 迭代次数
+            verbose=True
+        )
+
+        # 执行聚类
+        kmeans.train(output_token_embeddings_for_faiss)
+
+        # 获取结果
+        centroids = torch.from_numpy(kmeans.centroids).to(dtype=torch_type).cuda()  # 聚类中心
+
+        centroids_dict = {index: [] for index in range(len(centroids))}
+
+        print(centroids)
+        print(centroids.shape)
+
+        _, labels = kmeans.index.search(output_token_embeddings_for_faiss, 1)  # 标签
+        labels = torch.from_numpy(labels.squeeze())
+        print(labels)
+
+        for i, v in enumerate(labels):
+            if i < len(vocab_dict):
+                origin_to_centroids_dict[i] = int(v)
+                origin_word_to_centroids_dict[vocab_dict[i]] = int(v)
+
+        for k in origin_to_centroids_dict:
+            centroids_dict[origin_to_centroids_dict[k]].append(vocab_dict[k])
+
+        new_lm_head = nn.Linear(encoder.language_model.config.hidden_size, model_args.cluster_sum, bias=False,
+                                dtype=torch_type).to(device)
+        print(new_lm_head.weight.shape)
+        new_lm_head.weight.data = centroids.clone()
+        del centroids
+        del labels
+        del kmeans
+        if dist.get_rank() == 0:
+            print(new_lm_head.weight)
+
+        encoder.language_model.lm_head = new_lm_head
+
     if model_args.lora:
+        if dist.get_rank() == 0:
+            print('We use lora model trained few shot here.')
         encoder = PeftModel.from_pretrained(
             encoder,  # 原始模型
             model_args.lora_model_path,  # LoRA 适配器目录
@@ -186,15 +255,6 @@ def main():
     print(model.is_ddp)
 
     lookup_indices = []
-
-    # 加载词表并获取过滤后的单词id，但目前尚不清楚filtered_ids是做什么的
-    if 'InternVL2_5-8B' in model_args.model_name_or_path:
-        vocab_dict = processor.get_vocab()
-        filtered_ids = get_filtered_ids(processor)
-    else:
-        vocab_dict = processor.tokenizer.get_vocab()
-        filtered_ids = get_filtered_ids(processor.tokenizer)
-    vocab_dict = {v: k for k, v in vocab_dict.items()}
 
     model.eval()
 
@@ -351,15 +411,33 @@ def main():
                             for qid, reps, text in zip(batch_ids, query_logits, texts):
                                 batch_topics = []
                                 for logits in reps:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path:
-                                        tokens, values = get_text_valid_tokens_values(text, processor, logits,
-                                                                                      vocab_dict,
-                                                                                      data_args,
-                                                                                      filtered_ids)
+                                    if model_args.use_output_embedding_cluster:
+                                        if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                            tokens, values = get_text_valid_tokens_values_with_cluster(text, processor,
+                                                                                                       logits,
+                                                                                                       centroids_dict,
+                                                                                                       origin_to_centroids_dict,
+                                                                                                       data_args,
+                                                                                                       filtered_ids)
+                                        else:
+                                            tokens, values = get_text_valid_tokens_values_with_cluster(text,
+                                                                                                       processor.tokenizer,
+                                                                                                       logits,
+                                                                                                       centroids_dict,
+                                                                                                       origin_to_centroids_dict,
+                                                                                                       data_args,
+                                                                                                       filtered_ids)
                                     else:
-                                        tokens, values = get_text_valid_tokens_values(text, processor.tokenizer, logits,
-                                                                                      vocab_dict,
-                                                                                      data_args, filtered_ids)
+                                        if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                            tokens, values = get_text_valid_tokens_values(text, processor, logits,
+                                                                                          vocab_dict,
+                                                                                          data_args,
+                                                                                          filtered_ids)
+                                        else:
+                                            tokens, values = get_text_valid_tokens_values(text, processor.tokenizer,
+                                                                                          logits,
+                                                                                          vocab_dict,
+                                                                                          data_args, filtered_ids)
                                     query = ""
                                     for token, v in zip(tokens, values):
                                         query += (' ' + token) * v
@@ -380,13 +458,26 @@ def main():
                             for qid, reps in zip(batch_ids, query_logits):
                                 batch_topics = []
                                 for logits in reps:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path:
-                                        tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
-                                                                                     data_args, filtered_ids)
+                                    if model_args.use_output_embedding_cluster:
+                                        if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                            tokens, values = get_img_valid_tokens_values_with_cluster(processor, logits,
+                                                                                                      centroids_dict,
+                                                                                                      origin_to_centroids_dict,
+                                                                                                      data_args,
+                                                                                                      filtered_ids)
+                                        else:
+                                            tokens, values = get_img_valid_tokens_values_with_cluster(
+                                                processor.tokenizer, logits,
+                                                centroids_dict, origin_to_centroids_dict,
+                                                data_args, filtered_ids)
                                     else:
-                                        tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits,
-                                                                                     vocab_dict,
-                                                                                     data_args, filtered_ids)
+                                        if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                            tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
+                                                                                         data_args, filtered_ids)
+                                        else:
+                                            tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits,
+                                                                                         vocab_dict,
+                                                                                         data_args, filtered_ids)
                                     query = ""
                                     for token, v in zip(tokens, values):
                                         query += (' ' + token) * v
@@ -408,14 +499,32 @@ def main():
                         batch_topics = []
                         if search_args.query_type == 'text':
                             for _, logits, text in zip(batch_ids, query_logits, texts):
-                                if 'InternVL2_5-8B' in model_args.model_name_or_path:
-                                    tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
-                                                                                 data_args, filtered_ids)
+                                if model_args.use_output_embedding_cluster:
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                        tokens, values = get_text_valid_tokens_values_with_cluster(text, processor,
+                                                                                                   logits,
+                                                                                                   centroids_dict,
+                                                                                                   origin_to_centroids_dict,
+                                                                                                   data_args,
+                                                                                                   filtered_ids)
+                                    else:
+                                        tokens, values = get_text_valid_tokens_values_with_cluster(text,
+                                                                                                   processor.tokenizer,
+                                                                                                   logits,
+                                                                                                   centroids_dict,
+                                                                                                   origin_to_centroids_dict,
+                                                                                                   data_args,
+                                                                                                   filtered_ids)
                                 else:
-                                    tokens, values = get_text_valid_tokens_values(text, processor.tokenizer, logits,
-                                                                                  vocab_dict,
-                                                                                  data_args,
-                                                                                  filtered_ids)
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                        tokens, values = get_text_valid_tokens_values(text, processor, logits,
+                                                                                      vocab_dict,
+                                                                                      data_args, filtered_ids)
+                                    else:
+                                        tokens, values = get_text_valid_tokens_values(text, processor.tokenizer, logits,
+                                                                                      vocab_dict,
+                                                                                      data_args,
+                                                                                      filtered_ids)
                                 query = ""
                                 for token, v in zip(tokens, values):
                                     query += (' ' + token) * v
@@ -428,14 +537,30 @@ def main():
 
                         else:
                             for _, logits in zip(batch_ids, query_logits):
-                                if 'InternVL2_5-8B' in model_args.model_name_or_path:
-                                    tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
-                                                                                 data_args, filtered_ids)
+                                if model_args.use_output_embedding_cluster:
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                        tokens, values = get_img_valid_tokens_values_with_cluster(processor, logits,
+                                                                                                  centroids_dict,
+                                                                                                  origin_to_centroids_dict,
+                                                                                                  data_args,
+                                                                                                  filtered_ids)
+                                    else:
+                                        tokens, values = get_img_valid_tokens_values_with_cluster(processor.tokenizer,
+                                                                                                  logits,
+                                                                                                  centroids_dict,
+                                                                                                  origin_to_centroids_dict,
+                                                                                                  data_args,
+                                                                                                  filtered_ids)
+
                                 else:
-                                    tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits,
-                                                                                 vocab_dict,
-                                                                                 data_args,
-                                                                                 filtered_ids)
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                        tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
+                                                                                     data_args, filtered_ids)
+                                    else:
+                                        tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits,
+                                                                                     vocab_dict,
+                                                                                     data_args,
+                                                                                     filtered_ids)
                                 query = ""
                                 for token, v in zip(tokens, values):
                                     query += (' ' + token) * v

@@ -10,6 +10,7 @@ from nltk import word_tokenize
 from nltk.corpus import stopwords
 import numpy as np
 from PIL import Image
+import faiss
 
 from tqdm import tqdm
 from transformers import (
@@ -17,10 +18,10 @@ from transformers import (
 )
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
     LlavaNextForConditionalGeneration, Qwen2_5_VLProcessor, Qwen2_5_VLForConditionalGeneration, AutoModel, \
-    AutoProcessor, \
-    AutoTokenizer, PhiForCausalLM, Phi3ForCausalLM, AutoModelForCausalLM
+    AutoProcessor, LlamaForCausalLM
 from arguments import PromptRepsLLMDataArguments, ModelArguments
 import torch.distributed as dist
+import torch.nn as nn
 from arguments import TrainingArguments
 from dataset import CrossModalRetrievalDataset
 import torch
@@ -93,8 +94,36 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
     return tokens, values
 
 
+def get_img_valid_tokens_values_with_cluster(tokenizer, logits, vocab_dict, origin_to_centroids_dict, data_args,
+                                             filtered_ids):
+    # 这里是想获得图像的离散值，但是图像是没有文本的，所以不能像原来那样获得对应的token_id，那么是取top 10还是最多128呢，我们先最多128吧
+
+    # if len(token_ids_in_text) == 0:  # if no tokens in the text (rare case), we use top 10 tokens
+    #     top_k_values, top_k_indices = logits.topk(10, dim=-1)
+    #     values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+    #     tokens = [vocab_dict[i.item()] for i in top_k_indices.cpu().detach().float().numpy()]
+    # else:
+    # 根据原文，他们遵循了SPLADE设置，为了加强logit离散性，只保留最多128个值
+    # 这里应该是先获得了logit，然后再来筛选哪些值，正常来说词表所有位置上的logit都很难是0，
+    # 但是这里就默认那些没有的单词还有排名128名之后的单词logit为0了
+    # TODO： 这里默认选128个了，但是文本大多数是没有128那么长的，不知道会不会对最终结果有影响
+    if data_args.sparse_manual:
+        top_k_values, top_k_indices = logits.topk(data_args.sparse_length, dim=-1)
+    else:
+        top_k = 128
+        top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
+    # print(top_k_indices)
+    # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
+    values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+    # 把token id换成对应的单词，保存在tokens中
+    tokens = [str(i.item()) for i in top_k_indices.cpu().detach().int().numpy() if
+              i < len(vocab_dict)]
+    return tokens, values
+
+
 def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args, filtered_ids):
-    words = [i for i in word_tokenize(text.lower()) if i not in set(stopwords.words('english') + list(string.punctuation))]
+    words = [i for i in word_tokenize(text.lower()) if
+             i not in set(stopwords.words('english') + list(string.punctuation))]
     token_ids = set()
     for word in words:
         token_ids.update(tokenizer.encode(word, add_special_tokens=False))
@@ -150,6 +179,44 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
                 tokens.append(filter_token(vocab_dict[i.item()].lower()))
             else:
                 tokens.append(vocab_dict[i.item()].lower())
+    return tokens, values
+
+
+def get_text_valid_tokens_values_with_cluster(text, tokenizer, logits, vocab_dict, origin_to_centroids_dict, data_args,
+                                              filtered_ids):
+    words = [i for i in word_tokenize(text.lower()) if
+             i not in set(stopwords.words('english') + list(string.punctuation))]
+    token_ids = set()
+    for word in words:
+        token_encode_ids = tokenizer.encode(word, add_special_tokens=False)
+        centroid_ids = [origin_to_centroids_dict[i] for i in token_encode_ids]
+        token_ids.update(centroid_ids)
+
+    # top tokens in the text
+    token_ids_in_text = torch.tensor(list(token_ids))
+    if len(token_ids_in_text) == 0:  # if no tokens in the text (rare case), we use top 10 tokens
+        top_k_values, top_k_indices = logits.topk(10, dim=-1)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        tokens = [str(i.item()) for i in top_k_indices.cpu().detach().int().numpy() if
+                  i < len(vocab_dict)]
+    elif data_args.sparse_manual:
+        top_k_values, top_k_indices = logits.topk(data_args.sparse_length, dim=-1)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        tokens = [str(i.item()) for i in top_k_indices.cpu().detach().int().numpy() if
+                  i < len(vocab_dict)]
+    else:
+        # 根据原文，他们遵循了SPLADE设置，为了加强logit离散性，只保留最多128个值
+        # 这里应该是先获得了logit，然后再来筛选哪些值，正常来说词表所有位置上的logit都很难是0，
+        # 但是这里就默认那些没有的单词还有排名128名之后的单词logit为0了
+        top_k = min(len(token_ids_in_text), 128)
+        top_k_values, top_k_indices = logits[token_ids_in_text].topk(top_k, dim=-1)
+        # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        # 把token id换成对应的单词，保存在tokens中
+        tokens = [str(int(i.item())) for i in
+                  token_ids_in_text[top_k_indices.cpu().detach().float().numpy()] if
+                  i < len(vocab_dict)]
+
     return tokens, values
 
 
@@ -225,6 +292,69 @@ def main():
         if 'royokong-e5-v' in model_args.model_name_or_path:
             setattr(processor, "patch_size", 14)  # hack for pass
 
+    # 加载词表并获取过滤后的单词id，但目前尚不清楚filtered_ids是做什么的
+    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+        vocab_dict = processor.get_vocab()
+        filtered_ids = get_filtered_ids(processor)
+    else:
+        vocab_dict = processor.tokenizer.get_vocab()
+        filtered_ids = get_filtered_ids(processor.tokenizer)
+    vocab_dict = {v: k for k, v in vocab_dict.items()}
+    print(len(vocab_dict))
+
+    input_token_embeddings = encoder.get_input_embeddings().weight
+    output_token_embeddings = encoder.get_output_embeddings().weight[:len(vocab_dict), :]
+    output_token_dim = output_token_embeddings.size(1)
+
+    if dist.get_rank() == 0:
+        print(input_token_embeddings.shape)
+        print(output_token_embeddings.shape)
+
+    centroids_dict = {}  # 这是用来保存各个centroids都有哪些单词
+    origin_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为token id，value为聚类中心索引
+    origin_word_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为单词字符串，value为聚类中心索引
+    if model_args.use_output_embedding_cluster:
+        output_token_embeddings_for_faiss = output_token_embeddings.detach().cpu().numpy()
+        kmeans = faiss.Kmeans(
+            d=output_token_dim,  # 特征维度
+            k=model_args.cluster_sum,  # 聚类数
+            gpu=True,  # 启用GPU加速
+            niter=100,  # 迭代次数
+            verbose=True
+        )
+
+        # 执行聚类
+        kmeans.train(output_token_embeddings_for_faiss)
+
+        # 获取结果
+        centroids = torch.from_numpy(kmeans.centroids).to(dtype=torch_type).cuda()  # 聚类中心
+
+        centroids_dict = {index: [] for index in range(len(centroids))}
+
+        print(centroids)
+        print(centroids.shape)
+
+        _, labels = kmeans.index.search(output_token_embeddings_for_faiss, 1)  # 标签
+        labels = torch.from_numpy(labels.squeeze()).cuda()
+        print(labels)
+
+        for i, v in enumerate(labels):
+            if i < len(vocab_dict):
+                origin_to_centroids_dict[i] = int(v)
+                origin_word_to_centroids_dict[vocab_dict[i]] = int(v)
+
+        for k in origin_to_centroids_dict:
+            centroids_dict[origin_to_centroids_dict[k]].append(vocab_dict[k])
+
+        new_lm_head = nn.Linear(encoder.language_model.config.hidden_size, model_args.cluster_sum, bias=False,
+                                dtype=torch_type).to(device)
+        print(new_lm_head.weight.shape)
+        new_lm_head.weight.data = centroids
+        if dist.get_rank() == 0:
+            print(new_lm_head.weight)
+
+        encoder.language_model.lm_head = new_lm_head
+
     if model_args.lora:
         if dist.get_rank() == 0:
             print('We use lora model trained few shot here.')
@@ -249,15 +379,6 @@ def main():
     encoded = []
     jsonl_data = []
     lookup_indices = []
-
-    # 加载词表并获取过滤后的单词id，但目前尚不清楚filtered_ids是做什么的
-    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-        vocab_dict = processor.get_vocab()
-        filtered_ids = get_filtered_ids(processor)
-    else:
-        vocab_dict = processor.tokenizer.get_vocab()
-        filtered_ids = get_filtered_ids(processor.tokenizer)
-    vocab_dict = {v: k for k, v in vocab_dict.items()}
 
     with torch.no_grad():
         sampler.set_epoch(0)
@@ -338,16 +459,32 @@ def main():
                     if training_args.encode_type == 'text':
                         for id, logits, text in zip(ids, batch_logits, batch_texts):
                             vector = dict()
-                            if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                tokens, values = get_text_valid_tokens_values(text, processor, logits,
-                                                                              vocab_dict,
-                                                                              data_args,
-                                                                              filtered_ids)
+                            if model_args.use_output_embedding_cluster:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_text_valid_tokens_values_with_cluster(text, processor, logits,
+                                                                                               centroids_dict,
+                                                                                               origin_to_centroids_dict,
+                                                                                               data_args,
+                                                                                               filtered_ids)
+                                else:
+                                    tokens, values = get_text_valid_tokens_values_with_cluster(text,
+                                                                                               processor.tokenizer,
+                                                                                               logits,
+                                                                                               centroids_dict,
+                                                                                               origin_to_centroids_dict,
+                                                                                               data_args,
+                                                                                               filtered_ids)
                             else:
-                                tokens, values = get_text_valid_tokens_values(text, processor.tokenizer, logits,
-                                                                              vocab_dict,
-                                                                              data_args,
-                                                                              filtered_ids)
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_text_valid_tokens_values(text, processor, logits,
+                                                                                  vocab_dict,
+                                                                                  data_args,
+                                                                                  filtered_ids)
+                                else:
+                                    tokens, values = get_text_valid_tokens_values(text, processor.tokenizer, logits,
+                                                                                  vocab_dict,
+                                                                                  data_args,
+                                                                                  filtered_ids)
                             for token, v in zip(tokens, values):
                                 vector[token] = int(v)
                             jsonl_data.append(
@@ -360,12 +497,26 @@ def main():
                     else:
                         for id, logits, text in zip(ids, batch_logits, batch_texts):
                             vector = dict()
-                            if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
-                                                                             data_args, filtered_ids)
+                            if model_args.use_output_embedding_cluster:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values_with_cluster(processor, logits,
+                                                                                              centroids_dict,
+                                                                                              origin_to_centroids_dict,
+                                                                                              data_args, filtered_ids)
+                                else:
+                                    tokens, values = get_img_valid_tokens_values_with_cluster(processor.tokenizer,
+                                                                                              logits,
+                                                                                              centroids_dict,
+                                                                                              origin_to_centroids_dict,
+                                                                                              data_args, filtered_ids)
                             else:
-                                tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits, vocab_dict,
-                                                                             data_args, filtered_ids)
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
+                                                                                 data_args, filtered_ids)
+                                else:
+                                    tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits,
+                                                                                 vocab_dict,
+                                                                                 data_args, filtered_ids)
                             for token, v in zip(tokens, values):
                                 vector[token] = int(v)
                             jsonl_data.append(
@@ -393,26 +544,30 @@ def main():
             else:
                 manual = "no_manual"
 
+            if model_args.use_output_embedding_cluster:
+                cluster = f'cluster_{model_args.cluster_sum}'
+            else:
+                cluster = 'no_cluster'
 
             if model_args.lora:
                 os.makedirs(
-                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_lora',
+                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_lora',
                     exist_ok=True)
                 os.makedirs(
-                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_lora',
+                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_lora',
                     exist_ok=True)
 
                 with open(os.path.join(
-                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_lora',
+                        f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_lora',
                         f'query.pkl') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_lora',
+                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_lora',
                     f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
                     pickle.dump((encoded, lookup_indices), f)
 
                 with open(os.path.join(
-                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_lora',
+                        f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_lora',
                         f'query.tsv') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_lora',
+                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_lora',
                     f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
                     for data in jsonl_data:
                         if data_args.encode_is_query:
@@ -427,23 +582,23 @@ def main():
 
             else:
                 os.makedirs(
-                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}',
                     exist_ok=True)
                 os.makedirs(
-                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}',
                     exist_ok=True)
 
                 with open(os.path.join(
-                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
+                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}',
                         f'query.pkl') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}',
                     f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
                     pickle.dump((encoded, lookup_indices), f)
 
                 with open(os.path.join(
-                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
+                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}',
                         f'query.tsv') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}',
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}',
                     f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
                     for data in jsonl_data:
                         if data_args.encode_is_query:
@@ -455,6 +610,9 @@ def main():
                             f.write(f'{id}\t{query}\n')
                         else:
                             f.write(json.dumps(data) + "\n")
+
+            with open(f'{model_args.model_name_or_path[14:]}_{cluster}.json', 'w') as f:
+                json.dump(centroids_dict, f)
 
 
 if __name__ == "__main__":

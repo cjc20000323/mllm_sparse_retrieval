@@ -157,14 +157,15 @@ def main():
 
     model = MLLMRetrievalModel(encoder)
 
+    '''
     if dist.get_rank() == 0:
-        '''
         for name, param in model.named_parameters():
-            print(f"\t{name} {param.requires_grad}")
-        '''
+            print(f"{name} {param.requires_grad}")
+
 
         for name, param in model.named_parameters():
             print(f"Param ID: {id(param)}, Name: {name}")
+    '''
 
     train_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'train', 'single', data_args)
 
