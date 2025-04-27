@@ -34,6 +34,7 @@ from template import text_prompt, img_prompt, text_prompt_no_one_word, img_promp
 from model import MLLMRetrievalModel
 from utils import split_model, load_image
 from peft import PeftModel, PeftConfig
+from sklearn.cluster import KMeans
 
 
 def get_filtered_ids(tokenizer):
@@ -314,7 +315,8 @@ def main():
     origin_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为token id，value为聚类中心索引
     origin_word_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为单词字符串，value为聚类中心索引
     if model_args.use_output_embedding_cluster:
-        output_token_embeddings_for_faiss = output_token_embeddings.detach().cpu().numpy()
+        output_token_embeddings_for_kmeans = output_token_embeddings.detach().cpu().numpy()
+        '''
         kmeans = faiss.Kmeans(
             d=output_token_dim,  # 特征维度
             k=model_args.cluster_sum,  # 聚类数
@@ -324,7 +326,7 @@ def main():
         )
 
         # 执行聚类
-        kmeans.train(output_token_embeddings_for_faiss)
+        kmeans.train(output_token_embeddings_for_kmeans)
 
         # 获取结果
         centroids = torch.from_numpy(kmeans.centroids).to(dtype=torch_type).cuda()  # 聚类中心
@@ -334,9 +336,32 @@ def main():
         print(centroids)
         print(centroids.shape)
 
-        _, labels = kmeans.index.search(output_token_embeddings_for_faiss, 1)  # 标签
+        _, labels = kmeans.index.search(output_token_embeddings_for_kmeans, 1)  # 标签
         labels = torch.from_numpy(labels.squeeze()).cuda()
         print(labels)
+        '''
+
+        # 初始化模型
+        kmeans = KMeans(
+            n_clusters=model_args.cluster_sum,
+            n_init=10,  # 减少初始化随机性
+            random_state=42,  # 固定随机种子
+            algorithm="elkan"  # 对密集数据更快
+        )
+
+        # 训练并预测
+        labels = kmeans.fit_predict(output_token_embeddings_for_kmeans)
+        labels = torch.from_numpy(labels.squeeze()).cuda()
+        print(labels)
+
+        # 获取聚类中心
+        centroids = kmeans.cluster_centers_
+
+        centroids = torch.from_numpy(centroids).to(dtype=torch_type).cuda()  # 聚类中心
+
+        centroids_dict = {index: [] for index in range(len(centroids))}
+        print(centroids)
+        print(centroids.shape)
 
         for i, v in enumerate(labels):
             if i < len(vocab_dict):

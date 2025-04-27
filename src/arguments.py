@@ -68,3 +68,4 @@ class PromptRepsLLMSearchArguments:
     remove_query: bool = field(default=False, metadata={"help": "Whether to remove query id from the ranking"})
     threads: int = field(default=1, metadata={"help": "Number of threads for sparse retrieval"})
     query_type: str = field(default='text')
+    beta: float = field(default=0.5, metadata={"help": 'The weight for sparse retrieval'})

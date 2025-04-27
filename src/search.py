@@ -40,6 +40,7 @@ from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, ge
 from hybrid import fuse, write_trec_run, read_trec_run
 from utils import load_image
 from peft import PeftModel, PeftConfig
+from sklearn.cluster import KMeans
 
 stopwords = set(stopwords.words('english') + list(string.punctuation))
 
@@ -189,7 +190,8 @@ def main():
     origin_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为token id，value为聚类中心索引
     origin_word_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为单词字符串，value为聚类中心索引
     if model_args.use_output_embedding_cluster:
-        output_token_embeddings_for_faiss = output_token_embeddings.detach().cpu().numpy()
+        output_token_embeddings_for_kmeans = output_token_embeddings.detach().cpu().numpy()
+        '''
         kmeans = faiss.Kmeans(
             d=output_token_dim,  # 特征维度
             k=model_args.cluster_sum,  # 聚类数
@@ -212,6 +214,29 @@ def main():
         _, labels = kmeans.index.search(output_token_embeddings_for_faiss, 1)  # 标签
         labels = torch.from_numpy(labels.squeeze())
         print(labels)
+        '''
+
+        # 初始化模型
+        kmeans = KMeans(
+            n_clusters=model_args.cluster_sum,
+            n_init=10,  # 减少初始化随机性
+            random_state=42,  # 固定随机种子
+            algorithm="elkan"  # 对密集数据更快
+        )
+
+        # 训练并预测
+        labels = kmeans.fit_predict(output_token_embeddings_for_kmeans)
+        labels = torch.from_numpy(labels.squeeze()).cuda()
+        print(labels)
+
+        # 获取聚类中心
+        centroids = kmeans.cluster_centers_
+
+        centroids = torch.from_numpy(centroids).to(dtype=torch_type).cuda()  # 聚类中心
+
+        centroids_dict = {index: [] for index in range(len(centroids))}
+        print(centroids)
+        print(centroids.shape)
 
         for i, v in enumerate(labels):
             if i < len(vocab_dict):
@@ -581,7 +606,7 @@ def main():
         fusion_run.update(
             fuse(
                 runs=[dense_run, sparse_run],
-                weights=[search_args.alpha, (1 - search_args.alpha)]
+                weights=[search_args.alpha, search_args.beta]
             )
         )
 
@@ -591,6 +616,21 @@ def main():
 
     metric.all_gather_object()
     metric.print_recall()
+
+    if not model_args.lora and not model_args.use_output_embedding_cluster:
+        with open(f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_sparse_search_results_{dist.get_rank()}.txt', 'w') as f:
+            for k, v in tqdm(metric.sparse_run.items()):
+                target = metric.dataset.get_target(k, metric.search_args.query_type)
+                if isinstance(target, list):
+                    target = torch.tensor([int(i) for i in target]).cuda()
+                else:
+                    target = int(target)
+                if len(v['docs']) == 0:
+                    continue
+
+                search_results = metric._sort(v['docs'])
+                if not (True in torch.isin(search_results[10], target)):
+                    f.write(f'{k}: {search_results[10].tolist()}\n')
 
 
 if __name__ == '__main__':
