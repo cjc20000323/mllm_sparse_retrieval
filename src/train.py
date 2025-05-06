@@ -108,6 +108,10 @@ def main():
         if 'royokong-e5-v' in model_args.model_name_or_path:
             setattr(processor, "patch_size", 14)  # hack for pass
 
+    if data_args.reps_loc == 'after_pad':
+        processor.tokenizer.padding_side = "left"
+        processor.tokenizer.padding = True
+
     lora_modules = []
     full_modules = []
     if model_args.lora:

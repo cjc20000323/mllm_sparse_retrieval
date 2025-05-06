@@ -34,7 +34,8 @@ from template import text_prompt, img_prompt, text_prompt_no_one_word, img_promp
 from model import MLLMRetrievalModel
 from utils import split_model, load_image
 from peft import PeftModel, PeftConfig
-from sklearn.cluster import KMeans
+# from fast_pytorch_kmeans import KMeans
+# from faiss import Kmeans
 
 
 def get_filtered_ids(tokenizer):
@@ -293,6 +294,10 @@ def main():
         if 'royokong-e5-v' in model_args.model_name_or_path:
             setattr(processor, "patch_size", 14)  # hack for pass
 
+    if data_args.reps_loc == 'after_pad':
+        processor.tokenizer.padding_side = "left"
+        processor.tokenizer.padding = True
+
     # 加载词表并获取过滤后的单词id，但目前尚不清楚filtered_ids是做什么的
     if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
         vocab_dict = processor.get_vocab()
@@ -315,6 +320,8 @@ def main():
     origin_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为token id，value为聚类中心索引
     origin_word_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为单词字符串，value为聚类中心索引
     if model_args.use_output_embedding_cluster:
+        if dist.get_rank() == 0:
+            print('kmeans will be initialized.')
         output_token_embeddings_for_kmeans = output_token_embeddings.detach().cpu().numpy()
         '''
         kmeans = faiss.Kmeans(
@@ -340,17 +347,36 @@ def main():
         labels = torch.from_numpy(labels.squeeze()).cuda()
         print(labels)
         '''
+        # output_token_embeddings_for_kmeans = output_token_embeddings.clone()
 
+        '''
+        # 执行聚类
+        labels, centroids = kmeans(
+            X=output_token_embeddings_for_kmeans,
+            num_clusters=10,
+            distance='euclidean',  # 可选 'cosine'
+            device=torch.device('cuda')
+        )
+        '''
+        '''
         # 初始化模型
         kmeans = KMeans(
             n_clusters=model_args.cluster_sum,
-            n_init=10,  # 减少初始化随机性
+            n_init=1,  # 减少初始化随机性
             random_state=42,  # 固定随机种子
-            algorithm="elkan"  # 对密集数据更快
+            algorithm="elkan",  # 对密集数据更快
+            verbose=1,
+            init="k-means||"
         )
+        '''
+        if dist.get_rank() == 0:
+            print('Now load kmeans model.')
+        with open(f"kmeans_model_{model_args.model_name_or_path[14:]}_{model_args.cluster_sum}.pkl", "rb") as f:
+            kmeans = pickle.load(f)
 
         # 训练并预测
-        labels = kmeans.fit_predict(output_token_embeddings_for_kmeans)
+        # kmeans.fit(output_token_embeddings_for_kmeans)
+        labels = kmeans.predict(output_token_embeddings_for_kmeans)
         labels = torch.from_numpy(labels.squeeze()).cuda()
         print(labels)
 
@@ -358,6 +384,7 @@ def main():
         centroids = kmeans.cluster_centers_
 
         centroids = torch.from_numpy(centroids).to(dtype=torch_type).cuda()  # 聚类中心
+        # centroids = centroids.to(dtype=torch_type).cuda()
 
         centroids_dict = {index: [] for index in range(len(centroids))}
         print(centroids)
@@ -576,23 +603,23 @@ def main():
 
             if model_args.lora:
                 os.makedirs(
-                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_lora',
+                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_lora',
                     exist_ok=True)
                 os.makedirs(
-                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_lora',
+                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_lora',
                     exist_ok=True)
 
                 with open(os.path.join(
-                        f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_lora',
+                        f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_lora',
                         f'query.pkl') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_lora',
+                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_lora',
                     f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
                     pickle.dump((encoded, lookup_indices), f)
 
                 with open(os.path.join(
-                        f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_lora',
+                        f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_lora',
                         f'query.tsv') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_lora',
+                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_lora',
                     f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
                     for data in jsonl_data:
                         if data_args.encode_is_query:
@@ -607,23 +634,23 @@ def main():
 
             else:
                 os.makedirs(
-                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}',
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}',
                     exist_ok=True)
                 os.makedirs(
-                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}',
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}',
                     exist_ok=True)
 
                 with open(os.path.join(
-                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}',
+                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}',
                         f'query.pkl') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}',
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}',
                     f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
                     pickle.dump((encoded, lookup_indices), f)
 
                 with open(os.path.join(
-                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}',
+                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}',
                         f'query.tsv') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}',
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}',
                     f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
                     for data in jsonl_data:
                         if data_args.encode_is_query:
@@ -636,8 +663,9 @@ def main():
                         else:
                             f.write(json.dumps(data) + "\n")
 
-            with open(f'{model_args.model_name_or_path[14:]}_{cluster}.json', 'w') as f:
-                json.dump(centroids_dict, f)
+            if model_args.use_output_embedding_cluster:
+                with open(f'{model_args.model_name_or_path[14:]}_{cluster}.json', 'w') as f:
+                    json.dump(centroids_dict, f)
 
 
 if __name__ == "__main__":

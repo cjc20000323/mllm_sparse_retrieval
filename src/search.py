@@ -2,14 +2,10 @@ import glob
 import os
 import pickle
 import faiss
-from itertools import chain
 from tqdm import tqdm
 from transformers import (
     HfArgumentParser,
 )
-from tevatron.retriever.searcher import FaissFlatSearcher
-from pyserini.search.lucene import LuceneImpactSearcher, LuceneSearcher
-from pyserini.analysis import JWhiteSpaceAnalyzer
 from contextlib import nullcontext
 from PIL import Image
 
@@ -29,18 +25,16 @@ import torch
 import torch.nn as nn
 import torch.utils.data as Data
 import torch.nn.functional as F
-from nltk import word_tokenize
 from nltk.corpus import stopwords
 import string
-from template import text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
-    img_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, \
-    text_prompt_intern_vl_v2_5
+from template import img_prompt, \
+    img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
     get_text_valid_tokens_values_with_cluster
-from hybrid import fuse, write_trec_run, read_trec_run
+from hybrid import fuse
 from utils import load_image
-from peft import PeftModel, PeftConfig
-from sklearn.cluster import KMeans
+from peft import PeftModel
+# from cuml.cluster import KMeans
 
 stopwords = set(stopwords.words('english') + list(string.punctuation))
 
@@ -169,6 +163,10 @@ def main():
         if 'royokong-e5-v' in model_args.model_name_or_path:
             setattr(processor, "patch_size", 14)  # hack for pass
 
+    if data_args.reps_loc == 'after_pad':
+        processor.tokenizer.padding_side = "left"
+        processor.tokenizer.padding = True
+
     # 加载词表并获取过滤后的单词id，但目前尚不清楚filtered_ids是做什么的
     if 'InternVL2_5-8B' in model_args.model_name_or_path:
         vocab_dict = processor.get_vocab()
@@ -191,41 +189,16 @@ def main():
     origin_word_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为单词字符串，value为聚类中心索引
     if model_args.use_output_embedding_cluster:
         output_token_embeddings_for_kmeans = output_token_embeddings.detach().cpu().numpy()
-        '''
-        kmeans = faiss.Kmeans(
-            d=output_token_dim,  # 特征维度
-            k=model_args.cluster_sum,  # 聚类数
-            gpu=True,  # 启用GPU加速
-            niter=100,  # 迭代次数
-            verbose=True
-        )
 
-        # 执行聚类
-        kmeans.train(output_token_embeddings_for_faiss)
-
-        # 获取结果
-        centroids = torch.from_numpy(kmeans.centroids).to(dtype=torch_type).cuda()  # 聚类中心
-
-        centroids_dict = {index: [] for index in range(len(centroids))}
-
-        print(centroids)
-        print(centroids.shape)
-
-        _, labels = kmeans.index.search(output_token_embeddings_for_faiss, 1)  # 标签
-        labels = torch.from_numpy(labels.squeeze())
-        print(labels)
-        '''
-
-        # 初始化模型
-        kmeans = KMeans(
-            n_clusters=model_args.cluster_sum,
-            n_init=10,  # 减少初始化随机性
-            random_state=42,  # 固定随机种子
-            algorithm="elkan"  # 对密集数据更快
-        )
+        if dist.get_rank() == 0:
+            print('Now load kmeans model.')
+            print(f"kmeans_model_{model_args.model_name_or_path[14:]}_{model_args.cluster_sum}.pkl")
+        with open(f"kmeans_model_{model_args.model_name_or_path[14:]}_{model_args.cluster_sum}.pkl", "rb") as f:
+            kmeans = pickle.load(f)
 
         # 训练并预测
-        labels = kmeans.fit_predict(output_token_embeddings_for_kmeans)
+        # kmeans.fit(output_token_embeddings_for_kmeans)
+        labels = kmeans.predict(output_token_embeddings_for_kmeans)
         labels = torch.from_numpy(labels.squeeze()).cuda()
         print(labels)
 
@@ -278,6 +251,10 @@ def main():
     model = MLLMRetrievalModel(encoder)
     model = model.eval()
     print(model.is_ddp)
+
+    from tevatron.retriever.searcher import FaissFlatSearcher
+    from pyserini.search.lucene import LuceneImpactSearcher
+    from pyserini.analysis import JWhiteSpaceAnalyzer
 
     lookup_indices = []
 
