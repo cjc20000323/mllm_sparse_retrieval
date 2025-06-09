@@ -8,8 +8,9 @@ from transformers.utils import PaddingStrategy
 
 llama3_template = '<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n \n'
 
-processor = LlavaNextProcessor.from_pretrained('./checkpoints/llava-hf-llava-v1.6-vicuna-7b-hf')
-model = LlavaNextForConditionalGeneration.from_pretrained('./checkpoints/llava-hf-llava-v1.6-vicuna-7b-hf', torch_dtype=torch.float16).cuda()
+processor = LlavaNextProcessor.from_pretrained('./checkpoints/royokong-e5-v')
+model = LlavaNextForConditionalGeneration.from_pretrained('./checkpoints/royokong-e5-v', torch_dtype=torch.float16).cuda()
+setattr(processor, "patch_size", 14)
 
 img_prompt = llama3_template.format('<image>\nSummary above image in one word: ')
 text_prompt = llama3_template.format('<sent>\nSummary above sentence in one word: ')
@@ -18,7 +19,8 @@ print(text_prompt)
 print(img_prompt)
 
 urls = []
-images = Image.open('data/flickr/36979.jpg').convert('RGB')
+images = Image.open('data/flickr/36979.jpg')
+print(images)
 image = processor.image_processor(images, return_tensors='pt')['pixel_values'].cuda()
 # image = processor.image_processor(images, return_tensors='pt')
 print(image.shape)
@@ -30,12 +32,14 @@ print(tokenizer.decode(input_id))
 
 texts = ['A dog sitting in the grass.']
 
-text_inputs = processor([text_prompt.replace('<sent>', text) for text in texts], return_tensors="pt", padding=True).to('cuda')
+text_inputs = processor([text_prompt.replace('<sent>', text) for text in texts], return_tensors="pt", padding=True, pad_to_multiple_of=8,).to('cuda')
 print(text_inputs['input_ids'].shape)
-img_inputs = processor(images=images, text=[img_prompt], return_tensors="pt", padding=True).to('cuda')
+img_inputs = processor(images=images, text=[img_prompt], return_tensors="pt", padding=True, pad_to_multiple_of=8,).to('cuda')
 print(img_inputs.keys())
 print(img_inputs['pixel_values'].shape)
 print(img_inputs['input_ids'].shape)
+print(img_inputs['attention_mask'].shape)
+print(img_inputs['image_sizes'].shape)
 
 with torch.no_grad():
     text_embs = model(**text_inputs, output_hidden_states=True, return_dict=True).hidden_states[-1][:, -1, :]

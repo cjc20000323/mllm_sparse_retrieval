@@ -34,6 +34,8 @@ from template import text_prompt, img_prompt, text_prompt_no_one_word, img_promp
 from model import MLLMRetrievalModel
 from utils import split_model, load_image
 from peft import PeftModel, PeftConfig
+
+
 # from fast_pytorch_kmeans import KMeans
 # from faiss import Kmeans
 
@@ -297,6 +299,10 @@ def main():
     if data_args.reps_loc == 'after_pad':
         processor.tokenizer.padding_side = "left"
         processor.tokenizer.padding = True
+        if dist.get_rank() == 0:
+            print(processor.tokenizer.unk_token_id)
+            print(processor.tokenizer.eos_token_id)
+            print(processor.tokenizer.pad_token_id)
 
     # 加载词表并获取过滤后的单词id，但目前尚不清楚filtered_ids是做什么的
     if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
@@ -465,7 +471,8 @@ def main():
                             img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
                         )
                     raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                    img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path), return_tensors="pt",
+                    img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                           return_tensors="pt",
                                            padding=True)
                     imgs = img_inputs.to(device)
                     logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)

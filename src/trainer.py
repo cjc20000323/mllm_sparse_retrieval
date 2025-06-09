@@ -18,6 +18,7 @@ class DenseEmbTrainer(Trainer):
     device: torch.device = None
     tau: float = 0.1
     gather_save_gradient: bool = True
+    local_loss: bool = False
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         '''
@@ -30,7 +31,8 @@ class DenseEmbTrainer(Trainer):
         '''
         texts = inputs['texts']
         imgs = inputs['imgs'].to(self.device)
-        text_reps, img_reps = model(texts, imgs, self.processor, self.device, self.model_args, self.data_args)
+        output = model(texts, imgs, self.processor, self.device, self.model_args, self.data_args)
+        text_reps, img_reps = output['text_reps'], output['img_reps']
 
         text_reps = F.normalize(text_reps, dim=-1)
         img_reps = F.normalize(img_reps, dim=-1)
@@ -59,16 +61,24 @@ class DenseEmbTrainer(Trainer):
                 all_image_reps = img_reps.clone().detach()
                 all_text_reps = text_reps.clone().detach()
 
-        i2t_sim = img_reps @ all_text_reps.t() / self.tau
-        t2i_sim = text_reps @ all_image_reps.t() / self.tau
-
         loss_fct = nn.CrossEntropyLoss()
+        if self.local_loss:
+            i2t_sim = img_reps @ all_text_reps.t() / self.tau
+            t2i_sim = text_reps @ all_image_reps.t() / self.tau
 
-        labels = torch.arange(text_reps.size(0)).long().to(self.device)
-        if dist.is_initialized():
-            labels += dist.get_rank() * len(texts)
+            labels = torch.arange(text_reps.size(0)).long().to(self.device)
+            if dist.is_initialized():
+                labels += dist.get_rank() * len(texts)
 
-        loss_i2t = loss_fct(i2t_sim, labels)
-        loss_t2i = loss_fct(t2i_sim, labels)
-        loss = (loss_t2i + loss_i2t) / 2
+            loss_i2t = loss_fct(i2t_sim, labels)
+            loss_t2i = loss_fct(t2i_sim, labels)
+            loss = (loss_t2i + loss_i2t) / 2
+        else:
+            i2t_sim = all_image_reps @ all_text_reps.t() / self.tau
+            t2i_sim = all_text_reps @ all_image_reps.t() / self.tau
+
+            labels = torch.arange(all_text_reps.size(0)).long().to(self.device)
+            loss_i2t = loss_fct(i2t_sim, labels)
+            loss_t2i = loss_fct(t2i_sim, labels)
+            loss = (loss_t2i + loss_i2t) / 2
         return loss

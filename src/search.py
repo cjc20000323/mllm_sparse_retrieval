@@ -50,8 +50,8 @@ def pickle_load(path):
 
 
 def search_queries(retriever, q_reps, p_lookup, args):
-    if args.batch_size > 0:
-        all_scores, all_indices = retriever.batch_search(q_reps, args.depth, args.batch_size, args.quiet)
+    if args.retrieval_batch_size > 0:
+        all_scores, all_indices = retriever.batch_search(q_reps, args.depth, args.retrieval_batch_size, args.quiet)
     else:
         all_scores, all_indices = retriever.search(q_reps, args.depth)
 

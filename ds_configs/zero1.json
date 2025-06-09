@@ -1,8 +1,8 @@
 {
   "zero_optimization": {
     "stage": 1,
-    "reduce_bucket_size": 5e8,
-    "allgather_bucket_size": 5e8
+    "reduce_bucket_size": 2e8,
+    "allgather_bucket_size": 2e8
   },
   "fp16": {
     "enabled": true,

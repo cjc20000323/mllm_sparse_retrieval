@@ -83,8 +83,27 @@ class MLLMRetrievalModel(nn.Module):
                 # 这里对应原文的log+relu操作
                 logits = torch.log(1 + torch.relu(logits))
             else:
-                text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input], return_tensors="pt",
-                                        padding=True).to('cuda')
+                if data_args.use_cutoff_len:
+                    for i in range(len(input)):
+                        text_input = processor.tokenizer(
+                            input[i],
+                            truncation=True,
+                            max_length=data_args.cutoff_len,
+                            padding=False,
+                            return_tensors=None,
+                            add_special_tokens=False,
+                        )
+                        text_input = processor.tokenizer.decode(text_input['input_ids'])
+                        input[i] = text_input
+                    text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
+                                            return_tensors="pt",
+                                            padding=True,
+                                            max_length=data_args.max_length,
+                                            pad_to_multiple_of=data_args.pad_to_multiple_of).to('cuda')
+                else:
+                    text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
+                                            return_tensors="pt",
+                                            padding=True).to('cuda')
                 output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
                 # print(text_inputs['input_ids'])
                 # print(output.logits.shape)
@@ -159,6 +178,72 @@ class MLLMRetrievalModel(nn.Module):
         else:
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
 
+
+    def encode_data_for_train(self, input, input_type, processor, device, model_args, data_args):
+        '''
+
+                :param input: 输入的数据
+                :param input_type: 输入的类型
+                :param processor: 提供转换的函数
+                :param device: 指定数据所在的硬件设备
+                :return:
+                '''
+        if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
+            prompt = text_prompt_no_special_llava_v1_5
+        else:
+            prompt = text_prompt
+        if input_type == 'text':
+            text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input], return_tensors="pt",
+                                    padding=True, ).to('cuda')
+            output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
+            # print(text_inputs['input_ids'])
+            # print(output.logits.shape)
+            # print(output.hidden_states[-1].shape)
+            if data_args.reps_loc == 'after_pad':
+                logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+            else:
+                # logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+                logits = output.logits
+                # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                sequence_lengths = text_inputs['attention_mask'].sum(dim=-1) - 1
+                batch_ids = torch.arange(len(text_inputs['input_ids']), device=logits.device)
+                logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
+                    batch_ids, sequence_lengths]
+            # 这里对应原文的log+relu操作
+            logits = torch.log(1 + torch.relu(logits))
+            return logits, embs
+        elif input_type == 'image':
+            length = len(input.pixel_values)
+            # print('length is ', length)
+            for key in input.keys():
+                input[key] = input[key].squeeze()  # 数据集读取的时候，是直接多了一个维度计数，因此会有一个维度是1，把这个维度去掉
+                # print(input[key].shape)
+            if length == 1:
+                for key in input.keys():
+                    input[key] = input[key].unsqueeze(0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
+                    # print(input[key].shape)
+            output = self.encoder(**input, output_hidden_states=True, return_dict=True)
+            if data_args.reps_loc == 'after_pad':
+                logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+            else:
+                logits = output.logits
+                # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                sequence_lengths = input['attention_mask'].sum(dim=-1) - 1
+                batch_ids = torch.arange(len(input['input_ids']), device=logits.device)
+                logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
+                    batch_ids, sequence_lengths]
+            # 这里对应原文的log+relu操作
+            logits = torch.log(1 + torch.relu(logits))
+            return logits, embs
+        else:
+            return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
+
+
+    def encode_data_at_same_time(self, text_input, image_input, processor, device, model_args, data_args):
+        pass
+
     def compute_similarity(self, embs_1, embs_2):
         embs_1 = F.normalize(embs_1, dim=-1)
         embs_2 = F.normalize(embs_2, dim=-1)
@@ -203,4 +288,4 @@ class MLLMRetrievalModel(nn.Module):
         img_logits, img_reps = self.encode_data(imgs, 'image', processor, device, model_args,
                                              data_args)
 
-        return text_reps, img_reps
+        return {'text_reps': text_reps, 'img_reps': img_reps}

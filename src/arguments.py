@@ -25,6 +25,9 @@ class TrainingArguments(transformers.TrainingArguments):
     train_mode: str = field(default='')
     gather_save_gradient: bool = field(default=True)
     tau: float = field(default=0.1)
+    local_loss: bool = field(default=False)
+    batch_size: int = field(default=32)
+
 
 
 
@@ -52,6 +55,9 @@ class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
     sparse_length: int = field(default=128)
     use_few_shot: bool = field(default=False)
     few_shot_sum: int = field(default=200)
+    use_cutoff_len: bool = field(default=False)
+    cutoff_len: int = field(default=32)
+    pad_to_multiple_of: int = field(default=8)
 
 
 
@@ -64,7 +70,7 @@ class PromptRepsLLMSearchArguments:
     quiet: bool = field(default=True, metadata={"help": "Whether to print the progress"})
     use_gpu: bool = field(default=False, metadata={"help": "Whether to use GPU"})
     alpha: float = field(default=0.5, metadata={"help": "The weight for dense retrieval"})
-    batch_size: int = field(default=128, metadata={"help": "Batch size for retrieval"})
+    retrieval_batch_size: int = field(default=128, metadata={"help": "Batch size for retrieval"})
     remove_query: bool = field(default=False, metadata={"help": "Whether to remove query id from the ranking"})
     threads: int = field(default=1, metadata={"help": "Number of threads for sparse retrieval"})
     query_type: str = field(default='text')
