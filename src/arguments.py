@@ -38,6 +38,7 @@ class ModelArguments(tevatron.retriever.arguments.ModelArguments):
     lora_model_path: str = field(default='./output/llava-hf-llama3-llava-next-8b-hf')
     use_output_embedding_cluster: bool = field(default=False)
     cluster_sum: int = field(default=8000)
+    eol_type: str = field(default='prompteol')
 
 
 
@@ -58,6 +59,7 @@ class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
     use_cutoff_len: bool = field(default=False)
     cutoff_len: int = field(default=32)
     pad_to_multiple_of: int = field(default=8)
+    dataset_suffix: str = field(default='no')
 
 
 
@@ -70,7 +72,7 @@ class PromptRepsLLMSearchArguments:
     quiet: bool = field(default=True, metadata={"help": "Whether to print the progress"})
     use_gpu: bool = field(default=False, metadata={"help": "Whether to use GPU"})
     alpha: float = field(default=0.5, metadata={"help": "The weight for dense retrieval"})
-    retrieval_batch_size: int = field(default=128, metadata={"help": "Batch size for retrieval"})
+    retrieval_batch_size: int = field(default=0, metadata={"help": "Batch size for retrieval"})
     remove_query: bool = field(default=False, metadata={"help": "Whether to remove query id from the ranking"})
     threads: int = field(default=1, metadata={"help": "Number of threads for sparse retrieval"})
     query_type: str = field(default='text')

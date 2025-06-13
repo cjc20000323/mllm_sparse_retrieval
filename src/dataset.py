@@ -8,6 +8,7 @@ import tevatron.retriever.arguments
 from arguments import coco_file_path, flickr_file_path
 from template import llama3_template, text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
     img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5
+from tevatron.retriever.dataset import EncodeDataset
 
 from dataclasses import dataclass
 from transformers import ProcessorMixin, LlavaProcessor, Qwen2_5_VLProcessor
@@ -50,7 +51,10 @@ class CrossModalRetrievalDataset(Dataset):
         assert self.mode in ['single', 'full']
         if data_args is not None:
             if data_args.use_few_shot:
-                self.dataset_file = f'{self.data_path}' + f'{self.data_name}_{self.split}_{data_args.few_shot_sum}.csv'
+                if data_args.datset_suffix == 'no':
+                    self.dataset_file = f'{self.data_path}' + f'{self.data_name}_{self.split}_{data_args.few_shot_sum}.csv'
+                else:
+                    self.dataset_file = f'{self.data_path}' + f'{self.data_name}_{self.split}_{data_args.few_shot_sum}_{data_args.dataset_suffix}.csv'
             else:
                 self.dataset_file = f'{self.data_path}' + f'{self.data_name}_{self.split}.csv'
         else:

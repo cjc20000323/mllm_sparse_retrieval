@@ -11,7 +11,7 @@ from transformers import AutoProcessor
 
 from transformers.file_utils import ModelOutput
 from template import text_prompt, img_prompt, img_prompt_no_one_word, text_prompt_no_one_word, \
-    text_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, text_prompt_intern_vl_v2_5, img_prompt_intern_vl_v2_5
+    text_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, text_prompt_intern_vl_v2_5, img_prompt_intern_vl_v2_5, task_text_prompts, llama3_template
 import torch.nn.functional as F
 
 import logging
@@ -101,9 +101,15 @@ class MLLMRetrievalModel(nn.Module):
                                             max_length=data_args.max_length,
                                             pad_to_multiple_of=data_args.pad_to_multiple_of).to('cuda')
                 else:
-                    text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
-                                            return_tensors="pt",
-                                            padding=True).to('cuda')
+                    if model_args.eol_type == 'prompteol':
+                        text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
+                                                return_tensors="pt",
+                                                padding=True).to('cuda')
+                    else:
+                        prompts = [llama3_template.format(prompt) for prompt in task_text_prompts]
+                        text_inputs = processor(text=[prompt.replace('<sent>', text) for prompt in prompts for text in input],
+                                                return_tensors="pt",
+                                                padding=True).to('cuda')
                 output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
                 # print(text_inputs['input_ids'])
                 # print(output.logits.shape)

@@ -18,6 +18,7 @@
         "overlap_comm": true,
         "contiguous_gradients": true,
         "sub_group_size": 2e8,
-        "reduce_bucket_size": "auto"
+        "reduce_bucket_size": 2e8,
+        "allgather_bucket_size": 2e8
     }
 }

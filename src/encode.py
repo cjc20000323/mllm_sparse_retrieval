@@ -30,7 +30,7 @@ import torch.nn.functional as F
 
 from template import text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
     img_prompt_no_special_llava_v1_5, text_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, img_prompt_qwen_v2_5, \
-    img_prompt_intern_vl_v2_5, text_prompt_intern_vl_v2_5
+    img_prompt_intern_vl_v2_5, text_prompt_intern_vl_v2_5, task_image_prompts, llama3_template
 from model import MLLMRetrievalModel
 from utils import split_model, load_image
 from peft import PeftModel, PeftConfig
@@ -457,6 +457,9 @@ def main():
                 print(dist.get_rank())
             if training_args.encode_type == 'text':
                 logits, reps = model.encode_data(texts, 'text', processor, device, model_args, data_args)
+                if model_args.eol_type == 'metaeol':
+                    logits = logits.reshape(-1, len(task_image_prompts), logits.shape[1]).mean(1)
+                    reps = reps.reshape(-1, len(task_image_prompts), reps.shape[1]).mean(1)
             else:
                 # Preparation for inference
                 if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
@@ -466,16 +469,32 @@ def main():
                     imgs = [load_image(path, max_num=12).to(torch_type).cuda() for path in imgs_path]
                     logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
                 else:
-                    if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-                        prompt = processor.apply_chat_template(
-                            img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
-                        )
-                    raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                    img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
-                                           return_tensors="pt",
-                                           padding=True)
-                    imgs = img_inputs.to(device)
-                    logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
+                    if model_args.eol_type == 'prompteol':
+                        if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                            prompt = processor.apply_chat_template(
+                                img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
+                            )
+                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                        img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                               return_tensors="pt",
+                                               padding=True)
+                        imgs = img_inputs.to(device)
+                        logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
+                    else:
+                        # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
+                        raw_images = [Image.open(path).convert('RGB') for _ in range(len(task_image_prompts)) for path in imgs_path] * len(task_image_prompts)
+                        # 将task_prompt添加到llama3_template中
+                        prompts = [llama3_template.format(prompt) for prompt in task_image_prompts]
+                        img_inputs = processor(images=raw_images, text=prompts*len(imgs_path),
+                                               return_tensors="pt",
+                                               padding=True)
+
+                        imgs = img_inputs.to(device)
+                        # 在metaeol模式下，reps应该是[batch_size * len(task_prompts), reps_dim]
+                        logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
+
+                        logits = logits.reshape(-1, len(task_image_prompts), logits.shape[1]).mean(1)
+                        reps = reps.reshape(-1, len(task_image_prompts), reps.shape[1]).mean(1)
 
             # print(logits.shape)
             reps = F.normalize(reps, dim=-1)

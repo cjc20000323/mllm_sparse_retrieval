@@ -2,6 +2,7 @@ import os
 
 import transformers
 from matplotlib import pyplot as plt
+from tqdm import tqdm
 from transformers import (
     HfArgumentParser,
     BitsAndBytesConfig
@@ -15,8 +16,13 @@ import torch.distributed as dist
 from arguments import TrainingArguments
 from dataset import CrossModalRetrievalDataset, PromptRepsTrainCollator
 import torch
+import torch.nn as nn
 import torch.utils.data as Data
 import torch.nn.functional as F
+from torch.optim.lr_scheduler import LambdaLR
+import math
+
+from PIL import Image
 
 from template import text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
     img_prompt_no_special_llava_v1_5, text_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, img_prompt_qwen_v2_5, \
@@ -25,9 +31,55 @@ from model import MLLMRetrievalModel
 from utils import split_model, load_image, find_all_linear_names
 from peft import get_peft_model, LoraConfig, prepare_model_for_kbit_training
 from constant import llava_next_llama_8b_constant
-from trainer import DenseEmbTrainer
+from trainer import DenseEmbTrainer, allgather
 
 from transformers import TrainerCallback
+
+
+def create_scheduler(args, optimizer):
+    # base_warm_up = 2500
+    # base_step = 2772 * 30  # math.ceil(2838361 / 1024)*30
+    # base_rate = base_warm_up / base_step  # 0.03006253006253006
+    if 'num_training_steps' not in args:
+        args['num_training_steps'] = args['epochs'] * args['step_per_epoch']
+    print("### num_training_steps, ", args['num_training_steps'], flush=True)
+
+    args['num_warmup_steps'] = 100
+    '''
+    if isinstance(args['num_warmup_steps'], float):
+        assert 0 <= args['num_warmup_steps'] < 1
+        args['num_warmup_steps'] = int(args['num_training_steps'] * args['num_warmup_steps'])
+    # args['num_warmup_steps'] = int(args['num_training_steps'] * base_rate)
+    '''
+    print("### num_warmup_steps, ", args['num_warmup_steps'], flush=True)
+
+    if args.sched == 'linear':
+        class lr_lambda_class:
+            def __init__(self):
+                pass
+
+            def __call__(self, current_step):
+                if current_step < args.num_warmup_steps:
+                    return float(current_step) / float(max(1, args.num_warmup_steps))
+                return max(
+                    0.0, float(args.num_training_steps - current_step) / float(
+                        max(1, args.num_training_steps - args.num_warmup_steps))
+                )
+
+        # def lr_lambda(current_step: int):
+        #     if current_step < args.num_warmup_steps:
+        #         return float(current_step) / float(max(1, args.num_warmup_steps))
+        #     return max(
+        #         0.0, float(args.num_training_steps - current_step) / float(
+        #             max(1, args.num_training_steps - args.num_warmup_steps))
+        #     )
+
+        lr_scheduler = LambdaLR(optimizer, lr_lambda_class(), last_epoch=-1)
+
+    else:
+        raise NotImplementedError(f"args.sched == {args.sched}")
+
+    return lr_scheduler
 
 
 class CustomSaveCallback(TrainerCallback):
@@ -70,7 +122,6 @@ def compute_metrics(eval_pred):
 
 def main():
     from accelerate import Accelerator
-    accelerator = Accelerator()
 
     parser = HfArgumentParser((ModelArguments, PromptRepsLLMDataArguments, TrainingArguments))
 
@@ -103,6 +154,8 @@ def main():
         gradient_accumulation_steps = gradient_accumulation_steps // dist.get_world_size()
 
         print(device)
+
+    accelerator = Accelerator(gradient_accumulation_steps=gradient_accumulation_steps)
 
     # 下面这部分指定采用的模型精度
     if training_args.bf16:
@@ -219,84 +272,113 @@ def main():
 
     train_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'train', 'single', data_args)
 
-    data_collator = PromptRepsTrainCollator(processor, model_args, device)
+    sampler = Data.DistributedSampler(train_dataset, num_replicas=dist.get_world_size(), shuffle=True,
+                                      rank=dist.get_rank())
+    train_dataloader = Data.DataLoader(dataset=train_dataset, sampler=sampler, pin_memory=True,
+                                       batch_size=data_args.per_device_batch_size, shuffle=False)
 
-    if training_args.train_mode == 'dense_emb':
-        trainer = DenseEmbTrainer(
-            model=model,
-            train_dataset=train_dataset,
-            args=transformers.TrainingArguments(
-                per_device_train_batch_size=training_args.per_device_train_batch_size,
-                gradient_accumulation_steps=gradient_accumulation_steps,
-                warmup_steps=100,
-                num_train_epochs=training_args.num_train_epochs,
-                learning_rate=training_args.learning_rate,
-                fp16=True if training_args.fp16 else False,
-                bf16=True if training_args.bf16 else False,
-                eval_strategy="no",
-                save_strategy="no",
-                eval_steps=None,
-                output_dir=training_args.output_dir,
-                save_total_limit=100,
-                load_best_model_at_end=False,
-                # ddp_find_unused_parameters=False if ddp else None,
-                ddp_find_unused_parameters=False if ddp else None,
-                group_by_length=False,
-                report_to=None,
-                deepspeed=training_args.deepspeed,
-                logging_steps=1,
-                lr_scheduler_type="cosine",
-                gradient_checkpointing_kwargs={"use_reentrant": False},
-            ),
-            data_collator=data_collator,
-            callbacks=[CustomSaveCallback(training_args.output_dir), LossPlotCallback(training_args.output_dir[9:])]
-        )
-        if dist.get_rank() == 0:
-            print('Trainer has been created.')
+    if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
+        prompt = img_prompt_no_special_llava_v1_5
+    elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+        prompt = img_prompt_qwen_v2_5
+    elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+        prompt = img_prompt_intern_vl_v2_5
     else:
-        trainer = DenseEmbTrainer(
-            model=model,
-            train_dataset=train_dataset,
-            args=transformers.TrainingArguments(
-                per_device_train_batch_size=training_args.per_device_train_batch_size,
-                gradient_accumulation_steps=gradient_accumulation_steps,
-                warmup_steps=100,
-                num_train_epochs=training_args.num_train_epochs,
-                learning_rate=training_args.learning_rate,
-                fp16=True if training_args.fp16 else False,
-                bf16=True if training_args.bf16 else False,
-                eval_strategy="no",
-                save_strategy="no",
-                eval_steps=None,
-                output_dir=training_args.output_dir,
-                save_total_limit=100,
-                load_best_model_at_end=False,
-                # ddp_find_unused_parameters=False if ddp else None,
-                ddp_find_unused_parameters=False if ddp else None,
-                group_by_length=False,
-                report_to=None,
-                deepspeed=training_args.deepspeed,
-                logging_steps=1,
-                lr_scheduler_type="cosine",
-                gradient_checkpointing_kwargs={"use_reentrant": False},
-            ),
-            data_collator=data_collator,
-            callbacks=[CustomSaveCallback(training_args.output_dir), LossPlotCallback(training_args.output_dir[9:])]
-        )
-        if dist.get_rank() == 0:
-            print('Trainer has been created.')
+        prompt = img_prompt
 
-    trainer.model_args = model_args
-    trainer.data_args = data_args
-    trainer.device = device
-    trainer.processor = processor
-    trainer.gather_save_gradient = training_args.gather_save_gradient
-    trainer.tau = training_args.tau
-    trainer.local_loss = training_args.local_loss
-    trainer.train()
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=training_args.learning_rate,
+        weight_decay=0.01
+    )
+
+    arg_sche = {'sched': 'linear', 'lr': training_args.learning_rate, 'epochs': training_args.num_train_epochs,
+                'num_warmup_steps': 100}
+    lr_scheduler = create_scheduler(arg_sche, optimizer)
+
+    model, optimizer, train_dataloader = accelerator.prepare(
+        [model, optimizer, train_dataloader, lr_scheduler]
+    )
+
+    loss_list = []
+    steps = []
+    step_count = 0
+
+    for i in range(int(training_args.num_train_epochs)):
+
+        # 创建带参数的进度条
+        progress_bar = tqdm(
+            enumerate(train_dataloader),
+            total=len(train_dataloader),
+            desc=f"Epoch {i + 1}/{training_args.num_train_epochs}",
+            postfix={},  # 存储要显示的参数
+            disable=not accelerator.is_main_process  # 仅主进程显示
+        )
+
+        with accelerator.accumulate(model):
+            for batch_idx, (texts, imgs_path, text_ids, img_ids) in progress_bar:
+                step_count += 1
+                raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path), return_tensors="pt",
+                                       padding=True)
+                imgs = img_inputs
+                output = model(texts, imgs, processor, device, model_args, data_args)
+                text_reps, img_reps = output['text_reps'], output['img_reps']
+
+                text_reps = F.normalize(text_reps, dim=-1)
+                img_reps = F.normalize(img_reps, dim=-1)
+
+                if dist.is_initialized():
+                    all_image_reps = allgather(img_reps, dist.get_rank(), dist.get_world_size())
+                    all_text_reps = allgather(text_reps, dist.get_rank(), dist.get_world_size())
+                else:
+                    all_image_reps = allgather(img_reps, dist.get_rank(), dist.get_world_size())
+                    all_text_reps = allgather(text_reps, dist.get_rank(), dist.get_world_size())
+
+                loss_fct = nn.CrossEntropyLoss()
+                logits = all_image_reps @ all_text_reps.t() / training_args.tau
+                labels = torch.arange(all_text_reps.shape[0]).long().to(device)
+                loss_i2t = loss_fct(logits, labels)
+                loss_t2i = loss_fct(logits.t(), labels)
+                loss = (loss_t2i + loss_i2t) / 2
+
+                accelerator.backward(loss)
+
+                # 梯度裁剪
+                accelerator.clip_grad_norm_(model.parameters(), 1.0)
+
+                # 参数更新
+                optimizer.step()
+                lr_scheduler.step()
+                optimizer.zero_grad()
+
+                all_loss = [torch.zeros_like(loss) for _ in range(dist.get_world_size())]
+                dist.all_gather(tensor_list=all_loss, tensor=loss.contiguous())
+
+                loss_tensor = torch.tensor(all_loss).mean()
+                loss_list.append(loss_tensor)
+                steps.append(step_count)
+
+
+                # 在梯度累积同步点更新显示
+                if accelerator.sync_gradients:
+                    # 获取当前学习率
+                    current_lr = optimizer.param_groups[0]['lr']
+
+                    # 更新进度条参数显示
+                    progress_bar.set_postfix({
+                        'loss': f"{loss_tensor.item():.4f}",
+                        'lr': f"{current_lr:.6f}"
+                    })
+
+            model.encoder.save_pretrained(training_args.output_dir + f'/epoch_{i+1}')
+
+        # 每个epoch结束后更新并关闭进度条
+        progress_bar.close()
 
     model.encoder.save_pretrained(training_args.output_dir)
-
-
-if __name__ == "__main__":
-    main()
+    plt.plot(steps[:len(loss_list)], loss_list, label="Train Loss")
+    plt.xlabel("Step")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.savefig(f"./loss_curve_{training_args.output_dir[9:]}.png")

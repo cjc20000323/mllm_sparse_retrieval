@@ -10,6 +10,28 @@ from transformers import ProcessorMixin
 import tevatron.retriever.arguments
 import torch.nn.functional as F
 
+class AllGather(torch.autograd.Function):
+    """An autograd function that performs allgather on a tensor."""
+
+    @staticmethod
+    def forward(ctx, tensor, rank, world_size):
+        output = [torch.empty_like(tensor) for _ in range(world_size)]
+        dist.all_gather(output, tensor.contiguous())
+        ctx.rank = rank
+        ctx.batch_size = tensor.shape[0]
+        return torch.cat(output, 0)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return (
+            grad_output[ctx.batch_size * ctx.rank: ctx.batch_size * (ctx.rank + 1)],
+            None,
+            None
+        )
+
+
+allgather = AllGather.apply
+
 
 class DenseEmbTrainer(Trainer):
     processor: ProcessorMixin = None
@@ -38,6 +60,14 @@ class DenseEmbTrainer(Trainer):
         img_reps = F.normalize(img_reps, dim=-1)
 
         if dist.is_initialized():
+            all_image_reps = allgather(img_reps, dist.get_rank(), dist.get_world_size())
+            all_text_reps = allgather(text_reps, dist.get_rank(), dist.get_world_size())
+        else:
+            all_image_reps = allgather(img_reps, dist.get_rank(), dist.get_world_size())
+            all_text_reps = allgather(text_reps, dist.get_rank(), dist.get_world_size())
+
+            '''
+            
             all_image_reps = [torch.zeros_like(img_reps) for _ in range(dist.get_world_size())]
             all_text_reps = [torch.zeros_like(text_reps) for _ in range(dist.get_world_size())]
 
@@ -53,6 +83,9 @@ class DenseEmbTrainer(Trainer):
             else:
                 all_image_reps = torch.cat(all_image_reps).clone().detach()
                 all_text_reps = torch.cat(all_text_reps).clone().detach()
+                
+            '''
+        '''
         else:
             if self.gather_save_gradient:
                 all_image_reps = img_reps
@@ -60,8 +93,16 @@ class DenseEmbTrainer(Trainer):
             else:
                 all_image_reps = img_reps.clone().detach()
                 all_text_reps = text_reps.clone().detach()
+        '''
 
         loss_fct = nn.CrossEntropyLoss()
+        logits = all_image_reps @ all_text_reps.t() / self.tau
+        labels = torch.arange(all_text_reps.shape[0]).long().to(self.device)
+        loss_i2t = loss_fct(logits, labels)
+        loss_t2i = loss_fct(logits.t(), labels)
+        loss = (loss_t2i + loss_i2t) / 2
+
+        '''
         if self.local_loss:
             i2t_sim = img_reps @ all_text_reps.t() / self.tau
             t2i_sim = text_reps @ all_image_reps.t() / self.tau
@@ -81,4 +122,5 @@ class DenseEmbTrainer(Trainer):
             loss_i2t = loss_fct(i2t_sim, labels)
             loss_t2i = loss_fct(t2i_sim, labels)
             loss = (loss_t2i + loss_i2t) / 2
+        '''
         return loss

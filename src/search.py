@@ -28,7 +28,7 @@ import torch.nn.functional as F
 from nltk.corpus import stopwords
 import string
 from template import img_prompt, \
-    img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5
+    img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, task_image_prompts, llama3_template
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
     get_text_valid_tokens_values_with_cluster
 from hybrid import fuse
@@ -357,6 +357,9 @@ def main():
                 if search_args.query_type == 'text':
                     query_logits, query_dense_reps = model.encode_data(texts, 'text', processor, device, model_args,
                                                                        data_args)
+                    if model_args.eol_type == 'metaeol':
+                        query_logits = logits.reshape(-1, len(task_image_prompts), query_logits.shape[1]).mean(1)
+                        query_dense_reps = query_dense_reps.reshape(-1, len(task_image_prompts), query_dense_reps.shape[1]).mean(1)
                 else:
                     if 'InternVL2_5-8B' in model_args.model_name_or_path:
                         prompt = processor.apply_chat_template(
@@ -366,17 +369,35 @@ def main():
                         query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device, model_args,
                                                                            data_args)
                     else:
-                        if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-                            prompt = processor.apply_chat_template(
-                                img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
-                            )
-                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
-                                               return_tensors="pt",
-                                               padding=True)
-                        imgs = img_inputs.to(device)
-                        query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device, model_args,
-                                                                           data_args)
+                        if model_args.eol_type == 'prompteol':
+                            if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                                prompt = processor.apply_chat_template(
+                                    img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
+                                )
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                                   return_tensors="pt",
+                                                   padding=True)
+                            imgs = img_inputs.to(device)
+                            query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
+                                                                               model_args,
+                                                                               data_args)
+                        else:
+                            # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
+                            raw_images = [Image.open(path).convert('RGB') for _ in range(len(task_image_prompts)) for
+                                          path in imgs_path] * len(task_image_prompts)
+                            # 将task_prompt添加到llama3_template中
+                            prompts = [llama3_template.format(prompt) for prompt in task_image_prompts]
+                            img_inputs = processor(images=raw_images, text=prompts * len(imgs_path),
+                                                   return_tensors="pt",
+                                                   padding=True)
+
+                            imgs = img_inputs.to(device)
+                            # 在metaeol模式下，reps应该是[batch_size * len(task_prompts), reps_dim]
+                            query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
+
+                            query_logits = query_logits.reshape(-1, len(task_image_prompts), query_logits.shape[1]).mean(1)
+                            query_dense_reps = query_dense_reps.reshape(-1, len(task_image_prompts), query_dense_reps.shape[1]).mean(1)
 
                 if search_args.query_type == 'text':
                     batch_ids = text_ids

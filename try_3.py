@@ -5,9 +5,9 @@ import random
 
 data_dict = {}
 data_save = [
-    ['imgid','filepath','filename','caption','sentid']
+    ['imgid','filename','caption','sentid']
 ]
-with open('data/coco/coco_train.csv') as f:
+with open('data/flickr/flickr_train.csv') as f:
     reader = csv.reader(f)
     for row in reader:
         if row[0] == 'imgid':
@@ -19,7 +19,7 @@ with open('data/coco/coco_train.csv') as f:
             else:
                 data_dict[row[0]].append(row)
 key_list = list(data_dict.keys())
-random.seed(1)
+random.seed(2)
 
 few_shot_sum = 800
 indices = random.sample(range(1, len(data_dict.keys())), few_shot_sum)
@@ -32,6 +32,6 @@ for i in indices:
         data_save.append(data)
 
 print(data_save)
-with open(f'data/coco/coco_train_{few_shot_sum}_new.csv', mode='w', newline='') as file:
+with open(f'data/flickr/flickr_train_{few_shot_sum}_new_1.csv', mode='w', newline='') as file:
     writer = csv.writer(file)
     writer.writerows(data_save)  # 将数据逐行写入CSV文件
