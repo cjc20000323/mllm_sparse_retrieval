@@ -297,6 +297,16 @@ def main():
 
     model.encoder.save_pretrained(training_args.output_dir)
 
+    # 训练结束后添加同步屏障
+    dist.barrier()
+
+    # 确保所有进程同步退出
+    if dist.get_rank() == 0:
+        # 主进程最后退出
+        torch.distributed.destroy_process_group()
+    else:
+        torch.distributed.destroy_process_group()
+
 
 if __name__ == "__main__":
     main()
