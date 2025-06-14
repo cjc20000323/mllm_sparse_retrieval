@@ -51,7 +51,7 @@ class CrossModalRetrievalDataset(Dataset):
         assert self.mode in ['single', 'full']
         if data_args is not None:
             if data_args.use_few_shot:
-                if data_args.datset_suffix == 'no':
+                if data_args.dataset_suffix == 'no':
                     self.dataset_file = f'{self.data_path}' + f'{self.data_name}_{self.split}_{data_args.few_shot_sum}.csv'
                 else:
                     self.dataset_file = f'{self.data_path}' + f'{self.data_name}_{self.split}_{data_args.few_shot_sum}_{data_args.dataset_suffix}.csv'
@@ -59,6 +59,7 @@ class CrossModalRetrievalDataset(Dataset):
                 self.dataset_file = f'{self.data_path}' + f'{self.data_name}_{self.split}.csv'
         else:
             self.dataset_file = f'{self.data_path}' + f'{self.data_name}_{self.split}.csv'
+        print(self.dataset_file)
         with open(self.dataset_file, mode='r') as file:
             reader = csv.reader(file)
             # 遍历文件中的每一行
