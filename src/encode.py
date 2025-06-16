@@ -1,3 +1,4 @@
+import gc
 import json
 import logging
 import os
@@ -482,25 +483,45 @@ def main():
                         logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
                     else:
                         # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
-                        raw_images = [Image.open(path).convert('RGB') for _ in range(len(task_image_prompts)) for path in imgs_path] * len(task_image_prompts)
+                        raw_images = [Image.open(path).convert('RGB') for _ in range(len(task_image_prompts)//4) for path in imgs_path]
                         # 将task_prompt添加到llama3_template中
                         prompts = [llama3_template.format(prompt) for prompt in task_image_prompts]
-                        img_inputs = processor(images=raw_images, text=prompts*len(imgs_path),
-                                               return_tensors="pt",
-                                               padding=True)
 
-                        imgs = img_inputs.to(device)
-                        # 在metaeol模式下，reps应该是[batch_size * len(task_prompts), reps_dim]
-                        logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
+                        logits = []
+                        reps = []
 
-                        logits = logits.reshape(-1, len(task_image_prompts), logits.shape[1]).mean(1)
-                        reps = reps.reshape(-1, len(task_image_prompts), reps.shape[1]).mean(1)
+                        for i in range(4):
+                            start = i * len(prompts) // 4
+                            end = (i + 1) * len(prompts) // 4
+
+                            img_inputs = processor(images=raw_images, text=prompts[start:end] * len(imgs_path),
+                                                   return_tensors="pt",
+                                                   padding=True)
+
+                            imgs = img_inputs.to(device)
+
+                            # 在metaeol模式下，reps应该是[batch_size * len(task_prompts), reps_dim]
+                            logits_sub, reps_sub = model.encode_data(imgs, 'image', processor, device, model_args,
+                                                                 data_args)
+
+                            logits.append(logits_sub)
+                            reps.append(reps_sub)
+
+                        logits = torch.cat(logits, dim=0)
+                        reps = torch.cat(reps, dim=0)
+
+                        logits = logits.reshape(-1, len(task_image_prompts), logits.shape[1]).mean(1).contiguous()
+                        reps = reps.reshape(-1, len(task_image_prompts), reps.shape[1]).mean(1).contiguous()
 
             # print(logits.shape)
             reps = F.normalize(reps, dim=-1)
             if dist.is_initialized():
                 # reps_list = [[None] for _ in range(dist.get_world_size())]
                 # logits_list = [[None] for _ in range(dist.get_world_size())]
+
+                # 在dist.all_gather前添加内存清理
+                torch.cuda.empty_cache()
+                gc.collect()
 
                 reps_list = [torch.zeros_like(reps) for _ in range(dist.get_world_size())]
                 logits_list = [torch.zeros_like(logits) for _ in range(dist.get_world_size())]
@@ -519,6 +540,10 @@ def main():
                 dist.all_gather_object(object_list=text_ids_list, obj=text_ids)
                 dist.all_gather_object(object_list=image_ids_list, obj=img_ids)
                 dist.all_gather_object(object_list=texts_list, obj=texts)
+
+                if model_args.eol_type == 'metaeol' and training_args.encode_type == 'image':
+                    del reps
+                    del logits
 
                 batch_reps = torch.cat(reps_list)
                 batch_logits = torch.cat(logits_list)
@@ -605,6 +630,18 @@ def main():
                                 )
                             )
 
+                if model_args.eol_type == 'metaeol' and training_args.encode_type == 'image':
+                    del reps_list
+                    del logits_list
+                    del text_ids_list
+                    del image_ids_list
+                    del texts_list
+                    del batch_reps
+                    del batch_logits
+                    del batch_text_ids
+                    del batch_image_ids
+                    del batch_texts
+
         if dist.get_rank() == 0:
             encoded = np.concatenate(encoded)
 
@@ -629,23 +666,23 @@ def main():
 
             if model_args.lora:
                 os.makedirs(
-                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_lora',
+                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
                     exist_ok=True)
                 os.makedirs(
-                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_lora',
+                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
                     exist_ok=True)
 
                 with open(os.path.join(
-                        f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_lora',
+                        f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
                         f'query.pkl') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_lora',
+                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
                     f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
                     pickle.dump((encoded, lookup_indices), f)
 
                 with open(os.path.join(
-                        f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_lora',
+                        f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
                         f'query.tsv') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_lora',
+                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
                     f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
                     for data in jsonl_data:
                         if data_args.encode_is_query:
@@ -660,23 +697,23 @@ def main():
 
             else:
                 os.makedirs(
-                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}',
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
                     exist_ok=True)
                 os.makedirs(
-                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}',
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
                     exist_ok=True)
 
                 with open(os.path.join(
-                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}',
+                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
                         f'query.pkl') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}',
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
                     f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
                     pickle.dump((encoded, lookup_indices), f)
 
                 with open(os.path.join(
-                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}',
+                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
                         f'query.tsv') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}',
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
                     f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
                     for data in jsonl_data:
                         if data_args.encode_is_query:

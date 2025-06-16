@@ -385,7 +385,7 @@ def main():
                         else:
                             # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
                             raw_images = [Image.open(path).convert('RGB') for _ in range(len(task_image_prompts)) for
-                                          path in imgs_path] * len(task_image_prompts)
+                                          path in imgs_path]
                             # 将task_prompt添加到llama3_template中
                             prompts = [llama3_template.format(prompt) for prompt in task_image_prompts]
                             img_inputs = processor(images=raw_images, text=prompts * len(imgs_path),
