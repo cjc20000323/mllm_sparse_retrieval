@@ -483,14 +483,16 @@ def main():
                         logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
                     else:
                         # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
-                        raw_images = [Image.open(path).convert('RGB') for _ in range(len(task_image_prompts)//4) for path in imgs_path]
+                        raw_images = [Image.open(path).convert('RGB') for
+                                      path in imgs_path for _ in range(len(task_image_prompts) // 4)]
                         # 将task_prompt添加到llama3_template中
                         prompts = [llama3_template.format(prompt) for prompt in task_image_prompts]
 
-                        logits = []
-                        reps = []
+                        logits = [[] for _ in range(len(imgs_path))]
+                        reps = [[] for _ in range(len(imgs_path))]
 
                         for i in range(4):
+                            # 这个i是为了控制现在使用哪些prompt编码
                             start = i * len(prompts) // 4
                             end = (i + 1) * len(prompts) // 4
 
@@ -502,10 +504,15 @@ def main():
 
                             # 在metaeol模式下，reps应该是[batch_size * len(task_prompts), reps_dim]
                             logits_sub, reps_sub = model.encode_data(imgs, 'image', processor, device, model_args,
-                                                                 data_args)
+                                                                     data_args)
 
-                            logits.append(logits_sub)
-                            reps.append(reps_sub)
+                            for j in range(len(imgs_path)):
+                                # 这个j是为了控制要把第j个样本对应的数据存到对应索引下的列表中
+                                logits[j].append(logits_sub[j * len(prompts) // 4:(j + 1) * len(prompts) // 4])
+                                reps[j].append(reps_sub[j * len(prompts) // 4:(j + 1) * len(prompts) // 4])
+
+                        logits = [item for logit in logits for item in logit]
+                        reps = [item for rep in reps for item in rep]
 
                         logits = torch.cat(logits, dim=0)
                         reps = torch.cat(reps, dim=0)
