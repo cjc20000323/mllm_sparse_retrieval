@@ -31,7 +31,7 @@ import torch.nn.functional as F
 
 from template import text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
     img_prompt_no_special_llava_v1_5, text_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, img_prompt_qwen_v2_5, \
-    img_prompt_intern_vl_v2_5, text_prompt_intern_vl_v2_5, task_image_prompts, llama3_template
+    img_prompt_intern_vl_v2_5, text_prompt_intern_vl_v2_5, task_image_prompts, llama3_template, task_text_prompts, task_text_prompts_copy, task_image_prompts_copy
 from model import MLLMRetrievalModel
 from utils import split_model, load_image
 from peft import PeftModel, PeftConfig
@@ -459,8 +459,8 @@ def main():
             if training_args.encode_type == 'text':
                 logits, reps = model.encode_data(texts, 'text', processor, device, model_args, data_args)
                 if model_args.eol_type == 'metaeol':
-                    logits = logits.reshape(-1, len(task_image_prompts), logits.shape[1]).mean(1)
-                    reps = reps.reshape(-1, len(task_image_prompts), reps.shape[1]).mean(1)
+                    logits = logits.reshape(-1, len(task_text_prompts_copy), logits.shape[1]).mean(1)
+                    reps = reps.reshape(-1, len(task_text_prompts_copy), reps.shape[1]).mean(1)
             else:
                 # Preparation for inference
                 if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
@@ -483,16 +483,17 @@ def main():
                         logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
                     else:
                         # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
+                        # 也就是说，对于批次中的每个图像，按照下面每次循环使用的prompt个数，加入到raw_images中
                         raw_images = [Image.open(path).convert('RGB') for
-                                      path in imgs_path for _ in range(len(task_image_prompts) // 4)]
+                                      path in imgs_path for _ in range(len(task_image_prompts_copy) // 4)]
                         # 将task_prompt添加到llama3_template中
-                        prompts = [llama3_template.format(prompt) for prompt in task_image_prompts]
+                        prompts = [llama3_template.format(task_image_prompt) for task_image_prompt in task_image_prompts_copy]
 
                         logits = [[] for _ in range(len(imgs_path))]
                         reps = [[] for _ in range(len(imgs_path))]
 
                         for i in range(4):
-                            # 这个i是为了控制现在使用哪些prompt编码
+                            # 这个i是为了控制当前轮次使用哪些prompt编码
                             start = i * len(prompts) // 4
                             end = (i + 1) * len(prompts) // 4
 
@@ -502,7 +503,7 @@ def main():
 
                             imgs = img_inputs.to(device)
 
-                            # 在metaeol模式下，reps应该是[batch_size * len(task_prompts), reps_dim]
+                            # 在metaeol模式下，reps应该是[batch_size * len(task_prompts) // 4, reps_dim]
                             logits_sub, reps_sub = model.encode_data(imgs, 'image', processor, device, model_args,
                                                                      data_args)
 
@@ -517,8 +518,8 @@ def main():
                         logits = torch.cat(logits, dim=0)
                         reps = torch.cat(reps, dim=0)
 
-                        logits = logits.reshape(-1, len(task_image_prompts), logits.shape[1]).mean(1).contiguous()
-                        reps = reps.reshape(-1, len(task_image_prompts), reps.shape[1]).mean(1).contiguous()
+                        logits = logits.reshape(-1, len(task_image_prompts_copy), logits.shape[1]).mean(1)
+                        reps = reps.reshape(-1, len(task_image_prompts_copy), reps.shape[1]).mean(1)
 
             # print(logits.shape)
             reps = F.normalize(reps, dim=-1)

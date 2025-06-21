@@ -11,7 +11,8 @@ from transformers import AutoProcessor
 
 from transformers.file_utils import ModelOutput
 from template import text_prompt, img_prompt, img_prompt_no_one_word, text_prompt_no_one_word, \
-    text_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, text_prompt_intern_vl_v2_5, img_prompt_intern_vl_v2_5, task_text_prompts, llama3_template
+    text_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, text_prompt_intern_vl_v2_5, img_prompt_intern_vl_v2_5, \
+    task_text_prompts, llama3_template, task_text_prompts_copy
 import torch.nn.functional as F
 
 import logging
@@ -106,8 +107,9 @@ class MLLMRetrievalModel(nn.Module):
                                                 return_tensors="pt",
                                                 padding=True).to('cuda')
                     else:
-                        prompts = [llama3_template.format(prompt) for prompt in task_text_prompts]
-                        text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input for prompt in prompts],
+                        prompts = [llama3_template.format(task_text_prompt) for task_text_prompt in task_text_prompts_copy]
+                        # 输入text的顺序是，对于每个input中的text，按照task_text_prompts中的顺序组装成列表
+                        text_inputs = processor(text=[task_text_prompt.replace('<sent>', text) for text in input for task_text_prompt in prompts],
                                                 return_tensors="pt",
                                                 padding=True).to('cuda')
                 output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)

@@ -28,7 +28,7 @@ import torch.nn.functional as F
 from nltk.corpus import stopwords
 import string
 from template import img_prompt, \
-    img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, task_image_prompts, llama3_template
+    img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, task_image_prompts, llama3_template, task_text_prompts
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
     get_text_valid_tokens_values_with_cluster
 from hybrid import fuse
@@ -358,8 +358,8 @@ def main():
                     query_logits, query_dense_reps = model.encode_data(texts, 'text', processor, device, model_args,
                                                                        data_args)
                     if model_args.eol_type == 'metaeol':
-                        query_logits = logits.reshape(-1, len(task_image_prompts), query_logits.shape[1]).mean(1)
-                        query_dense_reps = query_dense_reps.reshape(-1, len(task_image_prompts), query_dense_reps.shape[1]).mean(1)
+                        query_logits = query_logits.reshape(-1, len(task_text_prompts), query_logits.shape[1]).mean(1)
+                        query_dense_reps = query_dense_reps.reshape(-1, len(task_text_prompts), query_dense_reps.shape[1]).mean(1)
                 else:
                     if 'InternVL2_5-8B' in model_args.model_name_or_path:
                         prompt = processor.apply_chat_template(
@@ -384,16 +384,18 @@ def main():
                                                                                data_args)
                         else:
                             # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
+                            # 也就是说，对于批次中的每个图像，按照下面每次循环使用的prompt个数，加入到raw_images中
                             raw_images = [Image.open(path).convert('RGB') for
                                           path in imgs_path for _ in range(len(task_image_prompts) // 4)]
                             # 将task_prompt添加到llama3_template中
-                            prompts = [llama3_template.format(prompt) for prompt in task_image_prompts]
+                            prompts = [llama3_template.format(task_image_prompt) for task_image_prompt in
+                                       task_image_prompts]
 
                             logits = [[] for _ in range(len(imgs_path))]
                             reps = [[] for _ in range(len(imgs_path))]
 
                             for i in range(4):
-                                # 这个i是为了控制现在使用哪些prompt编码
+                                # 这个i是为了控制当前轮次使用哪些prompt编码
                                 start = i * len(prompts) // 4
                                 end = (i + 1) * len(prompts) // 4
 
@@ -403,7 +405,7 @@ def main():
 
                                 imgs = img_inputs.to(device)
 
-                                # 在metaeol模式下，reps应该是[batch_size * len(task_prompts), reps_dim]
+                                # 在metaeol模式下，reps应该是[batch_size * len(task_prompts) // 4, reps_dim]
                                 logits_sub, reps_sub = model.encode_data(imgs, 'image', processor, device, model_args,
                                                                          data_args)
 
@@ -418,8 +420,8 @@ def main():
                             logits = torch.cat(logits, dim=0)
                             reps = torch.cat(reps, dim=0)
 
-                            query_logits = logits.reshape(-1, len(task_image_prompts), logits.shape[1]).mean(1).contiguous()
-                            query_dense_reps = reps.reshape(-1, len(task_image_prompts), reps.shape[1]).mean(1).contiguous()
+                            query_logits = logits.reshape(-1, len(task_image_prompts), logits.shape[1]).mean(1)
+                            query_dense_reps = reps.reshape(-1, len(task_image_prompts), reps.shape[1]).mean(1)
 
                 if search_args.query_type == 'text':
                     batch_ids = text_ids
@@ -615,6 +617,11 @@ def main():
                                                                            search_args)
                             sparse_run.update(
                                 get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
+
+
+                if model_args.eol_type == 'metaeol':
+                    del query_dense_reps
+                    del query_logits
 
         if dense_retriever:
             del dense_retriever
