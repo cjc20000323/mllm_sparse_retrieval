@@ -546,6 +546,7 @@ def main():
                         batch_topics = []
                         if search_args.query_type == 'text':
                             for _, logits, text in zip(batch_ids, query_logits, texts):
+                                vector = dict()
                                 if model_args.use_output_embedding_cluster:
                                     if 'InternVL2_5-8B' in model_args.model_name_or_path:
                                         tokens, values = get_text_valid_tokens_values_with_cluster(text, processor,
@@ -572,8 +573,20 @@ def main():
                                                                                       vocab_dict,
                                                                                       data_args,
                                                                                       filtered_ids)
-                                query = ""
                                 for token, v in zip(tokens, values):
+                                    if token in vector.keys():
+                                        if data_args.sparse_value_type == 'replace':
+                                            vector[token] = int(v)
+                                        elif data_args.sparse_value_type == 'sum':
+                                            vector[token] += int(v)
+                                        else:
+                                            if int(v) > vector[token]:
+                                                vector[token] = int(v)
+                                    else:
+                                        vector[token] = int(v)
+
+                                query = ""
+                                for token, v in vector.items():
                                     query += (' ' + token) * v
                                 batch_topics.append(query.strip())
                             sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
@@ -584,6 +597,7 @@ def main():
 
                         else:
                             for _, logits in zip(batch_ids, query_logits):
+                                vector = dict()
                                 if model_args.use_output_embedding_cluster:
                                     if 'InternVL2_5-8B' in model_args.model_name_or_path:
                                         tokens, values = get_img_valid_tokens_values_with_cluster(processor, logits,
@@ -608,8 +622,20 @@ def main():
                                                                                      vocab_dict,
                                                                                      data_args,
                                                                                      filtered_ids)
-                                query = ""
                                 for token, v in zip(tokens, values):
+                                    if token in vector.keys():
+                                        if data_args.sparse_value_type == 'replace':
+                                            vector[token] = int(v)
+                                        elif data_args.sparse_value_type == 'sum':
+                                            vector[token] += int(v)
+                                        else:
+                                            if int(v) > vector[token]:
+                                                vector[token] = int(v)
+                                    else:
+                                        vector[token] = int(v)
+
+                                query = ""
+                                for token, v in vector.items():
                                     query += (' ' + token) * v
                                 batch_topics.append(query.strip())
                             sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,

@@ -597,7 +597,16 @@ def main():
                                                                                   data_args,
                                                                                   filtered_ids)
                             for token, v in zip(tokens, values):
-                                vector[token] = int(v)
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
+                                        vector[token] = int(v)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
                             jsonl_data.append(
                                 dict(
                                     id=id,
@@ -629,7 +638,16 @@ def main():
                                                                                  vocab_dict,
                                                                                  data_args, filtered_ids)
                             for token, v in zip(tokens, values):
-                                vector[token] = int(v)
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
+                                        vector[token] = int(v)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
                             jsonl_data.append(
                                 dict(
                                     id=id,
@@ -674,23 +692,23 @@ def main():
 
             if model_args.lora:
                 os.makedirs(
-                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
+                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
                     exist_ok=True)
                 os.makedirs(
-                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
+                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
                     exist_ok=True)
 
                 with open(os.path.join(
-                        f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
+                        f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
                         f'query.pkl') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
+                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
                     f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
                     pickle.dump((encoded, lookup_indices), f)
 
                 with open(os.path.join(
-                        f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
+                        f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
                         f'query.tsv') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
+                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
                     f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
                     for data in jsonl_data:
                         if data_args.encode_is_query:
@@ -705,23 +723,23 @@ def main():
 
             else:
                 os.makedirs(
-                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
                     exist_ok=True)
                 os.makedirs(
-                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
                     exist_ok=True)
 
                 with open(os.path.join(
-                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
+                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
                         f'query.pkl') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
                     f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
                     pickle.dump((encoded, lookup_indices), f)
 
                 with open(os.path.join(
-                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
+                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
                         f'query.tsv') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
                     f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
                     for data in jsonl_data:
                         if data_args.encode_is_query:

@@ -60,6 +60,7 @@ class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
     cutoff_len: int = field(default=32)
     pad_to_multiple_of: int = field(default=8)
     dataset_suffix: str = field(default='no')
+    sparse_value_type: str = field(default='replace')
 
 
 
