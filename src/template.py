@@ -88,3 +88,18 @@ task_image_prompts_copy = [
     "In this task, you're examining a news image. Your task is to extract the most critical fact from the image. For this task, this image : <image> encapsulates the key fact in one word: ",
     "In this task, you're reviewing a scientific image. Your task is to identify the main entities (e.g., proteins, diseases) and their relations (e.g., causes, treats). For this task, this image : <image> highlights the primary entity or relation in one word: ",
     ]
+
+
+retreival_disassemble_text_prompts = [
+    '<text>\nSummary the main people or objects in above sentence in one word: ',
+    '<text>\nSummary the relations between people or objects in above sentence in one word: ',
+    '<text>\nSummary the environment or place in above sentence in one word: ',
+    '<text>\nSummary the action of people or objects in above sentence in one word: '
+]
+
+retrieval_disassemble_image_prompts = [
+    '<image>\nSummary the main person or object in above image in one word: ',
+    '<image>\nSummary the relations between people or objects in above image in one word: ',
+    '<image>\nSummary the environment or place in above image in one word: ',
+    '<image>\nSummary the action of people or objects in above image in one word: '
+]

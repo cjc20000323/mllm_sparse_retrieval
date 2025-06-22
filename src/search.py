@@ -622,6 +622,7 @@ def main():
                                                                                      vocab_dict,
                                                                                      data_args,
                                                                                      filtered_ids)
+
                                 for token, v in zip(tokens, values):
                                     if token in vector.keys():
                                         if data_args.sparse_value_type == 'replace':

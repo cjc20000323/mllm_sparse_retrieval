@@ -481,6 +481,9 @@ def main():
                                                padding=True)
                         imgs = img_inputs.to(device)
                         logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
+                    elif model_args.eol_type == 'disassembleeol':
+                        # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
+                        pass
                     else:
                         # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
                         # 也就是说，对于批次中的每个图像，按照下面每次循环使用的prompt个数，加入到raw_images中
