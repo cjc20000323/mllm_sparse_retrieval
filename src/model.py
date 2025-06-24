@@ -12,7 +12,7 @@ from transformers import AutoProcessor
 from transformers.file_utils import ModelOutput
 from template import text_prompt, img_prompt, img_prompt_no_one_word, text_prompt_no_one_word, \
     text_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, text_prompt_intern_vl_v2_5, img_prompt_intern_vl_v2_5, \
-    task_text_prompts, llama3_template, task_text_prompts_copy
+    task_text_prompts, llama3_template, task_text_prompts_copy, llama3_retrieval_disassemble_text_prompts
 import torch.nn.functional as F
 
 import logging
@@ -63,6 +63,14 @@ class MLLMRetrievalModel(nn.Module):
             )
         else:
             prompt = text_prompt
+
+        if model_args.eol_type == 'disassembleeol':
+            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
+                prompts = llama3_retrieval_disassemble_text_prompts
+            else:
+                prompts = llama3_retrieval_disassemble_text_prompts
+        else:
+            prompts = llama3_retrieval_disassemble_text_prompts
         if input_type == 'text':
             if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
                 text_inputs = processor([prompt.replace('<sent>', text) for text in input], return_tensors='pt',
@@ -106,12 +114,35 @@ class MLLMRetrievalModel(nn.Module):
                         text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                                 return_tensors="pt",
                                                 padding=True).to('cuda')
-                    else:
-                        prompts = [llama3_template.format(task_text_prompt) for task_text_prompt in task_text_prompts_copy]
-                        # 输入text的顺序是，对于每个input中的text，按照task_text_prompts中的顺序组装成列表
-                        text_inputs = processor(text=[task_text_prompt.replace('<sent>', text) for text in input for task_text_prompt in prompts],
+                    elif model_args.eol_type == 'disassembleeol':
+                        disassemble_text_inputs = processor(
+                            text=[prompt.replace('<sent>', text) for text in input for prompt in prompts],
+                            return_tensors="pt",
+                            padding=True).to('cuda')
+                        text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                                 return_tensors="pt",
                                                 padding=True).to('cuda')
+                        disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
+                                                          return_dict=True)
+                        if data_args.reps_loc == 'after_pad':
+                            disassemble_logits = disassemble_output.logits[:, -1, :]
+                        else:
+                            disassemble_logits = disassemble_output.logits
+                            disassemble_sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
+                            disassemble_batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']),
+                                                                 device=disassemble_logits.device)
+                            disassemble_logits = disassemble_output.logits[
+                                disassemble_batch_ids, disassemble_sequence_lengths]
+                        disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
+                    else:
+                        prompts = [llama3_template.format(task_text_prompt) for task_text_prompt in
+                                   task_text_prompts_copy]
+                        # 输入text的顺序是，对于每个input中的text，按照task_text_prompts中的顺序组装成列表
+                        text_inputs = processor(
+                            text=[task_text_prompt.replace('<sent>', text) for text in input for task_text_prompt in
+                                  prompts],
+                            return_tensors="pt",
+                            padding=True).to('cuda')
                 output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
                 # print(text_inputs['input_ids'])
                 # print(output.logits.shape)
@@ -129,6 +160,8 @@ class MLLMRetrievalModel(nn.Module):
                         batch_ids, sequence_lengths]
                 # 这里对应原文的log+relu操作
                 logits = torch.log(1 + torch.relu(logits))
+                if model_args.eol_type == 'disassembleeol':
+                    logits = torch.cat([logits, disassemble_logits], dim=0)
             return logits, embs
         elif input_type == 'image':
             if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
@@ -185,7 +218,6 @@ class MLLMRetrievalModel(nn.Module):
             return logits, embs
         else:
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
-
 
     def encode_data_for_train(self, input, input_type, processor, device, model_args, data_args):
         '''
@@ -248,7 +280,6 @@ class MLLMRetrievalModel(nn.Module):
         else:
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
 
-
     def encode_data_at_same_time(self, text_input, image_input, processor, device, model_args, data_args):
         pass
 
@@ -294,6 +325,6 @@ class MLLMRetrievalModel(nn.Module):
                                                   data_args)
 
         img_logits, img_reps = self.encode_data(imgs, 'image', processor, device, model_args,
-                                             data_args)
+                                                data_args)
 
         return {'text_reps': text_reps, 'img_reps': img_reps}

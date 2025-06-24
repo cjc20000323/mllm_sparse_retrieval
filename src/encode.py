@@ -31,7 +31,9 @@ import torch.nn.functional as F
 
 from template import text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
     img_prompt_no_special_llava_v1_5, text_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, img_prompt_qwen_v2_5, \
-    img_prompt_intern_vl_v2_5, text_prompt_intern_vl_v2_5, task_image_prompts, llama3_template, task_text_prompts, task_text_prompts_copy, task_image_prompts_copy
+    img_prompt_intern_vl_v2_5, text_prompt_intern_vl_v2_5, task_image_prompts, llama3_template, task_text_prompts, \
+    task_text_prompts_copy, task_image_prompts_copy, \
+    llama3_retrieval_disassemble_image_prompts, llama3_retrieval_disassemble_text_prompts
 from model import MLLMRetrievalModel
 from utils import split_model, load_image
 from peft import PeftModel, PeftConfig
@@ -59,7 +61,7 @@ def filter_token(token):
     return token
 
 
-def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filtered_ids):
+def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filtered_ids, model_args=None):
     # 这里是想获得图像的离散值，但是图像是没有文本的，所以不能像原来那样获得对应的token_id，那么是取top 10还是最多128呢，我们先最多128吧
 
     # if len(token_ids_in_text) == 0:  # if no tokens in the text (rare case), we use top 10 tokens
@@ -73,6 +75,9 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
     # TODO： 这里默认选128个了，但是文本大多数是没有128那么长的，不知道会不会对最终结果有影响
     if data_args.sparse_manual:
         top_k_values, top_k_indices = logits.topk(data_args.sparse_length, dim=-1)
+    elif model_args is not None and model_args.eol_type == 'disassembleeol':
+        top_k = 30
+        top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
     else:
         top_k = 128
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
@@ -126,7 +131,28 @@ def get_img_valid_tokens_values_with_cluster(tokenizer, logits, vocab_dict, orig
     return tokens, values
 
 
-def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args, filtered_ids):
+def get_img_valid_disassemble_tokens_values(tokenizer, logits, disassemble_logits, vocab_dict, data_args, filtered_ids,
+                                            model_args=None):
+    word_set = set()
+    if data_args.sparse_manual:
+        top_k = data_args.sparse_length
+    else:
+        top_k = 30
+    for disassemble_logit in disassemble_logits:
+        top_k_values, top_k_indices = disassemble_logit.topk(top_k, dim=-1)
+        word_set.update(top_k_indices.tolist())
+
+    values = [logits[indice].cpu().detach() for indice in word_set if indice < len(vocab_dict)]
+    values = np.rint(np.array(values) * 100).astype(int)
+
+    if data_args.is_filtered:
+        tokens = [filter_token(vocab_dict[i].lower()) for i in word_set if i < len(vocab_dict)]
+    else:
+        tokens = [vocab_dict[i].lower() for i in word_set if i < len(vocab_dict)]
+    return tokens, values
+
+
+def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args, filtered_ids, model_args=None):
     words = [i for i in word_tokenize(text.lower()) if
              i not in set(stopwords.words('english') + list(string.punctuation))]
     token_ids = set()
@@ -147,6 +173,17 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
                       i < len(vocab_dict)]
     elif data_args.sparse_manual:
         top_k_values, top_k_indices = logits.topk(data_args.sparse_length, dim=-1)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        if data_args.is_filtered:
+            tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
+                      if
+                      i < len(vocab_dict)]
+        else:
+            tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy() if
+                      i < len(vocab_dict)]
+    elif model_args is not None and model_args.eol_type == 'disassembleeol':
+        top_k = 30
+        top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
         values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
         if data_args.is_filtered:
             tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
@@ -222,6 +259,27 @@ def get_text_valid_tokens_values_with_cluster(text, tokenizer, logits, vocab_dic
                   token_ids_in_text[top_k_indices.cpu().detach().float().numpy()] if
                   i < len(vocab_dict)]
 
+    return tokens, values
+
+
+def get_text_valid_disassemble_tokens_values(text, tokenizer, logits, disassemble_logits, vocab_dict, data_args,
+                                             filtered_ids, model_args=None):
+    word_set = set()
+    if data_args.sparse_manual:
+        top_k = data_args.sparse_length
+    else:
+        top_k = 30
+    for disassemble_logit in disassemble_logits:
+        top_k_values, top_k_indices = disassemble_logit.topk(top_k, dim=-1)
+        word_set.update(top_k_indices.tolist())
+
+    values = [logits[indice].cpu().detach() for indice in word_set if indice < len(vocab_dict)]
+    values = np.rint(np.array(values) * 100).astype(int)
+
+    if data_args.is_filtered:
+        tokens = [filter_token(vocab_dict[i].lower()) for i in word_set if i < len(vocab_dict)]
+    else:
+        tokens = [vocab_dict[i].lower() for i in word_set if i < len(vocab_dict)]
     return tokens, values
 
 
@@ -451,6 +509,11 @@ def main():
                 print(prompt)
         else:
             prompt = img_prompt
+
+        if model_args.eol_type == 'disassembleeol':
+            prompts = llama3_retrieval_disassemble_image_prompts
+        else:
+            prompts = llama3_retrieval_disassemble_image_prompts
         for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                      total=len(test_dataloader)):
             if len(texts) != data_args.per_device_batch_size:
@@ -461,6 +524,9 @@ def main():
                 if model_args.eol_type == 'metaeol':
                     logits = logits.reshape(-1, len(task_text_prompts_copy), logits.shape[1]).mean(1)
                     reps = reps.reshape(-1, len(task_text_prompts_copy), reps.shape[1]).mean(1)
+                elif model_args.eol_type == 'disassembleeol':
+                    disassemble_logits = logits[data_args.per_device_batch_size:]
+                    logits = logits[:data_args.per_device_batch_size]
             else:
                 # Preparation for inference
                 if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
@@ -483,14 +549,28 @@ def main():
                         logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
                     elif model_args.eol_type == 'disassembleeol':
                         # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
-                        pass
+                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                        img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                               return_tensors="pt",
+                                               padding=True)
+                        imgs = img_inputs.to(device)
+                        logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
+
+                        disassemble_raw_images = [raw_image for raw_image in raw_images for _ in range(len(prompts))]
+                        disassemble_img_inputs = processor(images=disassemble_raw_images, text=prompts * len(imgs_path),
+                                                           return_tensors="pt",
+                                                           padding=True)
+                        disassemble_imgs = disassemble_img_inputs.to(device)
+                        disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
+                                                                  model_args, data_args)
                     else:
                         # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
                         # 也就是说，对于批次中的每个图像，按照下面每次循环使用的prompt个数，加入到raw_images中
                         raw_images = [Image.open(path).convert('RGB') for
                                       path in imgs_path for _ in range(len(task_image_prompts_copy) // 4)]
                         # 将task_prompt添加到llama3_template中
-                        prompts = [llama3_template.format(task_image_prompt) for task_image_prompt in task_image_prompts_copy]
+                        prompts = [llama3_template.format(task_image_prompt) for task_image_prompt in
+                                   task_image_prompts_copy]
 
                         logits = [[] for _ in range(len(imgs_path))]
                         reps = [[] for _ in range(len(imgs_path))]
@@ -540,11 +620,11 @@ def main():
                 text_ids_list = [[None] for _ in range(dist.get_world_size())]
                 image_ids_list = [[None] for _ in range(dist.get_world_size())]
 
-                '''
-                texts_list = [[None] for _ in range(dist.get_world_size())]
-                text_ids_list = [[None] for _ in range(dist.get_world_size())]
-                image_ids_list = [[None] for _ in range(dist.get_world_size())]
-                '''
+                if model_args.eol_type == 'disassembleeol':
+                    disassemble_logits_list = [torch.zeros_like(disassemble_logits) for _ in
+                                               range(dist.get_world_size())]
+                    dist.all_gather(tensor_list=disassemble_logits_list, tensor=disassemble_logits.contiguous())
+                    batch_disassemble_logits = torch.cat(disassemble_logits_list)
 
                 dist.all_gather(tensor_list=reps_list, tensor=reps.contiguous())
                 dist.all_gather(tensor_list=logits_list, tensor=logits.contiguous())
@@ -567,97 +647,209 @@ def main():
                         lookup_indices.extend(batch_text_ids)
                     else:
                         lookup_indices.extend(batch_image_ids)
+                    if model_args.eol_type == 'disassembleeol':
+                        if training_args.encode_type == 'text':
+                            batch_disassemble_ids = [id for id in batch_text_ids for _ in
+                                                     range(len(llama3_retrieval_disassemble_text_prompts))]
+                            batch_disassemble_texts = [text for text in batch_texts for _ in
+                                                       range(len(llama3_retrieval_disassemble_text_prompts))]
+                        else:
+                            batch_disassemble_ids = [id for id in batch_image_ids for _ in
+                                                     range(len(llama3_retrieval_disassemble_image_prompts))]
+                            batch_disassemble_texts = [text for text in batch_texts for _ in
+                                                       range(len(llama3_retrieval_disassemble_image_prompts))]
+                        # print('The batch disassemble ids lengths are ', len(batch_disassemble_ids))
                     encoded.append(batch_reps.cpu().detach().float().numpy())
 
                     ids = batch_text_ids if training_args.encode_type == 'text' else batch_image_ids
-                    if training_args.encode_type == 'text':
-                        for id, logits, text in zip(ids, batch_logits, batch_texts):
-                            vector = dict()
-                            if model_args.use_output_embedding_cluster:
-                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                    tokens, values = get_text_valid_tokens_values_with_cluster(text, processor, logits,
-                                                                                               centroids_dict,
-                                                                                               origin_to_centroids_dict,
-                                                                                               data_args,
-                                                                                               filtered_ids)
+                    if model_args.eol_type == 'disassembleeol':
+                        if training_args.encode_type == 'text':
+                            for text_indice in range(len(ids)):
+                                id = ids[text_indice]
+                                logits = batch_logits[text_indice]
+                                text = batch_texts[text_indice]
+                                disassemble_logits = batch_disassemble_logits[
+                                                     text_indice * len(llama3_retrieval_disassemble_text_prompts):(
+                                                                                                                          text_indice + 1) * len(
+                                                         llama3_retrieval_disassemble_text_prompts)]
+                                vector = dict()
+                                tokens, values = get_text_valid_disassemble_tokens_values(text, processor, logits,
+                                                                                          disassemble_logits,
+                                                                                          vocab_dict,
+                                                                                          data_args,
+                                                                                          filtered_ids)
+
+                                for token, v in zip(tokens, values):
+                                    if token in vector.keys():
+                                        if data_args.sparse_value_type == 'replace':
+                                            vector[token] = int(v)
+                                        elif data_args.sparse_value_type == 'sum':
+                                            vector[token] += int(v)
+                                        else:
+                                            if int(v) > vector[token]:
+                                                vector[token] = int(v)
+                                    else:
+                                        vector[token] = int(v)
+                                jsonl_data.append(
+                                    dict(
+                                        id=id,
+                                        content="",
+                                        vector=vector,
+                                    )
+                                )
+                        else:
+                            for img_indice in range(len(ids)):
+                                id = ids[img_indice]
+                                logits = batch_logits[img_indice]
+                                text = batch_texts[img_indice]
+                                disassemble_logits = batch_disassemble_logits[
+                                                     img_indice * len(llama3_retrieval_disassemble_image_prompts):(
+                                                                                                                          img_indice + 1) * len(
+                                                         llama3_retrieval_disassemble_image_prompts)]
+                                vector = dict()
+                                tokens, values = get_img_valid_disassemble_tokens_values(processor, logits,
+                                                                                         disassemble_logits,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids)
+                                for token, v in zip(tokens, values):
+                                    if token in vector.keys():
+                                        if data_args.sparse_value_type == 'replace':
+                                            vector[token] = int(v)
+                                        elif data_args.sparse_value_type == 'sum':
+                                            vector[token] += int(v)
+                                        else:
+                                            if int(v) > vector[token]:
+                                                vector[token] = int(v)
+                                    else:
+                                        vector[token] = int(v)
+                                jsonl_data.append(
+                                    dict(
+                                        id=id,
+                                        content="",
+                                        vector=vector,
+                                    )
+                                )
+                    else:
+                        if training_args.encode_type == 'text':
+                            for id, logits, text in zip(ids, batch_logits, batch_texts):
+                                vector = dict()
+                                if model_args.use_output_embedding_cluster:
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                        tokens, values = get_text_valid_tokens_values_with_cluster(text, processor,
+                                                                                                   logits,
+                                                                                                   centroids_dict,
+                                                                                                   origin_to_centroids_dict,
+                                                                                                   data_args,
+                                                                                                   filtered_ids)
+                                    else:
+                                        tokens, values = get_text_valid_tokens_values_with_cluster(text,
+                                                                                                   processor.tokenizer,
+                                                                                                   logits,
+                                                                                                   centroids_dict,
+                                                                                                   origin_to_centroids_dict,
+                                                                                                   data_args,
+                                                                                                   filtered_ids)
                                 else:
-                                    tokens, values = get_text_valid_tokens_values_with_cluster(text,
-                                                                                               processor.tokenizer,
-                                                                                               logits,
-                                                                                               centroids_dict,
-                                                                                               origin_to_centroids_dict,
-                                                                                               data_args,
-                                                                                               filtered_ids)
-                            else:
-                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                    tokens, values = get_text_valid_tokens_values(text, processor, logits,
-                                                                                  vocab_dict,
-                                                                                  data_args,
-                                                                                  filtered_ids)
-                                else:
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                        tokens, values = get_text_valid_tokens_values(text, processor, logits,
+                                                                                      vocab_dict,
+                                                                                      data_args,
+                                                                                      filtered_ids)
+                                    else:
+                                        tokens, values = get_text_valid_tokens_values(text, processor.tokenizer, logits,
+                                                                                      vocab_dict,
+                                                                                      data_args,
+                                                                                      filtered_ids)
+                                for token, v in zip(tokens, values):
+                                    if token in vector.keys():
+                                        if data_args.sparse_value_type == 'replace':
+                                            vector[token] = int(v)
+                                        elif data_args.sparse_value_type == 'sum':
+                                            vector[token] += int(v)
+                                        else:
+                                            if int(v) > vector[token]:
+                                                vector[token] = int(v)
+                                    else:
+                                        vector[token] = int(v)
+                                jsonl_data.append(
+                                    dict(
+                                        id=id,
+                                        content="",
+                                        vector=vector,
+                                    )
+                                )
+
+                            '''
+                            if model_args.eol_type == 'disassembleeol':
+                                for id, logits, text in zip(batch_disassemble_ids, batch_disassemble_logits,
+                                                            batch_disassemble_texts):
                                     tokens, values = get_text_valid_tokens_values(text, processor.tokenizer, logits,
                                                                                   vocab_dict,
                                                                                   data_args,
-                                                                                  filtered_ids)
-                            for token, v in zip(tokens, values):
-                                if token in vector.keys():
-                                    if data_args.sparse_value_type == 'replace':
-                                        vector[token] = int(v)
-                                    elif data_args.sparse_value_type == 'sum':
-                                        vector[token] += int(v)
+                                                                                  filtered_ids, model_args)
+                                    print(id)
+                                    print(text)
+                                    print(tokens)
+                                    print(values)
+                            '''
+                        else:
+                            for id, logits, text in zip(ids, batch_logits, batch_texts):
+                                vector = dict()
+                                if model_args.use_output_embedding_cluster:
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                        tokens, values = get_img_valid_tokens_values_with_cluster(processor, logits,
+                                                                                                  centroids_dict,
+                                                                                                  origin_to_centroids_dict,
+                                                                                                  data_args,
+                                                                                                  filtered_ids)
                                     else:
-                                        if int(v) > vector[token]:
+                                        tokens, values = get_img_valid_tokens_values_with_cluster(processor.tokenizer,
+                                                                                                  logits,
+                                                                                                  centroids_dict,
+                                                                                                  origin_to_centroids_dict,
+                                                                                                  data_args,
+                                                                                                  filtered_ids)
+                                else:
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                        tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
+                                                                                     data_args, filtered_ids)
+                                    else:
+                                        tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits,
+                                                                                     vocab_dict,
+                                                                                     data_args, filtered_ids)
+                                for token, v in zip(tokens, values):
+                                    if token in vector.keys():
+                                        if data_args.sparse_value_type == 'replace':
                                             vector[token] = int(v)
-                                else:
-                                    vector[token] = int(v)
-                            jsonl_data.append(
-                                dict(
-                                    id=id,
-                                    content="",
-                                    vector=vector,
+                                        elif data_args.sparse_value_type == 'sum':
+                                            vector[token] += int(v)
+                                        else:
+                                            if int(v) > vector[token]:
+                                                vector[token] = int(v)
+                                    else:
+                                        vector[token] = int(v)
+                                jsonl_data.append(
+                                    dict(
+                                        id=id,
+                                        content="",
+                                        vector=vector,
+                                    )
                                 )
-                            )
-                    else:
-                        for id, logits, text in zip(ids, batch_logits, batch_texts):
-                            vector = dict()
-                            if model_args.use_output_embedding_cluster:
-                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                    tokens, values = get_img_valid_tokens_values_with_cluster(processor, logits,
-                                                                                              centroids_dict,
-                                                                                              origin_to_centroids_dict,
-                                                                                              data_args, filtered_ids)
-                                else:
-                                    tokens, values = get_img_valid_tokens_values_with_cluster(processor.tokenizer,
-                                                                                              logits,
-                                                                                              centroids_dict,
-                                                                                              origin_to_centroids_dict,
-                                                                                              data_args, filtered_ids)
-                            else:
-                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                    tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
-                                                                                 data_args, filtered_ids)
-                                else:
+
+                            '''
+                            if model_args.eol_type == 'disassembleeol':
+                                for id, logits, text in zip(batch_disassemble_ids, batch_disassemble_logits,
+                                                            batch_disassemble_texts):
                                     tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits,
                                                                                  vocab_dict,
-                                                                                 data_args, filtered_ids)
-                            for token, v in zip(tokens, values):
-                                if token in vector.keys():
-                                    if data_args.sparse_value_type == 'replace':
-                                        vector[token] = int(v)
-                                    elif data_args.sparse_value_type == 'sum':
-                                        vector[token] += int(v)
-                                    else:
-                                        if int(v) > vector[token]:
-                                            vector[token] = int(v)
-                                else:
-                                    vector[token] = int(v)
-                            jsonl_data.append(
-                                dict(
-                                    id=id,
-                                    content="",
-                                    vector=vector,
-                                )
-                            )
+                                                                                 data_args,
+                                                                                 filtered_ids, model_args)
+                                    print(id)
+                                    print(text)
+                                    print(tokens)
+                                    print(values)
+                            '''
 
                 if model_args.eol_type == 'metaeol' and training_args.encode_type == 'image':
                     del reps_list
