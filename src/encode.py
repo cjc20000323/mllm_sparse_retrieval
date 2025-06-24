@@ -6,6 +6,7 @@ import pickle
 import string
 import sys
 import itertools
+from contextlib import nullcontext
 
 from nltk import word_tokenize
 from nltk.corpus import stopwords
@@ -516,308 +517,207 @@ def main():
             prompts = llama3_retrieval_disassemble_image_prompts
         for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                      total=len(test_dataloader)):
-            if len(texts) != data_args.per_device_batch_size:
-                print(len(texts))
-                print(dist.get_rank())
-            if training_args.encode_type == 'text':
-                logits, reps = model.encode_data(texts, 'text', processor, device, model_args, data_args)
-                if model_args.eol_type == 'metaeol':
-                    logits = logits.reshape(-1, len(task_text_prompts_copy), logits.shape[1]).mean(1)
-                    reps = reps.reshape(-1, len(task_text_prompts_copy), reps.shape[1]).mean(1)
-                elif model_args.eol_type == 'disassembleeol':
-                    disassemble_logits = logits[data_args.per_device_batch_size:]
-                    logits = logits[:data_args.per_device_batch_size]
-            else:
-                # Preparation for inference
-                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                    prompt = processor.apply_chat_template(
-                        img_prompt_intern_vl_v2_5, tokenize=False, add_generation_prompt=True
-                    )
-                    imgs = [load_image(path, max_num=12).to(torch_type).cuda() for path in imgs_path]
-                    logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
-                else:
-                    if model_args.eol_type == 'prompteol':
-                        if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-                            prompt = processor.apply_chat_template(
-                                img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
-                            )
-                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
-                                               return_tensors="pt",
-                                               padding=True)
-                        imgs = img_inputs.to(device)
-                        logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
+            with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+                if len(texts) != data_args.per_device_batch_size:
+                    print(len(texts))
+                    print(dist.get_rank())
+                if training_args.encode_type == 'text':
+                    logits, reps = model.encode_data(texts, 'text', processor, device, model_args, data_args)
+                    if model_args.eol_type == 'metaeol':
+                        logits = logits.reshape(-1, len(task_text_prompts_copy), logits.shape[1]).mean(1)
+                        reps = reps.reshape(-1, len(task_text_prompts_copy), reps.shape[1]).mean(1)
                     elif model_args.eol_type == 'disassembleeol':
-                        # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
-                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
-                                               return_tensors="pt",
-                                               padding=True)
-                        imgs = img_inputs.to(device)
+                        disassemble_logits = logits[data_args.per_device_batch_size:]
+                        logits = logits[:data_args.per_device_batch_size]
+                else:
+                    # Preparation for inference
+                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                        prompt = processor.apply_chat_template(
+                            img_prompt_intern_vl_v2_5, tokenize=False, add_generation_prompt=True
+                        )
+                        imgs = [load_image(path, max_num=12).to(torch_type).cuda() for path in imgs_path]
                         logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
-
-                        disassemble_raw_images = [raw_image for raw_image in raw_images for _ in range(len(prompts))]
-                        disassemble_img_inputs = processor(images=disassemble_raw_images, text=prompts * len(imgs_path),
-                                                           return_tensors="pt",
-                                                           padding=True)
-                        disassemble_imgs = disassemble_img_inputs.to(device)
-                        disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
-                                                                  model_args, data_args)
                     else:
-                        # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
-                        # 也就是说，对于批次中的每个图像，按照下面每次循环使用的prompt个数，加入到raw_images中
-                        raw_images = [Image.open(path).convert('RGB') for
-                                      path in imgs_path for _ in range(len(task_image_prompts_copy) // 4)]
-                        # 将task_prompt添加到llama3_template中
-                        prompts = [llama3_template.format(task_image_prompt) for task_image_prompt in
-                                   task_image_prompts_copy]
-
-                        logits = [[] for _ in range(len(imgs_path))]
-                        reps = [[] for _ in range(len(imgs_path))]
-
-                        for i in range(4):
-                            # 这个i是为了控制当前轮次使用哪些prompt编码
-                            start = i * len(prompts) // 4
-                            end = (i + 1) * len(prompts) // 4
-
-                            img_inputs = processor(images=raw_images, text=prompts[start:end] * len(imgs_path),
+                        if model_args.eol_type == 'prompteol':
+                            if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                                prompt = processor.apply_chat_template(
+                                    img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
+                                )
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
                                                    return_tensors="pt",
                                                    padding=True)
-
                             imgs = img_inputs.to(device)
+                            logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
+                        elif model_args.eol_type == 'disassembleeol':
+                            # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                                   return_tensors="pt",
+                                                   padding=True)
+                            imgs = img_inputs.to(device)
+                            logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
 
-                            # 在metaeol模式下，reps应该是[batch_size * len(task_prompts) // 4, reps_dim]
-                            logits_sub, reps_sub = model.encode_data(imgs, 'image', processor, device, model_args,
-                                                                     data_args)
+                            disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
+                                                      range(len(prompts))]
+                            disassemble_img_inputs = processor(images=disassemble_raw_images,
+                                                               text=prompts * len(imgs_path),
+                                                               return_tensors="pt",
+                                                               padding=True)
+                            disassemble_imgs = disassemble_img_inputs.to(device)
+                            disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
+                                                                      model_args, data_args)
+                        else:
+                            # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
+                            # 也就是说，对于批次中的每个图像，按照下面每次循环使用的prompt个数，加入到raw_images中
+                            raw_images = [Image.open(path).convert('RGB') for
+                                          path in imgs_path for _ in range(len(task_image_prompts_copy) // 4)]
+                            # 将task_prompt添加到llama3_template中
+                            prompts = [llama3_template.format(task_image_prompt) for task_image_prompt in
+                                       task_image_prompts_copy]
 
-                            for j in range(len(imgs_path)):
-                                # 这个j是为了控制要把第j个样本对应的数据存到对应索引下的列表中
-                                logits[j].append(logits_sub[j * len(prompts) // 4:(j + 1) * len(prompts) // 4])
-                                reps[j].append(reps_sub[j * len(prompts) // 4:(j + 1) * len(prompts) // 4])
+                            logits = [[] for _ in range(len(imgs_path))]
+                            reps = [[] for _ in range(len(imgs_path))]
 
-                        logits = [item for logit in logits for item in logit]
-                        reps = [item for rep in reps for item in rep]
+                            for i in range(4):
+                                # 这个i是为了控制当前轮次使用哪些prompt编码
+                                start = i * len(prompts) // 4
+                                end = (i + 1) * len(prompts) // 4
 
-                        logits = torch.cat(logits, dim=0)
-                        reps = torch.cat(reps, dim=0)
+                                img_inputs = processor(images=raw_images, text=prompts[start:end] * len(imgs_path),
+                                                       return_tensors="pt",
+                                                       padding=True)
 
-                        logits = logits.reshape(-1, len(task_image_prompts_copy), logits.shape[1]).mean(1)
-                        reps = reps.reshape(-1, len(task_image_prompts_copy), reps.shape[1]).mean(1)
+                                imgs = img_inputs.to(device)
 
-            # print(logits.shape)
-            reps = F.normalize(reps, dim=-1)
-            if dist.is_initialized():
-                # reps_list = [[None] for _ in range(dist.get_world_size())]
-                # logits_list = [[None] for _ in range(dist.get_world_size())]
+                                # 在metaeol模式下，reps应该是[batch_size * len(task_prompts) // 4, reps_dim]
+                                logits_sub, reps_sub = model.encode_data(imgs, 'image', processor, device, model_args,
+                                                                         data_args)
 
-                # 在dist.all_gather前添加内存清理
-                torch.cuda.empty_cache()
-                gc.collect()
+                                for j in range(len(imgs_path)):
+                                    # 这个j是为了控制要把第j个样本对应的数据存到对应索引下的列表中
+                                    logits[j].append(logits_sub[j * len(prompts) // 4:(j + 1) * len(prompts) // 4])
+                                    reps[j].append(reps_sub[j * len(prompts) // 4:(j + 1) * len(prompts) // 4])
 
-                reps_list = [torch.zeros_like(reps) for _ in range(dist.get_world_size())]
-                logits_list = [torch.zeros_like(logits) for _ in range(dist.get_world_size())]
-                texts_list = [[None] for _ in range(dist.get_world_size())]
-                text_ids_list = [[None] for _ in range(dist.get_world_size())]
-                image_ids_list = [[None] for _ in range(dist.get_world_size())]
+                            logits = [item for logit in logits for item in logit]
+                            reps = [item for rep in reps for item in rep]
 
+                            logits = torch.cat(logits, dim=0)
+                            reps = torch.cat(reps, dim=0)
+
+                            logits = logits.reshape(-1, len(task_image_prompts_copy), logits.shape[1]).mean(1)
+                            reps = reps.reshape(-1, len(task_image_prompts_copy), reps.shape[1]).mean(1)
+
+                # print(logits.shape)
+                reps = F.normalize(reps, dim=-1)
+                if training_args.encode_type == 'text':
+                    lookup_indices.extend(text_ids)
+                else:
+                    lookup_indices.extend(img_ids)
+
+                encoded.append(reps.cpu().detach().float().numpy())
+
+                ids = text_ids if training_args.encode_type == 'text' else img_ids
                 if model_args.eol_type == 'disassembleeol':
-                    disassemble_logits_list = [torch.zeros_like(disassemble_logits) for _ in
-                                               range(dist.get_world_size())]
-                    dist.all_gather(tensor_list=disassemble_logits_list, tensor=disassemble_logits.contiguous())
-                    batch_disassemble_logits = torch.cat(disassemble_logits_list)
-
-                dist.all_gather(tensor_list=reps_list, tensor=reps.contiguous())
-                dist.all_gather(tensor_list=logits_list, tensor=logits.contiguous())
-                dist.all_gather_object(object_list=text_ids_list, obj=text_ids)
-                dist.all_gather_object(object_list=image_ids_list, obj=img_ids)
-                dist.all_gather_object(object_list=texts_list, obj=texts)
-
-                if model_args.eol_type == 'metaeol' and training_args.encode_type == 'image':
-                    del reps
-                    del logits
-
-                batch_reps = torch.cat(reps_list)
-                batch_logits = torch.cat(logits_list)
-                batch_text_ids = list(itertools.chain(*text_ids_list))
-                batch_image_ids = list(itertools.chain(*image_ids_list))
-                batch_texts = list(itertools.chain(*texts_list))
-
-                if dist.get_rank() == 0:
                     if training_args.encode_type == 'text':
-                        lookup_indices.extend(batch_text_ids)
-                    else:
-                        lookup_indices.extend(batch_image_ids)
-                    if model_args.eol_type == 'disassembleeol':
-                        if training_args.encode_type == 'text':
-                            batch_disassemble_ids = [id for id in batch_text_ids for _ in
-                                                     range(len(llama3_retrieval_disassemble_text_prompts))]
-                            batch_disassemble_texts = [text for text in batch_texts for _ in
-                                                       range(len(llama3_retrieval_disassemble_text_prompts))]
-                        else:
-                            batch_disassemble_ids = [id for id in batch_image_ids for _ in
-                                                     range(len(llama3_retrieval_disassemble_image_prompts))]
-                            batch_disassemble_texts = [text for text in batch_texts for _ in
-                                                       range(len(llama3_retrieval_disassemble_image_prompts))]
-                        # print('The batch disassemble ids lengths are ', len(batch_disassemble_ids))
-                    encoded.append(batch_reps.cpu().detach().float().numpy())
+                        for text_indice in range(len(ids)):
+                            id = ids[text_indice]
+                            logit = logits[text_indice]
+                            text = texts[text_indice]
+                            disassemble_logit = disassemble_logits[
+                                                text_indice * len(llama3_retrieval_disassemble_text_prompts):(
+                                                                                                                     text_indice + 1) * len(
+                                                    llama3_retrieval_disassemble_text_prompts)]
+                            vector = dict()
+                            tokens, values = get_text_valid_disassemble_tokens_values(text, processor, logit,
+                                                                                      disassemble_logit,
+                                                                                      vocab_dict,
+                                                                                      data_args,
+                                                                                      filtered_ids)
 
-                    ids = batch_text_ids if training_args.encode_type == 'text' else batch_image_ids
-                    if model_args.eol_type == 'disassembleeol':
-                        if training_args.encode_type == 'text':
-                            for text_indice in range(len(ids)):
-                                id = ids[text_indice]
-                                logits = batch_logits[text_indice]
-                                text = batch_texts[text_indice]
-                                disassemble_logits = batch_disassemble_logits[
-                                                     text_indice * len(llama3_retrieval_disassemble_text_prompts):(
-                                                                                                                          text_indice + 1) * len(
-                                                         llama3_retrieval_disassemble_text_prompts)]
-                                vector = dict()
-                                tokens, values = get_text_valid_disassemble_tokens_values(text, processor, logits,
-                                                                                          disassemble_logits,
-                                                                                          vocab_dict,
-                                                                                          data_args,
-                                                                                          filtered_ids)
-
-                                for token, v in zip(tokens, values):
-                                    if token in vector.keys():
-                                        if data_args.sparse_value_type == 'replace':
-                                            vector[token] = int(v)
-                                        elif data_args.sparse_value_type == 'sum':
-                                            vector[token] += int(v)
-                                        else:
-                                            if int(v) > vector[token]:
-                                                vector[token] = int(v)
-                                    else:
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
                                         vector[token] = int(v)
-                                jsonl_data.append(
-                                    dict(
-                                        id=id,
-                                        content="",
-                                        vector=vector,
-                                    )
-                                )
-                        else:
-                            for img_indice in range(len(ids)):
-                                id = ids[img_indice]
-                                logits = batch_logits[img_indice]
-                                text = batch_texts[img_indice]
-                                disassemble_logits = batch_disassemble_logits[
-                                                     img_indice * len(llama3_retrieval_disassemble_image_prompts):(
-                                                                                                                          img_indice + 1) * len(
-                                                         llama3_retrieval_disassemble_image_prompts)]
-                                vector = dict()
-                                tokens, values = get_img_valid_disassemble_tokens_values(processor, logits,
-                                                                                         disassemble_logits,
-                                                                                         vocab_dict,
-                                                                                         data_args,
-                                                                                         filtered_ids)
-                                for token, v in zip(tokens, values):
-                                    if token in vector.keys():
-                                        if data_args.sparse_value_type == 'replace':
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
                                             vector[token] = int(v)
-                                        elif data_args.sparse_value_type == 'sum':
-                                            vector[token] += int(v)
-                                        else:
-                                            if int(v) > vector[token]:
-                                                vector[token] = int(v)
-                                    else:
-                                        vector[token] = int(v)
-                                jsonl_data.append(
-                                    dict(
-                                        id=id,
-                                        content="",
-                                        vector=vector,
-                                    )
-                                )
-                    else:
-                        if training_args.encode_type == 'text':
-                            for id, logits, text in zip(ids, batch_logits, batch_texts):
-                                vector = dict()
-                                if model_args.use_output_embedding_cluster:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                        tokens, values = get_text_valid_tokens_values_with_cluster(text, processor,
-                                                                                                   logits,
-                                                                                                   centroids_dict,
-                                                                                                   origin_to_centroids_dict,
-                                                                                                   data_args,
-                                                                                                   filtered_ids)
-                                    else:
-                                        tokens, values = get_text_valid_tokens_values_with_cluster(text,
-                                                                                                   processor.tokenizer,
-                                                                                                   logits,
-                                                                                                   centroids_dict,
-                                                                                                   origin_to_centroids_dict,
-                                                                                                   data_args,
-                                                                                                   filtered_ids)
                                 else:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                        tokens, values = get_text_valid_tokens_values(text, processor, logits,
-                                                                                      vocab_dict,
-                                                                                      data_args,
-                                                                                      filtered_ids)
-                                    else:
-                                        tokens, values = get_text_valid_tokens_values(text, processor.tokenizer, logits,
-                                                                                      vocab_dict,
-                                                                                      data_args,
-                                                                                      filtered_ids)
-                                for token, v in zip(tokens, values):
-                                    if token in vector.keys():
-                                        if data_args.sparse_value_type == 'replace':
-                                            vector[token] = int(v)
-                                        elif data_args.sparse_value_type == 'sum':
-                                            vector[token] += int(v)
-                                        else:
-                                            if int(v) > vector[token]:
-                                                vector[token] = int(v)
-                                    else:
-                                        vector[token] = int(v)
-                                jsonl_data.append(
-                                    dict(
-                                        id=id,
-                                        content="",
-                                        vector=vector,
-                                    )
+                                    vector[token] = int(v)
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
                                 )
-
-                            '''
-                            if model_args.eol_type == 'disassembleeol':
-                                for id, logits, text in zip(batch_disassemble_ids, batch_disassemble_logits,
-                                                            batch_disassemble_texts):
-                                    tokens, values = get_text_valid_tokens_values(text, processor.tokenizer, logits,
+                            )
+                    else:
+                        for img_indice in range(len(ids)):
+                            id = ids[img_indice]
+                            logit = logits[img_indice]
+                            text = texts[img_indice]
+                            disassemble_logit = disassemble_logits[
+                                                img_indice * len(llama3_retrieval_disassemble_image_prompts):(
+                                                                                                                     img_indice + 1) * len(
+                                                    llama3_retrieval_disassemble_image_prompts)]
+                            vector = dict()
+                            tokens, values = get_img_valid_disassemble_tokens_values(processor, logit,
+                                                                                     disassemble_logit,
+                                                                                     vocab_dict,
+                                                                                     data_args,
+                                                                                     filtered_ids)
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
+                                        vector[token] = int(v)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
+                                )
+                            )
+                else:
+                    if training_args.encode_type == 'text':
+                        for id, logit, text in zip(ids, logits, texts):
+                            vector = dict()
+                            if model_args.use_output_embedding_cluster:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_text_valid_tokens_values_with_cluster(text, processor,
+                                                                                               logit,
+                                                                                               centroids_dict,
+                                                                                               origin_to_centroids_dict,
+                                                                                               data_args,
+                                                                                               filtered_ids)
+                                else:
+                                    tokens, values = get_text_valid_tokens_values_with_cluster(text,
+                                                                                               processor.tokenizer,
+                                                                                               logit,
+                                                                                               centroids_dict,
+                                                                                               origin_to_centroids_dict,
+                                                                                               data_args,
+                                                                                               filtered_ids)
+                            else:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_text_valid_tokens_values(text, processor, logit,
                                                                                   vocab_dict,
                                                                                   data_args,
-                                                                                  filtered_ids, model_args)
-                                    print(id)
-                                    print(text)
-                                    print(tokens)
-                                    print(values)
-                            '''
-                        else:
-                            for id, logits, text in zip(ids, batch_logits, batch_texts):
-                                vector = dict()
-                                if model_args.use_output_embedding_cluster:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                        tokens, values = get_img_valid_tokens_values_with_cluster(processor, logits,
-                                                                                                  centroids_dict,
-                                                                                                  origin_to_centroids_dict,
-                                                                                                  data_args,
-                                                                                                  filtered_ids)
-                                    else:
-                                        tokens, values = get_img_valid_tokens_values_with_cluster(processor.tokenizer,
-                                                                                                  logits,
-                                                                                                  centroids_dict,
-                                                                                                  origin_to_centroids_dict,
-                                                                                                  data_args,
-                                                                                                  filtered_ids)
+                                                                                  filtered_ids)
                                 else:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                        tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
-                                                                                     data_args, filtered_ids)
-                                    else:
-                                        tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits,
-                                                                                     vocab_dict,
-                                                                                     data_args, filtered_ids)
+                                    tokens, values = get_text_valid_tokens_values(text, processor.tokenizer,
+                                                                                  logit,
+                                                                                  vocab_dict,
+                                                                                  data_args,
+                                                                                  filtered_ids)
                                 for token, v in zip(tokens, values):
                                     if token in vector.keys():
                                         if data_args.sparse_value_type == 'replace':
@@ -836,120 +736,137 @@ def main():
                                         vector=vector,
                                     )
                                 )
-
-                            '''
-                            if model_args.eol_type == 'disassembleeol':
-                                for id, logits, text in zip(batch_disassemble_ids, batch_disassemble_logits,
-                                                            batch_disassemble_texts):
-                                    tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits,
+                    else:
+                        for id, logit, text in zip(ids, logits, texts):
+                            vector = dict()
+                            if model_args.use_output_embedding_cluster:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values_with_cluster(processor, logit,
+                                                                                              centroids_dict,
+                                                                                              origin_to_centroids_dict,
+                                                                                              data_args,
+                                                                                              filtered_ids)
+                                else:
+                                    tokens, values = get_img_valid_tokens_values_with_cluster(
+                                        processor.tokenizer,
+                                        logit,
+                                        centroids_dict,
+                                        origin_to_centroids_dict,
+                                        data_args,
+                                        filtered_ids)
+                            else:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values(processor, logit, vocab_dict,
+                                                                                 data_args, filtered_ids)
+                                else:
+                                    tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
                                                                                  vocab_dict,
-                                                                                 data_args,
-                                                                                 filtered_ids, model_args)
-                                    print(id)
-                                    print(text)
-                                    print(tokens)
-                                    print(values)
-                            '''
+                                                                                 data_args, filtered_ids)
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
+                                        vector[token] = int(v)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
+                                )
+                            )
 
-                if model_args.eol_type == 'metaeol' and training_args.encode_type == 'image':
-                    del reps_list
-                    del logits_list
-                    del text_ids_list
-                    del image_ids_list
-                    del texts_list
-                    del batch_reps
-                    del batch_logits
-                    del batch_text_ids
-                    del batch_image_ids
-                    del batch_texts
+    encoded = np.concatenate(encoded)
 
-        if dist.get_rank() == 0:
-            encoded = np.concatenate(encoded)
+    print(f'rank:{dist.get_rank()}, encoded length:{len(encoded)}')
+    print(f'rank:{dist.get_rank()}, lookup_indices:{len(lookup_indices)}')
+    print(f'rank:{dist.get_rank()}, jsonl_data:{len(jsonl_data)}')
 
-            print(len(encoded))
-            print(len(lookup_indices))
-            print(len(jsonl_data))
+    if data_args.is_filtered:
+        filtered = "filter"
+    else:
+        filtered = "no_filter"
 
-            if data_args.is_filtered:
-                filtered = "filter"
-            else:
-                filtered = "no_filter"
+    if data_args.sparse_manual:
+        manual = 'manual'
+    else:
+        manual = "no_manual"
 
-            if data_args.sparse_manual:
-                manual = 'manual'
-            else:
-                manual = "no_manual"
+    if model_args.use_output_embedding_cluster:
+        cluster = f'cluster_{model_args.cluster_sum}'
+    else:
+        cluster = 'no_cluster'
 
-            if model_args.use_output_embedding_cluster:
-                cluster = f'cluster_{model_args.cluster_sum}'
-            else:
-                cluster = 'no_cluster'
+    if model_args.lora:
+        os.makedirs(
+            f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
+            exist_ok=True)
+        os.makedirs(
+            f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
+            exist_ok=True)
 
-            if model_args.lora:
-                os.makedirs(
-                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
-                    exist_ok=True)
-                os.makedirs(
-                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
-                    exist_ok=True)
+        with open(os.path.join(
+                f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
+                f'query.pkl') if data_args.encode_is_query else os.path.join(
+            f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
+            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+            pickle.dump((encoded, lookup_indices), f)
 
-                with open(os.path.join(
-                        f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
-                        f'query.pkl') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.dense_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
-                    f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
-                    pickle.dump((encoded, lookup_indices), f)
+        with open(os.path.join(
+                f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
+                f'query.tsv') if data_args.encode_is_query else os.path.join(
+            f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
+            f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+            for data in jsonl_data:
+                if data_args.encode_is_query:
+                    id = data['id']
+                    vector = data['vector']
+                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                    if len(query.strip()) == 0:
+                        continue
+                    f.write(f'{id}\t{query}\n')
+                else:
+                    f.write(json.dumps(data) + "\n")
 
-                with open(os.path.join(
-                        f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
-                        f'query.tsv') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.sparse_output_dir}/{model_args.lora_model_path[9:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_lora',
-                    f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
-                    for data in jsonl_data:
-                        if data_args.encode_is_query:
-                            id = data['id']
-                            vector = data['vector']
-                            query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
-                            if len(query.strip()) == 0:
-                                continue
-                            f.write(f'{id}\t{query}\n')
-                        else:
-                            f.write(json.dumps(data) + "\n")
+    else:
+        os.makedirs(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
+            exist_ok=True)
+        os.makedirs(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
+            exist_ok=True)
 
-            else:
-                os.makedirs(
-                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
-                    exist_ok=True)
-                os.makedirs(
-                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
-                    exist_ok=True)
+        with open(os.path.join(
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
+                f'query.pkl') if data_args.encode_is_query else os.path.join(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
+            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+            pickle.dump((encoded, lookup_indices), f)
 
-                with open(os.path.join(
-                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
-                        f'query.pkl') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
-                    f'corpus_{data_args.dataset_shard_index}.pkl'), 'wb') as f:
-                    pickle.dump((encoded, lookup_indices), f)
+        with open(os.path.join(
+                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
+                f'query.tsv') if data_args.encode_is_query else os.path.join(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
+            f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+            for data in jsonl_data:
+                if data_args.encode_is_query:
+                    id = data['id']
+                    vector = data['vector']
+                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                    if len(query.strip()) == 0:
+                        continue
+                    f.write(f'{id}\t{query}\n')
+                else:
+                    f.write(json.dumps(data) + "\n")
 
-                with open(os.path.join(
-                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
-                        f'query.tsv') if data_args.encode_is_query else os.path.join(
-                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}',
-                    f'corpus_{data_args.dataset_shard_index}.jsonl'), 'w') as f:
-                    for data in jsonl_data:
-                        if data_args.encode_is_query:
-                            id = data['id']
-                            vector = data['vector']
-                            query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
-                            if len(query.strip()) == 0:
-                                continue
-                            f.write(f'{id}\t{query}\n')
-                        else:
-                            f.write(json.dumps(data) + "\n")
-
-            if model_args.use_output_embedding_cluster:
-                with open(f'{model_args.model_name_or_path[14:]}_{cluster}.json', 'w') as f:
-                    json.dump(centroids_dict, f)
+    if model_args.use_output_embedding_cluster:
+        with open(f'{model_args.model_name_or_path[14:]}_{cluster}.json', 'w') as f:
+            json.dump(centroids_dict, f)
 
     # 训练结束后添加同步屏障
     dist.barrier()

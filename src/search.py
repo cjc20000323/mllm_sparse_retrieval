@@ -8,6 +8,7 @@ from transformers import (
 )
 from contextlib import nullcontext
 from PIL import Image
+from itertools import chain
 
 from model import MLLMRetrievalModel
 from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
@@ -288,6 +289,7 @@ def main():
 
         if dense_retriever_indices:
             index_files = glob.glob(os.path.join(dense_retriever_indices[i], 'corpus*.pkl'))
+            logger.info(f'Pattern match found {len(index_files)} files; loading them into dense index.')
 
             p_reps_0, p_lookup_0 = pickle_load(index_files[0])
             print(p_reps_0.shape)
@@ -304,7 +306,7 @@ def main():
 
             # 在源代码里，并没有将所有数据都转移到某个GPU上面保存，而是各自保存，这样的话corpus会有多个编号，因此会有下面这一段处理多个corpus的代码，
             # 但是我们这里是先集中后保存，这样就只有一个文件，所以就先注释掉了
-            '''
+            # 经过修改，现在是每个gpu在encode的时候处理各自数据并各自保存一个文件，所以现在应当按照原来的方式处理
             shards = chain([(p_reps_0, p_lookup_0)], map(pickle_load, index_files[1:]))
             if len(index_files) > 1:
                 shards = tqdm(shards, desc='Loading shards into index', total=len(index_files))
@@ -312,7 +314,6 @@ def main():
             for p_reps, p_lookup in shards:
                 dense_retriever.add(p_reps)
                 look_up += p_lookup
-            '''
             if search_args.use_gpu:
                 num_gpus = faiss.get_num_gpus()
                 if num_gpus == 0:
@@ -360,6 +361,9 @@ def main():
                     if model_args.eol_type == 'metaeol':
                         query_logits = query_logits.reshape(-1, len(task_text_prompts), query_logits.shape[1]).mean(1)
                         query_dense_reps = query_dense_reps.reshape(-1, len(task_text_prompts), query_dense_reps.shape[1]).mean(1)
+                    elif model_args.eol_type == 'disassembleeol':
+                        disassemble_logits = logits[data_args.per_device_batch_size:]
+                        logits = logits[:data_args.per_device_batch_size]
                 else:
                     if 'InternVL2_5-8B' in model_args.model_name_or_path:
                         prompt = processor.apply_chat_template(
@@ -382,6 +386,24 @@ def main():
                             query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
                                                                                model_args,
                                                                                data_args)
+                        elif model_args.eol_type == 'disassembleeol':
+                            # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                                   return_tensors="pt",
+                                                   padding=True)
+                            imgs = img_inputs.to(device)
+                            logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
+
+                            disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
+                                                      range(len(prompts))]
+                            disassemble_img_inputs = processor(images=disassemble_raw_images,
+                                                               text=prompts * len(imgs_path),
+                                                               return_tensors="pt",
+                                                               padding=True)
+                            disassemble_imgs = disassemble_img_inputs.to(device)
+                            disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
+                                                                      model_args, data_args)
                         else:
                             # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
                             # 也就是说，对于批次中的每个图像，按照下面每次循环使用的prompt个数，加入到raw_images中
