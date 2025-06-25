@@ -30,13 +30,15 @@ from nltk.corpus import stopwords
 import string
 from template import img_prompt, \
     img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, task_image_prompts, \
-    llama3_template, task_text_prompts,llama3_retrieval_disassemble_image_prompts, \
+    llama3_template, task_text_prompts, llama3_retrieval_disassemble_image_prompts, \
     llama3_retrieval_disassemble_text_prompts
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
-    get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, get_img_valid_disassemble_tokens_values
+    get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, \
+    get_img_valid_disassemble_tokens_values
 from hybrid import fuse
 from utils import load_image
 from peft import PeftModel
+
 # from cuml.cluster import KMeans
 
 stopwords = set(stopwords.words('english') + list(string.punctuation))
@@ -179,18 +181,12 @@ def main():
         filtered_ids = get_filtered_ids(processor.tokenizer)
     vocab_dict = {v: k for k, v in vocab_dict.items()}
 
-    input_token_embeddings = encoder.get_input_embeddings().weight
-    output_token_embeddings = encoder.get_output_embeddings().weight[:len(vocab_dict), :]
-    output_token_dim = output_token_embeddings.size(1)
-
-    if dist.get_rank() == 0:
-        print(input_token_embeddings.shape)
-        print(output_token_embeddings.shape)
-
-    centroids_dict = {}  # 这是用来保存各个centroids都有哪些单词
-    origin_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为token id，value为聚类中心索引
-    origin_word_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为单词字符串，value为聚类中心索引
     if model_args.use_output_embedding_cluster:
+        output_token_embeddings = encoder.get_output_embeddings().weight[:len(vocab_dict), :]
+
+        centroids_dict = {}  # 这是用来保存各个centroids都有哪些单词
+        origin_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为token id，value为聚类中心索引
+        origin_word_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为单词字符串，value为聚类中心索引
         output_token_embeddings_for_kmeans = output_token_embeddings.detach().cpu().numpy()
 
         if dist.get_rank() == 0:
@@ -363,7 +359,8 @@ def main():
                                                                        data_args)
                     if model_args.eol_type == 'metaeol':
                         query_logits = query_logits.reshape(-1, len(task_text_prompts), query_logits.shape[1]).mean(1)
-                        query_dense_reps = query_dense_reps.reshape(-1, len(task_text_prompts), query_dense_reps.shape[1]).mean(1)
+                        query_dense_reps = query_dense_reps.reshape(-1, len(task_text_prompts),
+                                                                    query_dense_reps.shape[1]).mean(1)
                     elif model_args.eol_type == 'disassembleeol':
                         disassemble_logits = query_logits[data_args.per_device_batch_size:]
                         query_logits = query_logits[:data_args.per_device_batch_size]
@@ -396,17 +393,48 @@ def main():
                                                    return_tensors="pt",
                                                    padding=True)
                             imgs = img_inputs.to(device)
-                            query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
+                            query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
+                                                                               model_args, data_args)
+                            del imgs
 
                             disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
-                                                      range(len(prompts))]
+                                                      range(len(prompts) // 5)]
+                            '''
                             disassemble_img_inputs = processor(images=disassemble_raw_images,
                                                                text=prompts * len(imgs_path),
                                                                return_tensors="pt",
                                                                padding=True)
+                            '''
+                            disassemble_logits = [[] for _ in range(len(imgs_path))]
+                            for i in range(5):
+                                # 这个i是为了控制当前轮次使用哪些prompt编码
+                                start = i * len(prompts) // 5
+                                end = (i + 1) * len(prompts) // 5
+
+                                disassemble_img_inputs = processor(images=disassemble_raw_images,
+                                                                   text=prompts[start:end] * len(imgs_path),
+                                                                   return_tensors="pt",
+                                                                   padding=True)
+
+                                disassemble_imgs = disassemble_img_inputs.to(device)
+
+                                # 在metaeol模式下，reps应该是[batch_size * len(task_prompts) // 4, reps_dim]
+                                disassemble_logits_sub, _ = model.encode_data(disassemble_imgs, 'image', processor,
+                                                                              device, model_args,
+                                                                              data_args)
+
+                                for j in range(len(imgs_path)):
+                                    # 这个j是为了控制要把第j个样本对应的数据存到对应索引下的列表中
+                                    disassemble_logits[j].append(
+                                        disassemble_logits_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
+                            disassemble_logits = [item for disassemble_logit in disassemble_logits for item in
+                                                  disassemble_logit]
+                            disassemble_logits = torch.cat(disassemble_logits, dim=0)
+                            '''
                             disassemble_imgs = disassemble_img_inputs.to(device)
                             disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
                                                                       model_args, data_args)
+                            '''
                         else:
                             # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
                             # 也就是说，对于批次中的每个图像，按照下面每次循环使用的prompt个数，加入到raw_images中
@@ -746,7 +774,6 @@ def main():
                                 sparse_run.update(
                                     get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
 
-
                 if model_args.eol_type == 'metaeol':
                     del query_dense_reps
                     del query_logits
@@ -773,7 +800,9 @@ def main():
     metric.print_recall()
 
     if not model_args.lora and not model_args.use_output_embedding_cluster:
-        with open(f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_sparse_search_results_{dist.get_rank()}.txt', 'w') as f:
+        with open(
+                f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_sparse_search_results_{dist.get_rank()}.txt',
+                'w') as f:
             for k, v in tqdm(metric.sparse_run.items()):
                 target = metric.dataset.get_target(k, metric.search_args.query_type)
                 if isinstance(target, list):
