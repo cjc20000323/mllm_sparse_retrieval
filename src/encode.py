@@ -87,11 +87,14 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
     values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
     # 把token id换成对应的单词，保存在tokens中
     # e5-v模型会预测出超过词表长度的id，所以过滤一下，这个现象很普遍，目前不知道为什么会预测出这样的结果
-    if data_args.is_filtered:
+    if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
         tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy() if
                   i < len(vocab_dict)]
-    else:
+    elif data_args.sparse_lower_or_upper == 'lower':
         tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy() if
+                  i < len(vocab_dict)]
+    else:
+        tokens = [vocab_dict[i.item()] for i in top_k_indices.cpu().detach().float().numpy() if
                   i < len(vocab_dict)]
 
     # top tokens not in the text for expansion.
@@ -146,10 +149,12 @@ def get_img_valid_disassemble_tokens_values(tokenizer, logits, disassemble_logit
     values = [logits[indice].cpu().detach() for indice in word_set if indice < len(vocab_dict)]
     values = np.rint(np.array(values) * 100).astype(int)
 
-    if data_args.is_filtered:
+    if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
         tokens = [filter_token(vocab_dict[i].lower()) for i in word_set if i < len(vocab_dict)]
-    else:
+    elif data_args.sparse_lower_or_upper == 'lower':
         tokens = [vocab_dict[i].lower() for i in word_set if i < len(vocab_dict)]
+    else:
+        tokens = [vocab_dict[i] for i in word_set if i < len(vocab_dict)]
     return tokens, values
 
 
@@ -175,23 +180,29 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
     elif data_args.sparse_manual:
         top_k_values, top_k_indices = logits.topk(data_args.sparse_length, dim=-1)
         values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
-        if data_args.is_filtered:
+        if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
             tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
                       if
                       i < len(vocab_dict)]
-        else:
+        elif data_args.sparse_lower_or_upper == 'lower':
             tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy() if
+                      i < len(vocab_dict)]
+        else:
+            tokens = [vocab_dict[i.item()] for i in top_k_indices.cpu().detach().float().numpy() if
                       i < len(vocab_dict)]
     elif model_args is not None and model_args.eol_type == 'disassembleeol':
         top_k = 30
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
         values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
-        if data_args.is_filtered:
+        if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
             tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
                       if
                       i < len(vocab_dict)]
-        else:
+        elif data_args.sparse_lower_or_upper == 'lower':
             tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy() if
+                      i < len(vocab_dict)]
+        else:
+            tokens = [vocab_dict[i.item()] for i in top_k_indices.cpu().detach().float().numpy() if
                       i < len(vocab_dict)]
     else:
         # 根据原文，他们遵循了SPLADE设置，为了加强logit离散性，只保留最多128个值
@@ -202,12 +213,16 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
         # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
         values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
         # 把token id换成对应的单词，保存在tokens中
-        if data_args.is_filtered:
+        if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
             tokens = [filter_token(vocab_dict[i.item()].lower()) for i in
                       token_ids_in_text[top_k_indices.cpu().detach().float().numpy()] if
                       i < len(vocab_dict)]
-        else:
+        elif data_args.sparse_lower_or_upper == 'lower':
             tokens = [vocab_dict[i.item()].lower() for i in
+                      token_ids_in_text[top_k_indices.cpu().detach().float().numpy()] if
+                      i < len(vocab_dict)]
+        else:
+            tokens = [vocab_dict[i.item()] for i in
                       token_ids_in_text[top_k_indices.cpu().detach().float().numpy()] if
                       i < len(vocab_dict)]
 
@@ -277,10 +292,12 @@ def get_text_valid_disassemble_tokens_values(text, tokenizer, logits, disassembl
     values = [logits[indice].cpu().detach() for indice in word_set if indice < len(vocab_dict)]
     values = np.rint(np.array(values) * 100).astype(int)
 
-    if data_args.is_filtered:
+    if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
         tokens = [filter_token(vocab_dict[i].lower()) for i in word_set if i < len(vocab_dict)]
-    else:
+    elif data_args.sparse_lower_or_upper == 'lower':
         tokens = [vocab_dict[i].lower() for i in word_set if i < len(vocab_dict)]
+    else:
+        tokens = [vocab_dict[i] for i in word_set if i < len(vocab_dict)]
     return tokens, values
 
 
