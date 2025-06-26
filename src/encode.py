@@ -800,9 +800,11 @@ def main():
 
     encoded = np.concatenate(encoded)
 
+    '''
     print(f'rank:{dist.get_rank()}, encoded length:{len(encoded)}')
     print(f'rank:{dist.get_rank()}, lookup_indices:{len(lookup_indices)}')
     print(f'rank:{dist.get_rank()}, jsonl_data:{len(jsonl_data)}')
+    '''
 
     if data_args.is_filtered:
         filtered = "filter"
