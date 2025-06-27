@@ -350,7 +350,7 @@ def main():
                 # batch = batch.to(training_args.device)
                 # batch['qids'] = batch_ids
                 # model_output: EncoderOutput = model(query=batch)
-                if model_args.eol_type == 'disassembleeol':
+                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
                     prompts = llama3_retrieval_disassemble_image_prompts
                 else:
                     prompts = llama3_retrieval_disassemble_image_prompts
@@ -361,7 +361,7 @@ def main():
                         query_logits = query_logits.reshape(-1, len(task_text_prompts), query_logits.shape[1]).mean(1)
                         query_dense_reps = query_dense_reps.reshape(-1, len(task_text_prompts),
                                                                     query_dense_reps.shape[1]).mean(1)
-                    elif model_args.eol_type == 'disassembleeol':
+                    elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
                         disassemble_logits = query_logits[data_args.per_device_batch_size:]
                         query_logits = query_logits[:data_args.per_device_batch_size]
                 else:
@@ -386,7 +386,7 @@ def main():
                             query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
                                                                                model_args,
                                                                                data_args)
-                        elif model_args.eol_type == 'disassembleeol':
+                        elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
                             # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
                             raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                             img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
@@ -597,7 +597,7 @@ def main():
 
                     else:
                         batch_topics = []
-                        if model_args.eol_type == 'disassembleeol':
+                        if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
                             if search_args.query_type == 'text':
                                 for text_indice in range(len(batch_ids)):
                                     id = batch_ids[text_indice]
@@ -612,7 +612,7 @@ def main():
                                                                                               disassemble_logit,
                                                                                               vocab_dict,
                                                                                               data_args,
-                                                                                              filtered_ids)
+                                                                                              filtered_ids, model_args)
 
                                     for token, v in zip(tokens, values):
                                         if token in vector.keys():
@@ -648,7 +648,7 @@ def main():
                                                                                              disassemble_logit,
                                                                                              vocab_dict,
                                                                                              data_args,
-                                                                                             filtered_ids)
+                                                                                             filtered_ids, model_args)
                                     for token, v in zip(tokens, values):
                                         if token in vector.keys():
                                             if data_args.sparse_value_type == 'replace':

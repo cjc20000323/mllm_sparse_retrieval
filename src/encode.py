@@ -76,7 +76,7 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
     # TODO： 这里默认选128个了，但是文本大多数是没有128那么长的，不知道会不会对最终结果有影响
     if data_args.sparse_manual:
         top_k_values, top_k_indices = logits.topk(data_args.sparse_length, dim=-1)
-    elif model_args is not None and model_args.eol_type == 'disassembleeol':
+    elif model_args is not None and (model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate'):
         top_k = 30
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
     else:
@@ -138,6 +138,7 @@ def get_img_valid_tokens_values_with_cluster(tokenizer, logits, vocab_dict, orig
 def get_img_valid_disassemble_tokens_values(tokenizer, logits, disassemble_logits, vocab_dict, data_args, filtered_ids,
                                             model_args=None):
     word_set = set()
+    word_values = dict()
     if data_args.sparse_manual:
         top_k = data_args.sparse_length
     else:
@@ -145,16 +146,40 @@ def get_img_valid_disassemble_tokens_values(tokenizer, logits, disassemble_logit
     for disassemble_logit in disassemble_logits:
         top_k_values, top_k_indices = disassemble_logit.topk(top_k, dim=-1)
         word_set.update(top_k_indices.tolist())
+        if model_args is not None and model_args.eol_type == 'disassembleeol_separate':
+            for indice in top_k_indices:
+                if vocab_dict[indice] in word_values.keys():
+                    if indice < len(vocab_dict):
+                        if data_args.sparse_value_type == 'replace':
+                            word_values[vocab_dict[indice]] = disassemble_logit[indice].cpu().detach()
+                        elif data_args.sparse_value_type == 'sum':
+                            word_values[vocab_dict[indice]] += disassemble_logit[indice].cpu().detach()
+                        else:
+                            if disassemble_logit[indice].cpu().detach() > word_values[vocab_dict[indice]]:
+                                word_values[vocab_dict[indice]] = disassemble_logit[indice].cpu().detach()
+                else:
+                    if indice < len(vocab_dict):
+                        word_values[vocab_dict[indice]] = disassemble_logit[indice].cpu().detach()
 
-    values = [logits[indice].cpu().detach() for indice in word_set if indice < len(vocab_dict)]
-    values = np.rint(np.array(values) * 100).astype(int)
-
-    if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
-        tokens = [filter_token(vocab_dict[i].lower()) for i in word_set if i < len(vocab_dict)]
-    elif data_args.sparse_lower_or_upper == 'lower':
-        tokens = [vocab_dict[i].lower() for i in word_set if i < len(vocab_dict)]
+    if model_args is not None and model_args.eol_type == 'disassembleeol_separate':
+        values = [word_values[key] for key in word_values.keys()]
+        values = np.rint(np.array(values) * 100).astype(int)
+        if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+            tokens = [filter_token(key.lower()) for key in word_values.keys()]
+        elif data_args.sparse_lower_or_upper == 'lower':
+            tokens = [key.lower() for key in word_values.keys()]
+        else:
+            tokens = [key for key in word_values.keys()]
     else:
-        tokens = [vocab_dict[i] for i in word_set if i < len(vocab_dict)]
+        values = [logits[indice].cpu().detach() for indice in word_set if indice < len(vocab_dict)]
+        values = np.rint(np.array(values) * 100).astype(int)
+
+        if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+            tokens = [filter_token(vocab_dict[i].lower()) for i in word_set if i < len(vocab_dict)]
+        elif data_args.sparse_lower_or_upper == 'lower':
+            tokens = [vocab_dict[i].lower() for i in word_set if i < len(vocab_dict)]
+        else:
+            tokens = [vocab_dict[i] for i in word_set if i < len(vocab_dict)]
     return tokens, values
 
 
@@ -190,7 +215,7 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
         else:
             tokens = [vocab_dict[i.item()] for i in top_k_indices.cpu().detach().float().numpy() if
                       i < len(vocab_dict)]
-    elif model_args is not None and model_args.eol_type == 'disassembleeol':
+    elif model_args is not None and (model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate'):
         top_k = 30
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
         values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
@@ -281,6 +306,7 @@ def get_text_valid_tokens_values_with_cluster(text, tokenizer, logits, vocab_dic
 def get_text_valid_disassemble_tokens_values(text, tokenizer, logits, disassemble_logits, vocab_dict, data_args,
                                              filtered_ids, model_args=None):
     word_set = set()
+    word_values = dict()
     if data_args.sparse_manual:
         top_k = data_args.sparse_length
     else:
@@ -288,16 +314,40 @@ def get_text_valid_disassemble_tokens_values(text, tokenizer, logits, disassembl
     for disassemble_logit in disassemble_logits:
         top_k_values, top_k_indices = disassemble_logit.topk(top_k, dim=-1)
         word_set.update(top_k_indices.tolist())
+        if model_args is not None and model_args.eol_type == 'disassembleeol_separate':
+            for indice in top_k_indices:
+                if vocab_dict[indice] in word_values.keys():
+                    if indice < len(vocab_dict):
+                        if data_args.sparse_value_type == 'replace':
+                            word_values[vocab_dict[indice]] = disassemble_logit[indice].cpu().detach()
+                        elif data_args.sparse_value_type == 'sum':
+                            word_values[vocab_dict[indice]] += disassemble_logit[indice].cpu().detach()
+                        else:
+                            if disassemble_logit[indice].cpu().detach() > word_values[vocab_dict[indice]]:
+                                word_values[vocab_dict[indice]] = disassemble_logit[indice].cpu().detach()
+                else:
+                    if indice < len(vocab_dict):
+                        word_values[vocab_dict[indice]] = disassemble_logit[indice].cpu().detach()
 
-    values = [logits[indice].cpu().detach() for indice in word_set if indice < len(vocab_dict)]
-    values = np.rint(np.array(values) * 100).astype(int)
-
-    if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
-        tokens = [filter_token(vocab_dict[i].lower()) for i in word_set if i < len(vocab_dict)]
-    elif data_args.sparse_lower_or_upper == 'lower':
-        tokens = [vocab_dict[i].lower() for i in word_set if i < len(vocab_dict)]
+    if model_args is not None and model_args.eol_type == 'disassembleeol_separate':
+        values = [word_values[key] for key in word_values.keys()]
+        values = np.rint(np.array(values) * 100).astype(int)
+        if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+            tokens = [filter_token(key.lower()) for key in word_values.keys()]
+        elif data_args.sparse_lower_or_upper == 'lower':
+            tokens = [key.lower() for key in word_values.keys()]
+        else:
+            tokens = [key for key in word_values.keys()]
     else:
-        tokens = [vocab_dict[i] for i in word_set if i < len(vocab_dict)]
+        values = [logits[indice].cpu().detach() for indice in word_set if indice < len(vocab_dict)]
+        values = np.rint(np.array(values) * 100).astype(int)
+
+        if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+            tokens = [filter_token(vocab_dict[i].lower()) for i in word_set if i < len(vocab_dict)]
+        elif data_args.sparse_lower_or_upper == 'lower':
+            tokens = [vocab_dict[i].lower() for i in word_set if i < len(vocab_dict)]
+        else:
+            tokens = [vocab_dict[i] for i in word_set if i < len(vocab_dict)]
     return tokens, values
 
 
@@ -528,7 +578,7 @@ def main():
         else:
             prompt = img_prompt
 
-        if model_args.eol_type == 'disassembleeol':
+        if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
             prompts = llama3_retrieval_disassemble_image_prompts
         else:
             prompts = llama3_retrieval_disassemble_image_prompts
@@ -543,9 +593,10 @@ def main():
                     if model_args.eol_type == 'metaeol':
                         logits = logits.reshape(-1, len(task_text_prompts_copy), logits.shape[1]).mean(1)
                         reps = reps.reshape(-1, len(task_text_prompts_copy), reps.shape[1]).mean(1)
-                    elif model_args.eol_type == 'disassembleeol':
+                    elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
                         disassemble_logits = logits[data_args.per_device_batch_size:]
                         logits = logits[:data_args.per_device_batch_size]
+
                 else:
                     # Preparation for inference
                     if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
@@ -566,7 +617,7 @@ def main():
                                                    padding=True)
                             imgs = img_inputs.to(device)
                             logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
-                        elif model_args.eol_type == 'disassembleeol':
+                        elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
                             # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
                             raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                             img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
@@ -635,7 +686,7 @@ def main():
                 encoded.append(reps.cpu().detach().float().numpy())
 
                 ids = text_ids if training_args.encode_type == 'text' else img_ids
-                if model_args.eol_type == 'disassembleeol':
+                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
                     if training_args.encode_type == 'text':
                         for text_indice in range(len(ids)):
                             id = ids[text_indice]
@@ -650,7 +701,7 @@ def main():
                                                                                       disassemble_logit,
                                                                                       vocab_dict,
                                                                                       data_args,
-                                                                                      filtered_ids)
+                                                                                      filtered_ids, model_args)
 
                             for token, v in zip(tokens, values):
                                 if token in vector.keys():
@@ -684,7 +735,7 @@ def main():
                                                                                      disassemble_logit,
                                                                                      vocab_dict,
                                                                                      data_args,
-                                                                                     filtered_ids)
+                                                                                     filtered_ids, model_args)
                             for token, v in zip(tokens, values):
                                 if token in vector.keys():
                                     if data_args.sparse_value_type == 'replace':
