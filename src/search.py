@@ -724,7 +724,7 @@ def main():
                                     get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
 
                             else:
-                                for _, logits in zip(batch_ids, query_logits):
+                                for _, logits, text in zip(batch_ids, query_logits, texts):
                                     vector = dict()
                                     if model_args.use_output_embedding_cluster:
                                         if 'InternVL2_5-8B' in model_args.model_name_or_path:
