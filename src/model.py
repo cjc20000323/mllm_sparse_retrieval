@@ -110,7 +110,7 @@ class MLLMRetrievalModel(nn.Module):
                                             max_length=data_args.max_length,
                                             pad_to_multiple_of=data_args.pad_to_multiple_of).to('cuda')
                 else:
-                    if model_args.eol_type == 'prompteol':
+                    if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
                         text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                                 return_tensors="pt",
                                                 padding=True).to('cuda')

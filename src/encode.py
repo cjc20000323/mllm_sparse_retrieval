@@ -62,7 +62,7 @@ def filter_token(token):
     return token
 
 
-def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filtered_ids, model_args=None):
+def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filtered_ids, model_args=None, text=None):
     # 这里是想获得图像的离散值，但是图像是没有文本的，所以不能像原来那样获得对应的token_id，那么是取top 10还是最多128呢，我们先最多128吧
 
     # if len(token_ids_in_text) == 0:  # if no tokens in the text (rare case), we use top 10 tokens
@@ -74,9 +74,19 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
     # 这里应该是先获得了logit，然后再来筛选哪些值，正常来说词表所有位置上的logit都很难是0，
     # 但是这里就默认那些没有的单词还有排名128名之后的单词logit为0了
     # TODO： 这里默认选128个了，但是文本大多数是没有128那么长的，不知道会不会对最终结果有影响
-    if data_args.sparse_manual:
+    if text is not None:
+        words = [i for i in word_tokenize(text.lower()) if
+                 i not in set(stopwords.words('english') + list(string.punctuation))]
+        token_ids = set()
+        for word in words:
+            token_ids.update(tokenizer.encode(word, add_special_tokens=False))
+        token_ids_in_text = torch.tensor(list(token_ids))
+        top_k = min(len(token_ids_in_text), 128)
+        top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
+    elif data_args.sparse_manual:
         top_k_values, top_k_indices = logits.topk(data_args.sparse_length, dim=-1)
-    elif model_args is not None and (model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate'):
+    elif model_args is not None and (
+            model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate'):
         top_k = 30
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
     else:
@@ -147,19 +157,26 @@ def get_img_valid_disassemble_tokens_values(tokenizer, logits, disassemble_logit
         top_k_values, top_k_indices = disassemble_logit.topk(top_k, dim=-1)
         word_set.update(top_k_indices.tolist())
         if model_args is not None and model_args.eol_type == 'disassembleeol_separate':
-            for indice in top_k_indices:
-                if vocab_dict[indice] in word_values.keys():
-                    if indice < len(vocab_dict):
+            # 下面这里，是通过循环，将五个prompt预测logit结果给拿出来，保存到word_value字典里，先区分大小写，、
+            # 在下面构造token和value时会统一转成小写，并在main中的json构造循环里面再次计算sparse_value_type
+            for indice in top_k_indices.cpu().detach().float().numpy():
+                if vocab_dict[int(indice.item())] in word_values.keys():
+                    if int(indice.item()) < len(vocab_dict):
                         if data_args.sparse_value_type == 'replace':
-                            word_values[vocab_dict[indice]] = disassemble_logit[indice].cpu().detach()
+                            word_values[vocab_dict[int(indice.item())]] = disassemble_logit[
+                                int(indice.item())].cpu().detach()
                         elif data_args.sparse_value_type == 'sum':
-                            word_values[vocab_dict[indice]] += disassemble_logit[indice].cpu().detach()
+                            word_values[vocab_dict[int(indice.item())]] += disassemble_logit[
+                                int(indice.item())].cpu().detach()
                         else:
-                            if disassemble_logit[indice].cpu().detach() > word_values[vocab_dict[indice]]:
-                                word_values[vocab_dict[indice]] = disassemble_logit[indice].cpu().detach()
+                            if disassemble_logit[int(indice.item())].cpu().detach() > word_values[
+                                vocab_dict[int(indice.item())]]:
+                                word_values[vocab_dict[int(indice.item())]] = disassemble_logit[
+                                    int(indice.item())].cpu().detach()
                 else:
-                    if indice < len(vocab_dict):
-                        word_values[vocab_dict[indice]] = disassemble_logit[indice].cpu().detach()
+                    if int(indice.item()) < len(vocab_dict):
+                        word_values[vocab_dict[int(indice.item())]] = disassemble_logit[
+                            int(indice.item())].cpu().detach()
 
     if model_args is not None and model_args.eol_type == 'disassembleeol_separate':
         values = [word_values[key] for key in word_values.keys()]
@@ -215,7 +232,8 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
         else:
             tokens = [vocab_dict[i.item()] for i in top_k_indices.cpu().detach().float().numpy() if
                       i < len(vocab_dict)]
-    elif model_args is not None and (model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate'):
+    elif model_args is not None and (
+            model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate'):
         top_k = 30
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
         values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
@@ -315,19 +333,24 @@ def get_text_valid_disassemble_tokens_values(text, tokenizer, logits, disassembl
         top_k_values, top_k_indices = disassemble_logit.topk(top_k, dim=-1)
         word_set.update(top_k_indices.tolist())
         if model_args is not None and model_args.eol_type == 'disassembleeol_separate':
-            for indice in top_k_indices:
-                if vocab_dict[indice] in word_values.keys():
-                    if indice < len(vocab_dict):
+            for indice in top_k_indices.cpu().detach().float().numpy():
+                if vocab_dict[int(indice.item())] in word_values.keys():
+                    if int(indice.item()) < len(vocab_dict):
                         if data_args.sparse_value_type == 'replace':
-                            word_values[vocab_dict[indice]] = disassemble_logit[indice].cpu().detach()
+                            word_values[vocab_dict[int(indice.item())]] = disassemble_logit[
+                                int(indice.item())].cpu().detach()
                         elif data_args.sparse_value_type == 'sum':
-                            word_values[vocab_dict[indice]] += disassemble_logit[indice].cpu().detach()
+                            word_values[vocab_dict[int(indice.item())]] += disassemble_logit[
+                                int(indice.item())].cpu().detach()
                         else:
-                            if disassemble_logit[indice].cpu().detach() > word_values[vocab_dict[indice]]:
-                                word_values[vocab_dict[indice]] = disassemble_logit[indice].cpu().detach()
+                            if disassemble_logit[int(indice.item())].cpu().detach() > word_values[
+                                vocab_dict[int(indice.item())]]:
+                                word_values[vocab_dict[int(indice.item())]] = disassemble_logit[
+                                    int(indice.item())].cpu().detach()
                 else:
-                    if indice < len(vocab_dict):
-                        word_values[vocab_dict[indice]] = disassemble_logit[indice].cpu().detach()
+                    if int(indice.item()) < len(vocab_dict):
+                        word_values[vocab_dict[int(indice.item())]] = disassemble_logit[
+                            int(indice.item())].cpu().detach()
 
     if model_args is not None and model_args.eol_type == 'disassembleeol_separate':
         values = [word_values[key] for key in word_values.keys()]
@@ -606,7 +629,7 @@ def main():
                         imgs = [load_image(path, max_num=12).to(torch_type).cuda() for path in imgs_path]
                         logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
                     else:
-                        if model_args.eol_type == 'prompteol':
+                        if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
                             if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
                                 prompt = processor.apply_chat_template(
                                     img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
@@ -827,9 +850,14 @@ def main():
                                     tokens, values = get_img_valid_tokens_values(processor, logit, vocab_dict,
                                                                                  data_args, filtered_ids)
                                 else:
-                                    tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
-                                                                                 vocab_dict,
-                                                                                 data_args, filtered_ids)
+                                    if model_args.eol_type == 'prompteol_same_length':
+                                        tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                     vocab_dict,
+                                                                                     data_args, filtered_ids, text=text)
+                                    else:
+                                        tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                     vocab_dict,
+                                                                                     data_args, filtered_ids)
                             for token, v in zip(tokens, values):
                                 if token in vector.keys():
                                     if data_args.sparse_value_type == 'replace':

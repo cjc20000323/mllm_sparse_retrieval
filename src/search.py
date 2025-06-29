@@ -373,7 +373,7 @@ def main():
                         query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device, model_args,
                                                                            data_args)
                     else:
-                        if model_args.eol_type == 'prompteol':
+                        if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
                             if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
                                 prompt = processor.apply_chat_template(
                                     img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
@@ -747,10 +747,18 @@ def main():
                                             tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
                                                                                          data_args, filtered_ids)
                                         else:
-                                            tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits,
-                                                                                         vocab_dict,
-                                                                                         data_args,
-                                                                                         filtered_ids)
+                                            if model_args.eol_type == 'prompteol_same_length':
+                                                tokens, values = get_img_valid_tokens_values(processor.tokenizer,
+                                                                                             logits,
+                                                                                             vocab_dict,
+                                                                                             data_args,
+                                                                                             filtered_ids, text=text)
+                                            else:
+                                                tokens, values = get_img_valid_tokens_values(processor.tokenizer,
+                                                                                             logits,
+                                                                                             vocab_dict,
+                                                                                             data_args,
+                                                                                             filtered_ids)
 
                                     for token, v in zip(tokens, values):
                                         if token in vector.keys():
