@@ -64,7 +64,7 @@ class MLLMRetrievalModel(nn.Module):
         else:
             prompt = text_prompt
 
-        if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
+        if 'disassembleeol' in model_args.eol_type:
             if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
                 prompts = llama3_retrieval_disassemble_text_prompts
             else:
@@ -114,7 +114,7 @@ class MLLMRetrievalModel(nn.Module):
                         text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                                 return_tensors="pt",
                                                 padding=True).to('cuda')
-                    elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
+                    elif 'disassembleeol' in model_args.eol_type:
                         disassemble_text_inputs = processor(
                             text=[prompt.replace('<sent>', text) for text in input for prompt in prompts],
                             return_tensors="pt",
@@ -160,8 +160,10 @@ class MLLMRetrievalModel(nn.Module):
                         batch_ids, sequence_lengths]
                 # 这里对应原文的log+relu操作
                 logits = torch.log(1 + torch.relu(logits))
-                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
+                if 'disassembleeol' in model_args.eol_type:
                     logits = torch.cat([logits, disassemble_logits], dim=0)
+                if model_args.eol_type == 'all_disassembleeol':
+                    embs = disassemble_output.hidden_states[-1][:, -1, :]
 
             return logits, embs
         elif input_type == 'image':

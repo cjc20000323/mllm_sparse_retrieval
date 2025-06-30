@@ -361,7 +361,7 @@ def main():
                         query_logits = query_logits.reshape(-1, len(task_text_prompts), query_logits.shape[1]).mean(1)
                         query_dense_reps = query_dense_reps.reshape(-1, len(task_text_prompts),
                                                                     query_dense_reps.shape[1]).mean(1)
-                    elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
+                    elif 'disassembleeol' in model_args.eol_type:
                         disassemble_logits = query_logits[data_args.per_device_batch_size:]
                         query_logits = query_logits[:data_args.per_device_batch_size]
                 else:
@@ -435,6 +435,62 @@ def main():
                             disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
                                                                       model_args, data_args)
                             '''
+
+                        elif model_args.eol_type == 'all_disassembleeol':
+                            # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                                   return_tensors="pt",
+                                                   padding=True)
+                            imgs = img_inputs.to(device)
+                            query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
+                                                                               model_args, data_args)
+                            del imgs
+
+                            disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
+                                                      range(len(prompts) // 5)]
+                            '''
+                            disassemble_img_inputs = processor(images=disassemble_raw_images,
+                                                               text=prompts * len(imgs_path),
+                                                               return_tensors="pt",
+                                                               padding=True)
+                            '''
+                            disassemble_logits = [[] for _ in range(len(imgs_path))]
+                            disassemble_reps = [[] for _ in range(len(imgs_path))]
+                            for i in range(5):
+                                # 这个i是为了控制当前轮次使用哪些prompt编码
+                                start = i * len(prompts) // 5
+                                end = (i + 1) * len(prompts) // 5
+
+                                disassemble_img_inputs = processor(images=disassemble_raw_images,
+                                                                   text=prompts[start:end] * len(imgs_path),
+                                                                   return_tensors="pt",
+                                                                   padding=True)
+
+                                disassemble_imgs = disassemble_img_inputs.to(device)
+
+                                # 在metaeol模式下，reps应该是[batch_size * len(task_prompts) // 4, reps_dim]
+                                disassemble_logits_sub, disassemble_reps_sub = model.encode_data(disassemble_imgs,
+                                                                                                 'image', processor,
+                                                                                                 device, model_args,
+                                                                                                 data_args)
+
+                                for j in range(len(imgs_path)):
+                                    # 这个j是为了控制要把第j个样本对应的数据存到对应索引下的列表中
+                                    disassemble_logits[j].append(
+                                        disassemble_logits_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
+                                    disassemble_reps[j].append(disassemble_reps_sub[j * len(prompts) // 4:(j + 1) * len(prompts) // 4])
+                            disassemble_logits = [item for disassemble_logit in disassemble_logits for item in
+                                                  disassemble_logit]
+                            disassemble_reps = [item for disassemble_rep in disassemble_reps for item in disassemble_rep]
+                            disassemble_logits = torch.cat(disassemble_logits, dim=0)
+                            disassemble_reps = torch.cat(disassemble_reps, dim=0)
+                            query_dense_reps = disassemble_reps
+                            '''
+                            disassemble_imgs = disassemble_img_inputs.to(device)
+                            disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
+                                                                      model_args, data_args)
+                            '''
                         else:
                             # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
                             # 也就是说，对于批次中的每个图像，按照下面每次循环使用的prompt个数，加入到raw_images中
@@ -500,6 +556,9 @@ def main():
 
                     else:
                         query_dense_reps = F.normalize(query_dense_reps, dim=-1)
+                        if model_args.eol_type == 'all_disassembleeol':
+                            query_dense_reps = query_dense_reps.reshape(-1, len(prompts),
+                                                                        query_dense_reps.shape[1]).mean(1)
                         query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
                         dense_scores, dense_rankings = search_queries(dense_retriever, query_dense_reps, look_up,
                                                                       search_args)
@@ -597,7 +656,7 @@ def main():
 
                     else:
                         batch_topics = []
-                        if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
+                        if 'disassembleeol' in model_args.eol_type:
                             if search_args.query_type == 'text':
                                 for text_indice in range(len(batch_ids)):
                                     id = batch_ids[text_indice]

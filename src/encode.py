@@ -156,7 +156,7 @@ def get_img_valid_disassemble_tokens_values(tokenizer, logits, disassemble_logit
     for disassemble_logit in disassemble_logits:
         top_k_values, top_k_indices = disassemble_logit.topk(top_k, dim=-1)
         word_set.update(top_k_indices.tolist())
-        if model_args is not None and model_args.eol_type == 'disassembleeol_separate':
+        if model_args is not None and (model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'):
             # 下面这里，是通过循环，将五个prompt预测logit结果给拿出来，保存到word_value字典里，先区分大小写，、
             # 在下面构造token和value时会统一转成小写，并在main中的json构造循环里面再次计算sparse_value_type
             for indice in top_k_indices.cpu().detach().float().numpy():
@@ -178,7 +178,7 @@ def get_img_valid_disassemble_tokens_values(tokenizer, logits, disassemble_logit
                         word_values[vocab_dict[int(indice.item())]] = disassemble_logit[
                             int(indice.item())].cpu().detach()
 
-    if model_args is not None and model_args.eol_type == 'disassembleeol_separate':
+    if model_args is not None and (model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'):
         values = [word_values[key] for key in word_values.keys()]
         values = np.rint(np.array(values) * 100).astype(int)
         if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
@@ -332,7 +332,7 @@ def get_text_valid_disassemble_tokens_values(text, tokenizer, logits, disassembl
     for disassemble_logit in disassemble_logits:
         top_k_values, top_k_indices = disassemble_logit.topk(top_k, dim=-1)
         word_set.update(top_k_indices.tolist())
-        if model_args is not None and model_args.eol_type == 'disassembleeol_separate':
+        if model_args is not None and (model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'):
             for indice in top_k_indices.cpu().detach().float().numpy():
                 if vocab_dict[int(indice.item())] in word_values.keys():
                     if int(indice.item()) < len(vocab_dict):
@@ -352,7 +352,7 @@ def get_text_valid_disassemble_tokens_values(text, tokenizer, logits, disassembl
                         word_values[vocab_dict[int(indice.item())]] = disassemble_logit[
                             int(indice.item())].cpu().detach()
 
-    if model_args is not None and model_args.eol_type == 'disassembleeol_separate':
+    if model_args is not None and (model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'):
         values = [word_values[key] for key in word_values.keys()]
         values = np.rint(np.array(values) * 100).astype(int)
         if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
@@ -601,7 +601,7 @@ def main():
         else:
             prompt = img_prompt
 
-        if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
+        if 'disassembleeol' in model_args.eol_type:
             prompts = llama3_retrieval_disassemble_image_prompts
         else:
             prompts = llama3_retrieval_disassemble_image_prompts
@@ -616,7 +616,7 @@ def main():
                     if model_args.eol_type == 'metaeol':
                         logits = logits.reshape(-1, len(task_text_prompts_copy), logits.shape[1]).mean(1)
                         reps = reps.reshape(-1, len(task_text_prompts_copy), reps.shape[1]).mean(1)
-                    elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
+                    elif 'disassembleeol' in model_args.eol_type:
                         disassemble_logits = logits[data_args.per_device_batch_size:]
                         logits = logits[:data_args.per_device_batch_size]
 
@@ -640,7 +640,7 @@ def main():
                                                    padding=True)
                             imgs = img_inputs.to(device)
                             logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
-                        elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
+                        elif 'disassembleeol' in model_args.eol_type:
                             # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
                             raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                             img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
@@ -656,7 +656,12 @@ def main():
                                                                return_tensors="pt",
                                                                padding=True)
                             disassemble_imgs = disassemble_img_inputs.to(device)
-                            disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
+                            if model_args.eol_type == 'all_disassembleeol':
+                                disassemble_logits, disassemble_embs = model.encode_data(disassemble_imgs, 'image', processor, device,
+                                                                      model_args, data_args)
+                                reps = disassemble_embs
+                            else:
+                                disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
                                                                       model_args, data_args)
                         else:
                             # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
@@ -701,6 +706,8 @@ def main():
 
                 # print(logits.shape)
                 reps = F.normalize(reps, dim=-1)
+                if model_args.eol_type == 'all_disassembleeol':
+                    reps = reps.reshape(-1, len(prompts), reps.shape[1]).mean(1)
                 if training_args.encode_type == 'text':
                     lookup_indices.extend(text_ids)
                 else:
@@ -709,7 +716,7 @@ def main():
                 encoded.append(reps.cpu().detach().float().numpy())
 
                 ids = text_ids if training_args.encode_type == 'text' else img_ids
-                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
+                if 'disassembleeol' in model_args.eol_type:
                     if training_args.encode_type == 'text':
                         for text_indice in range(len(ids)):
                             id = ids[text_indice]
