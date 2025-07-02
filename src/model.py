@@ -115,13 +115,13 @@ class MLLMRetrievalModel(nn.Module):
                                                 return_tensors="pt",
                                                 padding=True).to('cuda')
                     elif 'disassembleeol' in model_args.eol_type:
-                        disassemble_text_inputs = processor(
-                            text=[prompt.replace('<sent>', text) for text in input for prompt in prompts],
-                            return_tensors="pt",
-                            padding=True).to('cuda')
                         text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                                 return_tensors="pt",
                                                 padding=True).to('cuda')
+                        disassemble_text_inputs = processor(
+                            text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
+                            return_tensors="pt",
+                            padding=True).to('cuda')
                         disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
                                                           return_dict=True)
                         if data_args.reps_loc == 'after_pad':

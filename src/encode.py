@@ -90,7 +90,7 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
         top_k = 30
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
     else:
-        top_k = 128
+        top_k = data_args.sparse_length
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
     # print(top_k_indices)
     # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
@@ -156,7 +156,8 @@ def get_img_valid_disassemble_tokens_values(tokenizer, logits, disassemble_logit
     for disassemble_logit in disassemble_logits:
         top_k_values, top_k_indices = disassemble_logit.topk(top_k, dim=-1)
         word_set.update(top_k_indices.tolist())
-        if model_args is not None and (model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'):
+        if model_args is not None and (
+                model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'):
             # 下面这里，是通过循环，将五个prompt预测logit结果给拿出来，保存到word_value字典里，先区分大小写，、
             # 在下面构造token和value时会统一转成小写，并在main中的json构造循环里面再次计算sparse_value_type
             for indice in top_k_indices.cpu().detach().float().numpy():
@@ -178,7 +179,8 @@ def get_img_valid_disassemble_tokens_values(tokenizer, logits, disassemble_logit
                         word_values[vocab_dict[int(indice.item())]] = disassemble_logit[
                             int(indice.item())].cpu().detach()
 
-    if model_args is not None and (model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'):
+    if model_args is not None and (
+            model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'):
         values = [word_values[key] for key in word_values.keys()]
         values = np.rint(np.array(values) * 100).astype(int)
         if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
@@ -332,7 +334,8 @@ def get_text_valid_disassemble_tokens_values(text, tokenizer, logits, disassembl
     for disassemble_logit in disassemble_logits:
         top_k_values, top_k_indices = disassemble_logit.topk(top_k, dim=-1)
         word_set.update(top_k_indices.tolist())
-        if model_args is not None and (model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'):
+        if model_args is not None and (
+                model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'):
             for indice in top_k_indices.cpu().detach().float().numpy():
                 if vocab_dict[int(indice.item())] in word_values.keys():
                     if int(indice.item()) < len(vocab_dict):
@@ -352,7 +355,8 @@ def get_text_valid_disassemble_tokens_values(text, tokenizer, logits, disassembl
                         word_values[vocab_dict[int(indice.item())]] = disassemble_logit[
                             int(indice.item())].cpu().detach()
 
-    if model_args is not None and (model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'):
+    if model_args is not None and (
+            model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'):
         values = [word_values[key] for key in word_values.keys()]
         values = np.rint(np.array(values) * 100).astype(int)
         if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
@@ -657,12 +661,13 @@ def main():
                                                                padding=True)
                             disassemble_imgs = disassemble_img_inputs.to(device)
                             if model_args.eol_type == 'all_disassembleeol':
-                                disassemble_logits, disassemble_embs = model.encode_data(disassemble_imgs, 'image', processor, device,
-                                                                      model_args, data_args)
+                                disassemble_logits, disassemble_embs = model.encode_data(disassemble_imgs, 'image',
+                                                                                         processor, device,
+                                                                                         model_args, data_args)
                                 reps = disassemble_embs
                             else:
                                 disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
-                                                                      model_args, data_args)
+                                                                          model_args, data_args)
                         else:
                             # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
                             # 也就是说，对于批次中的每个图像，按照下面每次循环使用的prompt个数，加入到raw_images中
