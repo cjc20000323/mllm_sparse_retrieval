@@ -90,7 +90,7 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
         top_k = 30
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
     else:
-        top_k = data_args.sparse_length
+        top_k = data_args.image_sparse_length
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
     # print(top_k_indices)
     # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
@@ -222,7 +222,7 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
             tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy() if
                       i < len(vocab_dict)]
     elif data_args.sparse_manual:
-        top_k_values, top_k_indices = logits.topk(data_args.sparse_length, dim=-1)
+        top_k_values, top_k_indices = logits.topk(data_args.text_sparse_length, dim=-1)
         values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
         if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
             tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
@@ -944,35 +944,67 @@ def main():
                     f.write(json.dumps(data) + "\n")
 
     else:
-        os.makedirs(
-            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
-            exist_ok=True)
-        os.makedirs(
-            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
-            exist_ok=True)
+        if data_args.sparse_manual:
+            os.makedirs(
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
+                exist_ok=True)
+            os.makedirs(
+                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
+                exist_ok=True)
 
-        with open(os.path.join(
+            with open(os.path.join(
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
+                    f'query.pkl') if data_args.encode_is_query else os.path.join(
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
+                f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                pickle.dump((encoded, lookup_indices), f)
+
+            with open(os.path.join(
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
+                    f'query.tsv') if data_args.encode_is_query else os.path.join(
+                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
+                f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                for data in jsonl_data:
+                    if data_args.encode_is_query:
+                        id = data['id']
+                        vector = data['vector']
+                        query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                        if len(query.strip()) == 0:
+                            continue
+                        f.write(f'{id}\t{query}\n')
+                    else:
+                        f.write(json.dumps(data) + "\n")
+
+        else:
+            os.makedirs(
                 f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
-                f'query.pkl') if data_args.encode_is_query else os.path.join(
-            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
-            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
-            pickle.dump((encoded, lookup_indices), f)
-
-        with open(os.path.join(
+                exist_ok=True)
+            os.makedirs(
                 f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
-                f'query.tsv') if data_args.encode_is_query else os.path.join(
-            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
-            f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
-            for data in jsonl_data:
-                if data_args.encode_is_query:
-                    id = data['id']
-                    vector = data['vector']
-                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
-                    if len(query.strip()) == 0:
-                        continue
-                    f.write(f'{id}\t{query}\n')
-                else:
-                    f.write(json.dumps(data) + "\n")
+                exist_ok=True)
+
+            with open(os.path.join(
+                    f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
+                    f'query.pkl') if data_args.encode_is_query else os.path.join(
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
+                f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                pickle.dump((encoded, lookup_indices), f)
+
+            with open(os.path.join(
+                    f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
+                    f'query.tsv') if data_args.encode_is_query else os.path.join(
+                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}',
+                f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                for data in jsonl_data:
+                    if data_args.encode_is_query:
+                        id = data['id']
+                        vector = data['vector']
+                        query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                        if len(query.strip()) == 0:
+                            continue
+                        f.write(f'{id}\t{query}\n')
+                    else:
+                        f.write(json.dumps(data) + "\n")
 
     if model_args.use_output_embedding_cluster:
         with open(f'{model_args.model_name_or_path[14:]}_{cluster}.json', 'w') as f:

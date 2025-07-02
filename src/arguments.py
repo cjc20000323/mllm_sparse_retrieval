@@ -54,6 +54,8 @@ class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
     reps_loc: str = field(default='before_pad')
     sparse_manual: bool = field(default=False)
     sparse_length: int = field(default=128)
+    text_sparse_length: int = field(default=128)
+    image_sparse_length: int = field(default=128)
     use_few_shot: bool = field(default=False)
     few_shot_sum: int = field(default=200)
     use_cutoff_len: bool = field(default=False)
