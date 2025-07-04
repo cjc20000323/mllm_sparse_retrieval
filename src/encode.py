@@ -84,13 +84,13 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
         top_k = min(len(token_ids_in_text), 128)
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
     elif data_args.sparse_manual:
-        top_k_values, top_k_indices = logits.topk(data_args.sparse_length, dim=-1)
+        top_k_values, top_k_indices = logits.topk(data_args.image_sparse_length, dim=-1)
     elif model_args is not None and (
             model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate'):
         top_k = 30
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
     else:
-        top_k = data_args.image_sparse_length
+        top_k = data_args.sparse_length
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
     # print(top_k_indices)
     # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
