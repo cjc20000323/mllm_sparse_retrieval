@@ -52,6 +52,21 @@ def fuse(runs, weights):
                     fused_run[qid][doc] = score
     return fused_run
 
+def normalize(original_run):
+    normalize_run = {}
+    qids = set()
+    qids.update(original_run.keys())
+    for qid in qids:
+        normalize_run[qid] = {}
+        for doc in original_run[qid]['docs']:
+            min_score = original_run[qid]['min_score']
+            max_score = original_run[qid]['max_score']
+            denominator = max_score - min_score
+            denominator = max(denominator, 1e-9)
+            score = (original_run[qid]['docs'][doc] - min_score) / denominator
+            normalize_run[qid][doc] = score
+    return normalize_run
+
 
 def fuse_statistic(runs, weights):
     fused_run = {}

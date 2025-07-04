@@ -35,7 +35,7 @@ from template import img_prompt, \
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
     get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, \
     get_img_valid_disassemble_tokens_values
-from hybrid import fuse
+from hybrid import fuse, normalize
 from utils import load_image
 from peft import PeftModel
 
@@ -479,10 +479,12 @@ def main():
                                     # 这个j是为了控制要把第j个样本对应的数据存到对应索引下的列表中
                                     disassemble_logits[j].append(
                                         disassemble_logits_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
-                                    disassemble_reps[j].append(disassemble_reps_sub[j * len(prompts) // 4:(j + 1) * len(prompts) // 4])
+                                    disassemble_reps[j].append(
+                                        disassemble_reps_sub[j * len(prompts) // 4:(j + 1) * len(prompts) // 4])
                             disassemble_logits = [item for disassemble_logit in disassemble_logits for item in
                                                   disassemble_logit]
-                            disassemble_reps = [item for disassemble_rep in disassemble_reps for item in disassemble_rep]
+                            disassemble_reps = [item for disassemble_rep in disassemble_reps for item in
+                                                disassemble_rep]
                             disassemble_logits = torch.cat(disassemble_logits, dim=0)
                             disassemble_reps = torch.cat(disassemble_reps, dim=0)
                             query_dense_reps = disassemble_reps
@@ -859,6 +861,9 @@ def main():
             )
         )
 
+    if dist.get_rank() == 0:
+        print(dense_run)
+
     metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
@@ -866,22 +871,142 @@ def main():
     metric.all_gather_object()
     metric.print_recall()
 
-    if not model_args.lora and not model_args.use_output_embedding_cluster:
-        with open(
-                f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_sparse_search_results_{dist.get_rank()}.txt',
-                'w') as f:
-            for k, v in tqdm(metric.sparse_run.items()):
-                target = metric.dataset.get_target(k, metric.search_args.query_type)
-                if isinstance(target, list):
-                    target = torch.tensor([int(i) for i in target]).cuda()
-                else:
-                    target = int(target)
-                if len(v['docs']) == 0:
-                    continue
+    sparse_correct_dict = {}
+    sparse_wrong_dict = {}
+    dense_correct_dict = {}
+    dense_wrong_dict = {}
+    hybrid_correct_dict = {}
+    hybrid_wrong_dict = {}
 
-                search_results = metric._sort(v['docs'])
-                if not (True in torch.isin(search_results[10], target)):
-                    f.write(f'{k}: {search_results[10].tolist()}\n')
+    normalize_sparse_run = normalize(metric.sparse_run)
+    normalize_dense_run = normalize(metric.dense_run)
+
+    if not model_args.lora and not model_args.use_output_embedding_cluster:
+        for k, v in tqdm(normalize_sparse_run.items()):
+            target = metric.dataset.get_target(k, metric.search_args.query_type)
+            if isinstance(target, list):
+                target = torch.tensor([int(i) for i in target]).cuda()
+            else:
+                target = int(target)
+            if len(v['docs']) == 0:
+                continue
+
+            search_results, search_scores = metric._sort_return_id_and_value(v)
+            if True in torch.isin(search_results[1], target):
+                sparse_correct_dict[k] = {'results': target, 'search': search_results[10], 'score': search_scores[10],
+                                          'r@1': True in torch.isin(search_results[1], target),
+                                          'r@5': True in torch.isin(search_results[5], target),
+                                          'r@10': True in torch.isin(search_results[10], target)}
+            else:
+                sparse_wrong_dict[k] = {'results': target, 'search': search_results[10], 'score': search_scores[10],
+                                        'r@1': True in torch.isin(search_results[1], target),
+                                        'r@5': True in torch.isin(search_results[5], target),
+                                        'r@10': True in torch.isin(search_results[10], target)}
+
+        for k, v in tqdm(normalize_dense_run.items()):
+            target = metric.dataset.get_target(k, metric.search_args.query_type)
+            if isinstance(target, list):
+                target = torch.tensor([int(i) for i in target]).cuda()
+            else:
+                target = int(target)
+            if len(v['docs']) == 0:
+                continue
+
+            search_results, search_scores = metric._sort_return_id_and_value(v)
+            if True in torch.isin(search_results[1], target):
+                dense_correct_dict[k] = {'results': target, 'search': search_results[10], 'score': search_scores[10],
+                                         'r@1': True in torch.isin(search_results[1], target),
+                                         'r@5': True in torch.isin(search_results[5], target),
+                                         'r@10': True in torch.isin(search_results[10], target)}
+            else:
+                dense_wrong_dict[k] = {'results': target, 'search': search_results[10], 'score': search_scores[10],
+                                       'r@1': True in torch.isin(search_results[1], target),
+                                       'r@5': True in torch.isin(search_results[5], target),
+                                       'r@10': True in torch.isin(search_results[10], target)}
+
+        for k, v in tqdm(metric.fusion_run.items()):
+            target = metric.dataset.get_target(k, metric.search_args.query_type)
+            if isinstance(target, list):
+                target = torch.tensor([int(i) for i in target]).cuda()
+            else:
+                target = int(target)
+            if len(v['docs']) == 0:
+                continue
+
+            search_results, search_scores = metric._sort_return_id_and_value(v)
+            if True in torch.isin(search_results[1], target):
+                hybrid_correct_dict[k] = {'results': target, 'search': search_results[10], 'score': search_scores[10],
+                                          'r@1': True in torch.isin(search_results[1], target),
+                                          'r@5': True in torch.isin(search_results[5], target),
+                                          'r@10': True in torch.isin(search_results[10], target)}
+            else:
+                hybrid_wrong_dict[k] = {'results': target, 'search': search_results[10], 'score': search_scores[10],
+                                        'r@1': True in torch.isin(search_results[1], target),
+                                        'r@5': True in torch.isin(search_results[5], target),
+                                        'r@10': True in torch.isin(search_results[10], target)}
+
+        if data_args.sparse_manual:
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_sparse_search_correct_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                for k, v in sparse_correct_dict:
+                    f.write(f'{k}: {v}\n')
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_sparse_search_wrong_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                for k, v in sparse_wrong_dict:
+                    f.write(f'{k}: {v}\n')
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_dense_search_correct_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                for k, v in dense_correct_dict:
+                    f.write(f'{k}: {v}\n')
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_dense_search_wrong_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                for k, v in dense_wrong_dict:
+                    f.write(f'{k}: {v}\n')
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_hybrid_search_correct_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                for k, v in hybrid_correct_dict:
+                    f.write(f'{k}: {v}\n')
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_hybrid_search_wrong_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                for k, v in hybrid_wrong_dict:
+                    f.write(f'{k}: {v}\n')
+        else:
+            with open(
+                    f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_correct_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                for k, v in sparse_correct_dict:
+                    f.write(f'{k}: {v}\n')
+            with open(
+                    f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_wrong_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                for k, v in sparse_wrong_dict:
+                    f.write(f'{k}: {v}\n')
+            with open(
+                    f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_correct_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                for k, v in dense_correct_dict:
+                    f.write(f'{k}: {v}\n')
+            with open(
+                    f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_wrong_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                for k, v in dense_wrong_dict:
+                    f.write(f'{k}: {v}\n')
+            with open(
+                    f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_correct_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                for k, v in hybrid_correct_dict:
+                    f.write(f'{k}: {v}\n')
+            with open(
+                    f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_wrong_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                for k, v in hybrid_wrong_dict:
+                    f.write(f'{k}: {v}\n')
 
     # 训练结束后添加同步屏障
     dist.barrier()

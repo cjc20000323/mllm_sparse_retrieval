@@ -34,6 +34,16 @@ class RecallMetrics:
                           self.recall_k_setting_list}
         return search_results
 
+    def _sort_return_id_and_value(self, dictionary):
+        sorted_by_value = sorted(dictionary.items(), key=lambda x: x[1], reverse=True)
+        sorted_by_value_dicts = {k: dict(sorted_by_value[:k]) for k in self.recall_k_setting_list}
+
+        search_results = {k: list(sorted_by_value_dicts[k]) for k in self.recall_k_setting_list}
+        search_scores = {k: list(sorted_by_value_dicts[k].values()) for k in self.recall_k_setting_list}
+        search_results = {k: torch.tensor([int(i) for i in search_results[k]]).cuda() for k in
+                          self.recall_k_setting_list}
+        return search_results, search_scores
+
     def sort_and_count(self):
         if len(self.dense_run) > 0:
             for k, v in tqdm(self.dense_run.items()):
