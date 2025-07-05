@@ -1,4 +1,5 @@
 import glob
+import json
 import os
 import pickle
 import faiss
@@ -861,9 +862,6 @@ def main():
             )
         )
 
-    if dist.get_rank() == 0:
-        print(dense_run)
-
     metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
@@ -888,17 +886,17 @@ def main():
                 target = torch.tensor([int(i) for i in target]).cuda()
             else:
                 target = int(target)
-            if len(v['docs']) == 0:
+            if len(v) == 0:
                 continue
 
             search_results, search_scores = metric._sort_return_id_and_value(v)
             if True in torch.isin(search_results[1], target):
-                sparse_correct_dict[k] = {'results': target, 'search': search_results[10], 'score': search_scores[10],
+                sparse_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
                                           'r@1': True in torch.isin(search_results[1], target),
                                           'r@5': True in torch.isin(search_results[5], target),
                                           'r@10': True in torch.isin(search_results[10], target)}
             else:
-                sparse_wrong_dict[k] = {'results': target, 'search': search_results[10], 'score': search_scores[10],
+                sparse_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
                                         'r@1': True in torch.isin(search_results[1], target),
                                         'r@5': True in torch.isin(search_results[5], target),
                                         'r@10': True in torch.isin(search_results[10], target)}
@@ -909,17 +907,17 @@ def main():
                 target = torch.tensor([int(i) for i in target]).cuda()
             else:
                 target = int(target)
-            if len(v['docs']) == 0:
+            if len(v) == 0:
                 continue
 
             search_results, search_scores = metric._sort_return_id_and_value(v)
             if True in torch.isin(search_results[1], target):
-                dense_correct_dict[k] = {'results': target, 'search': search_results[10], 'score': search_scores[10],
+                dense_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
                                          'r@1': True in torch.isin(search_results[1], target),
                                          'r@5': True in torch.isin(search_results[5], target),
                                          'r@10': True in torch.isin(search_results[10], target)}
             else:
-                dense_wrong_dict[k] = {'results': target, 'search': search_results[10], 'score': search_scores[10],
+                dense_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
                                        'r@1': True in torch.isin(search_results[1], target),
                                        'r@5': True in torch.isin(search_results[5], target),
                                        'r@10': True in torch.isin(search_results[10], target)}
@@ -930,83 +928,72 @@ def main():
                 target = torch.tensor([int(i) for i in target]).cuda()
             else:
                 target = int(target)
-            if len(v['docs']) == 0:
+            if len(v) == 0:
                 continue
 
             search_results, search_scores = metric._sort_return_id_and_value(v)
             if True in torch.isin(search_results[1], target):
-                hybrid_correct_dict[k] = {'results': target, 'search': search_results[10], 'score': search_scores[10],
+                hybrid_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
                                           'r@1': True in torch.isin(search_results[1], target),
                                           'r@5': True in torch.isin(search_results[5], target),
                                           'r@10': True in torch.isin(search_results[10], target)}
             else:
-                hybrid_wrong_dict[k] = {'results': target, 'search': search_results[10], 'score': search_scores[10],
+                hybrid_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
                                         'r@1': True in torch.isin(search_results[1], target),
                                         'r@5': True in torch.isin(search_results[5], target),
                                         'r@10': True in torch.isin(search_results[10], target)}
 
+        os.makedirs(f'./case_study', exist_ok=True)
         if data_args.sparse_manual:
             with open(
                     f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_sparse_search_correct_results_{dist.get_rank()}.txt',
                     'w') as f:
-                for k, v in sparse_correct_dict:
-                    f.write(f'{k}: {v}\n')
+                json.dump(sparse_correct_dict, f)
             with open(
                     f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_sparse_search_wrong_results_{dist.get_rank()}.txt',
                     'w') as f:
-                for k, v in sparse_wrong_dict:
-                    f.write(f'{k}: {v}\n')
+                json.dump(sparse_wrong_dict, f)
             with open(
                     f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_dense_search_correct_results_{dist.get_rank()}.txt',
                     'w') as f:
-                for k, v in dense_correct_dict:
-                    f.write(f'{k}: {v}\n')
+                json.dump(dense_correct_dict, f)
             with open(
                     f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_dense_search_wrong_results_{dist.get_rank()}.txt',
                     'w') as f:
-                for k, v in dense_wrong_dict:
-                    f.write(f'{k}: {v}\n')
+                json.dump(dense_wrong_dict, f)
             with open(
                     f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_hybrid_search_correct_results_{dist.get_rank()}.txt',
                     'w') as f:
-                for k, v in hybrid_correct_dict:
-                    f.write(f'{k}: {v}\n')
+                json.dump(hybrid_correct_dict, f)
             with open(
                     f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_hybrid_search_wrong_results_{dist.get_rank()}.txt',
                     'w') as f:
-                for k, v in hybrid_wrong_dict:
-                    f.write(f'{k}: {v}\n')
+                json.dump(hybrid_wrong_dict, f)
         else:
             with open(
-                    f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_correct_results_{dist.get_rank()}.txt',
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_correct_results_{dist.get_rank()}.txt',
                     'w') as f:
-                for k, v in sparse_correct_dict:
-                    f.write(f'{k}: {v}\n')
+                json.dump(sparse_correct_dict, f)
             with open(
-                    f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_wrong_results_{dist.get_rank()}.txt',
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_wrong_results_{dist.get_rank()}.txt',
                     'w') as f:
-                for k, v in sparse_wrong_dict:
-                    f.write(f'{k}: {v}\n')
+                json.dump(sparse_wrong_dict, f)
             with open(
-                    f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_correct_results_{dist.get_rank()}.txt',
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_correct_results_{dist.get_rank()}.txt',
                     'w') as f:
-                for k, v in dense_correct_dict:
-                    f.write(f'{k}: {v}\n')
+                json.dump(dense_correct_dict, f)
             with open(
-                    f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_wrong_results_{dist.get_rank()}.txt',
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_wrong_results_{dist.get_rank()}.txt',
                     'w') as f:
-                for k, v in dense_wrong_dict:
-                    f.write(f'{k}: {v}\n')
+                json.dump(dense_wrong_dict, f)
             with open(
-                    f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_correct_results_{dist.get_rank()}.txt',
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_correct_results_{dist.get_rank()}.txt',
                     'w') as f:
-                for k, v in hybrid_correct_dict:
-                    f.write(f'{k}: {v}\n')
+                json.dump(hybrid_correct_dict, f)
             with open(
-                    f'{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_wrong_results_{dist.get_rank()}.txt',
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_wrong_results_{dist.get_rank()}.txt',
                     'w') as f:
-                for k, v in hybrid_wrong_dict:
-                    f.write(f'{k}: {v}\n')
+                json.dump(hybrid_wrong_dict, f)
 
     # 训练结束后添加同步屏障
     dist.barrier()
