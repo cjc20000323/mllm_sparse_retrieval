@@ -44,19 +44,19 @@ for k, v in loaded_data_3.items():
         count[1].append(k)
 
     elif k in loaded_data_6.keys() and k in loaded_data_1.keys():
+        '''
         print(k)
         print(v)
         print(loaded_data_6[k])
         print(loaded_data_1[k])
+        '''
         count[2].append(k)
 
     elif k in loaded_data_6.keys() and k in loaded_data_2.keys():
-        '''
         print(k)
         print(v)
         print(loaded_data_6[k])
         print(loaded_data_2[k])
-        '''
         count[3].append(k)
 
 for k, v in loaded_data_4.items():
@@ -101,3 +101,11 @@ for i in count:
 
 print()
 print(len(loaded_data_5))
+
+for k, v in loaded_data_1.items():
+    if k == v['results']:
+        print(k)
+
+for k, v in loaded_data_2.items():
+    if k == v['results']:
+        print(k)

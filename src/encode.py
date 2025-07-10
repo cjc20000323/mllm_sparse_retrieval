@@ -222,7 +222,7 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
             tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy() if
                       i < len(vocab_dict)]
     elif data_args.sparse_manual:
-        top_k_values, top_k_indices = logits.topk(data_args.text_sparse_length, dim=-1)
+        top_k_values, top_k_indices = logits.topk(len(token_ids_in_text), dim=-1)
         values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
         if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
             tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
