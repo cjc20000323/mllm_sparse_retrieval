@@ -17,7 +17,7 @@ import torch.distributed as dist
 from arguments import TrainingArguments
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
     LlavaNextForConditionalGeneration, Qwen2_5_VLForConditionalGeneration, Qwen2_5_VLProcessor, AutoProcessor, \
-    AutoModelForCausalLM, AutoModel
+    AutoModelForCausalLM, AutoModel, LlamaForCausalLM
 from encode import get_filtered_ids
 from dataset import CrossModalRetrievalDataset
 from metrices import RecallMetrics
@@ -39,6 +39,8 @@ from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, ge
 from hybrid import fuse, normalize
 from utils import load_image
 from peft import PeftModel
+from search import pickle_load, search_queries, sparse_search, get_run_dict
+import time
 
 # from cuml.cluster import KMeans
 
@@ -47,59 +49,6 @@ stopwords = set(stopwords.words('english') + list(string.punctuation))
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-def pickle_load(path):
-    with open(path, 'rb') as f:
-        reps, lookup = pickle.load(f)
-    return np.array(reps), lookup
-
-
-def search_queries(retriever, q_reps, p_lookup, args):
-    if args.retrieval_batch_size > 0:
-        all_scores, all_indices = retriever.batch_search(q_reps, args.depth, args.retrieval_batch_size, args.quiet)
-    else:
-        all_scores, all_indices = retriever.search(q_reps, args.depth)
-
-    psg_indices = [[str(p_lookup[x]) for x in q_dd] for q_dd in all_indices]
-    psg_indices = np.array(psg_indices)
-    return all_scores, psg_indices
-
-
-def get_run_dict(batch_ids, batch_scores, batch_rankings, remove_query):
-    run_dict = {}
-    for qid, scores, rankings in zip(batch_ids, batch_scores, batch_rankings):
-        run_dict[qid] = {}
-        run_dict[qid]['docs'] = {}
-        for score, doc in zip(scores, rankings):
-            if remove_query:
-                if doc == qid:
-                    continue
-            run_dict[qid]['docs'][doc] = score
-        if len(scores) == 0:
-            run_dict[qid]['min_score'] = 0
-            run_dict[qid]['max_score'] = 0
-        else:
-            run_dict[qid]['min_score'] = min(scores)
-            run_dict[qid]['max_score'] = max(scores)
-    return run_dict
-
-
-def sparse_search(sparse_retriever, batch_topics, batch_ids, search_args):
-    results = sparse_retriever.batch_search(batch_topics, batch_ids, search_args.depth,
-                                            threads=search_args.threads)
-    results = [(id_, results[id_]) for id_ in batch_ids]
-    sparse_scores = []
-    sparse_rankings = []
-    for topic, hits in results:
-        scores = []
-        ranking = []
-        for hit in hits:
-            scores.append(hit.score)
-            ranking.append(hit.docid)
-        sparse_scores.append([hit.score for hit in hits])
-        sparse_rankings.append(ranking)
-    return sparse_scores, sparse_rankings
 
 
 def main():
@@ -181,6 +130,11 @@ def main():
         vocab_dict = processor.tokenizer.get_vocab()
         filtered_ids = get_filtered_ids(processor.tokenizer)
     vocab_dict = {v: k for k, v in vocab_dict.items()}
+
+    if search_args.embedding_type == 'dense':
+        def equal(name):
+            return name
+        encoder.language_model.lm_head = equal
 
     if model_args.use_output_embedding_cluster:
         output_token_embeddings = encoder.get_output_embeddings().weight[:len(vocab_dict), :]
@@ -266,6 +220,10 @@ def main():
 
     dense_retriever_indices = []
     sparse_retriever_indices = []
+    model_cpu_time = []
+    model_gpu_time = []
+    similarity_cpu_time = []
+    similarity_gpu_time = []
 
     if search_args.passage_reps is not None:
         # 目前尚不清楚这里是怎么工作的
@@ -286,7 +244,7 @@ def main():
         dense_retriever = None
         sparse_retriever = None
 
-        if dense_retriever_indices:
+        if dense_retriever_indices and search_args.embedding_type != 'sparse':
             index_files = glob.glob(os.path.join(dense_retriever_indices[i], 'corpus*.pkl'))
             if dist.get_rank() == 0:
                 print(f'Pattern match found {len(index_files)} files; loading them into dense index.')
@@ -328,7 +286,7 @@ def main():
                         dense_retriever.index = faiss.index_cpu_to_all_gpus(dense_retriever.index, co,
                                                                             ngpu=num_gpus)
 
-        if sparse_retriever_indices:
+        if sparse_retriever_indices and search_args.embedding_type != 'dense':
             sparse_retriever = LuceneImpactSearcher(os.path.join(sparse_retriever_indices[i], 'index'), None)
             analyzer = JWhiteSpaceAnalyzer()
             sparse_retriever.set_analyzer(analyzer)
@@ -336,6 +294,13 @@ def main():
         with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
+                # CPU时间开始
+                cpu_start = time.time()
+
+                # GPU事件开始
+                gpu_start = torch.cuda.Event(enable_timing=True)
+                gpu_end = torch.cuda.Event(enable_timing=True)
+                gpu_start.record()
                 if search_args.query_type == 'text':
                     lookup_indices.extend(text_ids)
                 else:
@@ -348,16 +313,21 @@ def main():
                     prompt = img_prompt_intern_vl_v2_5
                 else:
                     prompt = img_prompt
-                # batch = batch.to(training_args.device)
-                # batch['qids'] = batch_ids
-                # model_output: EncoderOutput = model(query=batch)
+
                 if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
                     prompts = llama3_retrieval_disassemble_image_prompts
                 else:
                     prompts = llama3_retrieval_disassemble_image_prompts
                 if search_args.query_type == 'text':
-                    query_logits, query_dense_reps = model.encode_data(texts, 'text', processor, device, model_args,
-                                                                       data_args)
+                    if search_args.embedding_type == 'dense':
+                        query_dense_reps = model.encode_data_for_interface(texts, 'text', search_args.query_type, processor, device, model_args, data_args)
+                        query_dense_reps = F.normalize(query_dense_reps, dim=-1)
+                    elif search_args.embedding_type == 'sparse':
+                        query_logits = model.encode_data_for_interface(texts, 'text', search_args.query_type, processor, device, model_args, data_args)
+                    else:
+                        query_logits, query_dense_reps = model.encode_data_for_interface(texts, 'text', search_args.query_type, processor, device, model_args,
+                                                                           data_args)
+                        query_dense_reps = F.normalize(query_dense_reps, dim=-1)
                     if model_args.eol_type == 'metaeol':
                         query_logits = query_logits.reshape(-1, len(task_text_prompts), query_logits.shape[1]).mean(1)
                         query_dense_reps = query_dense_reps.reshape(-1, len(task_text_prompts),
@@ -384,9 +354,21 @@ def main():
                                                    return_tensors="pt",
                                                    padding=True)
                             imgs = img_inputs.to(device)
-                            query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
-                                                                               model_args,
-                                                                               data_args)
+                            if search_args.embedding_type == 'dense':
+                                query_dense_reps = model.encode_data_for_interface(imgs, 'image',
+                                                                                   search_args.query_type, processor,
+                                                                                   device, model_args, data_args)
+                                query_dense_reps = F.normalize(query_dense_reps, dim=-1)
+                            elif search_args.embedding_type == 'sparse':
+                                query_logits = model.encode_data_for_interface(imgs, 'image', search_args.query_type,
+                                                                               processor, device, model_args, data_args)
+                            else:
+                                query_logits, query_dense_reps = model.encode_data_for_interface(texts, 'text',
+                                                                                                 search_args.query_type,
+                                                                                                 processor, device,
+                                                                                                 model_args,
+                                                                                                 data_args)
+                                query_dense_reps = F.normalize(query_dense_reps, dim=-1)
                         elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
                             # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
                             raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
@@ -394,8 +376,19 @@ def main():
                                                    return_tensors="pt",
                                                    padding=True)
                             imgs = img_inputs.to(device)
-                            query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
-                                                                               model_args, data_args)
+                            if search_args.embedding_type == 'dense':
+                                query_dense_reps = model.encode_data_for_interface(imgs, 'image',
+                                                                                   search_args.query_type, processor,
+                                                                                   device, model_args, data_args)
+                                query_dense_reps = F.normalize(query_dense_reps, dim=-1)
+                            elif search_args.embedding_type == 'sparse':
+                                query_logits = model.encode_data_for_interface(imgs, 'image', search_args.query_type,
+                                                                               processor, device, model_args, data_args)
+                            else:
+                                query_logits, query_dense_reps = model.encode_data_for_interface(imgs, 'image', search_args.query_type, processor, device,
+                                                                                   model_args,
+                                                                                   data_args)
+                                query_dense_reps = F.normalize(query_dense_reps, dim=-1)
                             del imgs
 
                             disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
@@ -444,8 +437,19 @@ def main():
                                                    return_tensors="pt",
                                                    padding=True)
                             imgs = img_inputs.to(device)
-                            query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
-                                                                               model_args, data_args)
+                            if search_args.embedding_type == 'dense':
+                                query_dense_reps = model.encode_data_for_interface(imgs, 'image',
+                                                                                   search_args.query_type, processor,
+                                                                                   device, model_args, data_args)
+                                query_dense_reps = F.normalize(query_dense_reps, dim=-1)
+                            elif search_args.embedding_type == 'sparse':
+                                query_logits = model.encode_data_for_interface(imgs, 'image', search_args.query_type,
+                                                                               processor, device, model_args, data_args)
+                            else:
+                                query_logits, query_dense_reps = model.encode_data_for_interface(imgs, 'image', search_args.query_type, processor, device,
+                                                                                   model_args,
+                                                                                   data_args)
+                                query_dense_reps = F.normalize(query_dense_reps, dim=-1)
                             del imgs
 
                             disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
@@ -489,6 +493,7 @@ def main():
                             disassemble_logits = torch.cat(disassemble_logits, dim=0)
                             disassemble_reps = torch.cat(disassemble_reps, dim=0)
                             query_dense_reps = disassemble_reps
+                            query_dense_reps = F.normalize(query_dense_reps, dim=-1)
                             '''
                             disassemble_imgs = disassemble_img_inputs.to(device)
                             disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
@@ -535,11 +540,25 @@ def main():
                             query_logits = logits.reshape(-1, len(task_image_prompts), logits.shape[1]).mean(1)
                             query_dense_reps = reps.reshape(-1, len(task_image_prompts), reps.shape[1]).mean(1)
 
+                gpu_end.record()
+                torch.cuda.synchronize()  # 等待GPU完成
+
+                # CPU时间结束
+                cpu_end = time.time()
+
+                model_cpu_time.append(cpu_end - cpu_start)
+                model_gpu_time.append(gpu_start.elapsed_time(gpu_end))
+
                 if search_args.query_type == 'text':
                     batch_ids = text_ids
                 else:
                     batch_ids = img_ids
-                # print(batch_ids)
+                # CPU时间开始
+                cpu_start = time.time()
+                # GPU事件开始
+                gpu_start = torch.cuda.Event(enable_timing=True)
+                gpu_end = torch.cuda.Event(enable_timing=True)
+                gpu_start.record()
                 if dense_retriever is not None:
                     if isinstance(query_dense_reps, list):
                         for qid, reps in zip(batch_ids, query_dense_reps):
@@ -558,7 +577,6 @@ def main():
                                         get_run_dict([qid], [scores], [ranking], search_args.remove_query))
 
                     else:
-                        query_dense_reps = F.normalize(query_dense_reps, dim=-1)
                         if model_args.eol_type == 'all_disassembleeol':
                             query_dense_reps = query_dense_reps.reshape(-1, len(prompts),
                                                                         query_dense_reps.shape[1]).mean(1)
@@ -844,9 +862,20 @@ def main():
                                 sparse_run.update(
                                     get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
 
+                gpu_end.record()
+                torch.cuda.synchronize()  # 等待GPU完成
+
+                # CPU时间结束
+                cpu_end = time.time()
+
+                similarity_cpu_time.append(cpu_end - cpu_start)
+                similarity_gpu_time.append(gpu_start.elapsed_time(gpu_end))
+
                 if model_args.eol_type == 'metaeol':
                     del query_dense_reps
                     del query_logits
+
+
 
         if dense_retriever:
             del dense_retriever
@@ -869,132 +898,12 @@ def main():
     metric.all_gather_object()
     metric.print_recall()
 
-    '''
-    if not model_args.lora and not model_args.use_output_embedding_cluster:
-        sparse_correct_dict = {}
-        sparse_wrong_dict = {}
-        dense_correct_dict = {}
-        dense_wrong_dict = {}
-        hybrid_correct_dict = {}
-        hybrid_wrong_dict = {}
-
-        normalize_sparse_run = normalize(metric.sparse_run)
-        normalize_dense_run = normalize(metric.dense_run)
-        for k, v in tqdm(normalize_sparse_run.items()):
-            target = metric.dataset.get_target(k, metric.search_args.query_type)
-            if isinstance(target, list):
-                target = torch.tensor([int(i) for i in target]).cuda()
-            else:
-                target = int(target)
-            if len(v) == 0:
-                continue
-
-            search_results, search_scores = metric._sort_return_id_and_value(v)
-            if True in torch.isin(search_results[1], target):
-                sparse_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                          'r@1': True in torch.isin(search_results[1], target),
-                                          'r@5': True in torch.isin(search_results[5], target),
-                                          'r@10': True in torch.isin(search_results[10], target)}
-            else:
-                sparse_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                        'r@1': True in torch.isin(search_results[1], target),
-                                        'r@5': True in torch.isin(search_results[5], target),
-                                        'r@10': True in torch.isin(search_results[10], target)}
-
-        for k, v in tqdm(normalize_dense_run.items()):
-            target = metric.dataset.get_target(k, metric.search_args.query_type)
-            if isinstance(target, list):
-                target = torch.tensor([int(i) for i in target]).cuda()
-            else:
-                target = int(target)
-            if len(v) == 0:
-                continue
-
-            search_results, search_scores = metric._sort_return_id_and_value(v)
-            if True in torch.isin(search_results[1], target):
-                dense_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                         'r@1': True in torch.isin(search_results[1], target),
-                                         'r@5': True in torch.isin(search_results[5], target),
-                                         'r@10': True in torch.isin(search_results[10], target)}
-            else:
-                dense_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                       'r@1': True in torch.isin(search_results[1], target),
-                                       'r@5': True in torch.isin(search_results[5], target),
-                                       'r@10': True in torch.isin(search_results[10], target)}
-
-        for k, v in tqdm(metric.fusion_run.items()):
-            target = metric.dataset.get_target(k, metric.search_args.query_type)
-            if isinstance(target, list):
-                target = torch.tensor([int(i) for i in target]).cuda()
-            else:
-                target = int(target)
-            if len(v) == 0:
-                continue
-
-            search_results, search_scores = metric._sort_return_id_and_value(v)
-            if True in torch.isin(search_results[1], target):
-                hybrid_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                          'r@1': True in torch.isin(search_results[1], target),
-                                          'r@5': True in torch.isin(search_results[5], target),
-                                          'r@10': True in torch.isin(search_results[10], target)}
-            else:
-                hybrid_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                        'r@1': True in torch.isin(search_results[1], target),
-                                        'r@5': True in torch.isin(search_results[5], target),
-                                        'r@10': True in torch.isin(search_results[10], target)}
-
-        os.makedirs(f'./case_study', exist_ok=True)
-        if data_args.sparse_manual:
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_sparse_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_sparse_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_dense_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_dense_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_hybrid_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_hybrid_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_wrong_dict, f)
-        else:
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_wrong_dict, f)
-    '''
+    print(f'rank {rank}, sum of model cpu time: {sum(model_cpu_time)}, sum of model gpu time: {sum(model_gpu_time)}'
+          f', mean of model cpu time: {sum(model_cpu_time) / len(model_cpu_time)}, '
+          f'mean of model gpu time: {sum(model_gpu_time) / len(model_gpu_time)}')
+    print(f'rank {rank}, sum of similarity cpu time: {sum(similarity_cpu_time)}, sum of similarity gpu time: {sum(similarity_gpu_time)}'
+          f', mean of similarity cpu time: {sum(similarity_cpu_time) / len(similarity_cpu_time)}, '
+          f'mean of similarity gpu time: {sum(similarity_gpu_time) / len(similarity_gpu_time)}')
 
     # 训练结束后添加同步屏障
     dist.barrier()
