@@ -6,7 +6,7 @@ from tqdm import tqdm
 class RecallMetrics:
 
     def __init__(self, dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args):
-        self.recall_k_setting_list = [1, 5, 10, 100, 200]
+        self.recall_k_setting_list = [1, 5, 10, 100, 200, 300, 400]
         self.dense_counts = {k: 0 for k in self.recall_k_setting_list}
         self.sparse_counts = {k: 0 for k in self.recall_k_setting_list}
         self.fusion_counts = {k: 0 for k in self.recall_k_setting_list}
@@ -118,30 +118,39 @@ class RecallMetrics:
                 for k in self.recall_k_setting_list:
                     print('Dense recall @ {}: {}'.format(k, self.dense_recall_lists[k]))
                 print(
-                    'Dense reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}'.format(dense_recalls[1],
-                                                                                            dense_recalls[5],
-                                                                                            dense_recalls[10],
-                                                                                            dense_recalls[100],
-                                                                                            dense_recalls[200]))
+                    'Dense reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
+                        dense_recalls[1],
+                        dense_recalls[5],
+                        dense_recalls[10],
+                        dense_recalls[100],
+                        dense_recalls[200],
+                        dense_recalls[300],
+                        dense_recalls[400]
+                    ))
 
             if len(self.sparse_run) > 0:
                 sparse_recalls = {k: sum(self.sparse_recall_lists[k]) for k in self.recall_k_setting_list}
                 for k in self.recall_k_setting_list:
                     print('Sparse recall @ {}: {}'.format(k, self.sparse_recall_lists[k]))
                 print(
-                    'Sparse reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}'.format(sparse_recalls[1],
-                                                                                             sparse_recalls[5],
-                                                                                             sparse_recalls[10],
-                                                                                             sparse_recalls[100],
-                                                                                             sparse_recalls[200]))
+                    'Sparse reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
+                        sparse_recalls[1],
+                        sparse_recalls[5],
+                        sparse_recalls[10],
+                        sparse_recalls[100],
+                        sparse_recalls[200],
+                        sparse_recalls[300],
+                        sparse_recalls[400]))
             if len(self.fusion_run) > 0:
                 fusion_recalls = {k: sum(self.fusion_recall_lists[k]) for k in self.recall_k_setting_list}
                 for k in self.recall_k_setting_list:
                     print('Fusion/Hybrid recall @ {}: {}'.format(k, self.fusion_recall_lists[k]))
                 print(
-                    'Fusion/Hybrid reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}'.format(fusion_recalls[1],
-                                                                                                    fusion_recalls[5],
-                                                                                                    fusion_recalls[10],
-                                                                                                    fusion_recalls[100],
-                                                                                                    fusion_recalls[
-                                                                                                        200]))
+                    'Fusion/Hybrid reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
+                        fusion_recalls[1],
+                        fusion_recalls[5],
+                        fusion_recalls[10],
+                        fusion_recalls[100],
+                        fusion_recalls[200],
+                        fusion_recalls[300],
+                        fusion_recalls[400]))

@@ -82,3 +82,4 @@ class PromptRepsLLMSearchArguments:
     query_type: str = field(default='text')
     beta: float = field(default=0.5, metadata={"help": 'The weight for sparse retrieval'})
     embedding_type: str = field(default='dense')
+    first_stage_search_sum: int = field(default=200)
