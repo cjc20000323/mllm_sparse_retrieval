@@ -177,6 +177,26 @@ def main():
         analyzer = JWhiteSpaceAnalyzer()
         sparse_retriever.set_analyzer(analyzer)
 
+        lookup_to_reps = {}
+
+        index_files = glob.glob(os.path.join(dense_retriever_indices[i], 'corpus*.pkl'))
+        if dist.get_rank() == 0:
+            print(f'Pattern match found {len(index_files)} files; loading them into dense index.')
+
+        p_reps_0, p_lookup_0 = pickle_load(index_files[0])
+        shards = chain([(p_reps_0, p_lookup_0)], map(pickle_load, index_files[1:]))
+        if len(index_files) > 1:
+            shards = tqdm(shards, desc='Loading shards into index', total=len(index_files))
+        # 将候选集的数据读出后，构建候选id到候选密集特征的字典，供后面
+        candidate_reps = []
+        candidate_lookup = []
+        for p_reps, p_lookup in shards:
+            candidate_reps.extend(p_reps)
+            candidate_lookup.extend(p_lookup)
+        # 这个候选id到候选密集特征字典的键是字符串
+        for p_reps, p_lookup in zip(candidate_reps, candidate_lookup):
+            lookup_to_reps[p_lookup] = p_reps
+
         with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
@@ -212,11 +232,16 @@ def main():
                                                                        model_args,
                                                                        data_args)
 
+                query_dense_reps = F.normalize(query_dense_reps, dim=-1)
                 if search_args.query_type == 'text':
                     batch_ids = text_ids
                 else:
                     batch_ids = img_ids
                 # print(batch_ids)
+                # 这里把对应的id和rep关联起来，这里的id应该是int型数据
+                id_to_dense = {}
+                for id, dense_rep in zip(batch_ids, query_dense_reps):
+                    id_to_dense[id] = dense_rep
 
                 batch_topics = []
                 if search_args.query_type == 'text':
@@ -246,9 +271,6 @@ def main():
                     sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                    batch_ids,
                                                                    search_args)
-                    sparse_run.update(
-                        get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
-
                 else:
                     for _, logits, text in zip(batch_ids, query_logits, texts):
                         vector = dict()
@@ -285,13 +307,70 @@ def main():
                     sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                    batch_ids,
                                                                    search_args)
-                    sparse_run.update(
-                        get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
 
-        if dist.get_rank() == 0:
-            for k, v in sparse_run.items():
-                print(v['docs'])
-                print(len(v['docs']))
+                # 到这里上面的部分，一阶段稀疏检索已经完成，下面是为每个数据选择前若干个候选结果，构造新的子集并找出对应的密集特征
+                batch_sparse_run = get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query)
+                dense_scores_list = []
+                dense_rankings_list = []
+                # 在batch_sparse_run中，k是int型，v['docs']的键是字符串
+                for k, v in batch_sparse_run.items():
+                    sorted_by_value = sorted(v['docs'].items(), key=lambda x: x[1], reverse=True)
+                    sorted_by_value_dict = dict(sorted_by_value[:search_args.first_stage_search_sum])
+                    min_value = min(sorted_by_value_dict.values())
+                    max_value = max(sorted_by_value_dict.values())
+                    batch_sparse_run[k] = {'docs': sorted_by_value_dict, 'min_score': min_value, 'max_score': max_value}
+                    query_dense_rep = id_to_dense[k]
+
+                    # 由于经过一阶段粗排后，每个数据的结果都不同，所以要单独处理每个数据的密集检索器
+                    look_up = []
+                    dense_retriever = FaissFlatSearcher(p_reps_0)
+                    for p_lookup in sorted_by_value_dict.keys():
+                        # 这里目前不太确定add输入的np.array应该具体是什么样的格式，通过输出search.sh观察，发现dense_retriever.add
+                        # 接受的是[[], [], ..., []]这样的结构，只不过我们现在是一个一个数据增加而不是一批数据增加，
+                        # 所以暂时先写成一个np.array里面套了一个array
+                        dense_retriever.add(np.array([lookup_to_reps[p_lookup]]))
+                        look_up += [p_lookup]
+                    if search_args.use_gpu:
+                        num_gpus = faiss.get_num_gpus()
+                        if num_gpus == 0:
+                            logger.error("No GPU found. Back to CPU.")
+                        else:
+                            logger.info(f"Using {num_gpus} GPU")
+                            if num_gpus == 1:
+                                co = faiss.GpuClonerOptions()
+                                co.useFloat16 = True
+                                res = faiss.StandardGpuResources()
+                                dense_retriever.index = faiss.index_cpu_to_gpu(res, 0, dense_retriever.index, co)
+                            else:
+                                co = faiss.GpuMultipleClonerOptions()
+                                co.shard = True
+                                co.useFloat16 = True
+                                dense_retriever.index = faiss.index_cpu_to_all_gpus(dense_retriever.index, co,
+                                                                                    ngpu=num_gpus)
+
+                    dense_scores, dense_rankings = search_queries(dense_retriever,
+                                                                  query_dense_rep.cpu().detach().float().numpy(),
+                                                                  look_up, search_args)
+                    dense_scores_list.append(dense_scores[0])
+                    dense_rankings_list.append(dense_rankings[0])
+
+                sparse_run.update(batch_sparse_run)
+                dense_run.update(
+                    get_run_dict(batch_ids, dense_scores_list, dense_rankings_list, search_args.remove_query))
+
+    fusion_run.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[search_args.alpha, search_args.beta]
+        )
+    )
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args)
+
+    metric.sort_and_count()
+
+    metric.all_gather_object()
+    metric.print_recall()
 
     # 训练结束后添加同步屏障
     dist.barrier()

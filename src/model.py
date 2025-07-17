@@ -92,57 +92,59 @@ class MLLMRetrievalModel(nn.Module):
                 # 这里对应原文的log+relu操作
                 logits = torch.log(1 + torch.relu(logits))
             else:
-                if data_args.use_cutoff_len:
-                    for i in range(len(input)):
-                        text_input = processor.tokenizer(
-                            input[i],
-                            truncation=True,
-                            max_length=data_args.cutoff_len,
-                            padding=False,
-                            return_tensors=None,
-                            add_special_tokens=False,
-                        )
-                        text_input = processor.tokenizer.decode(text_input['input_ids'])
-                        input[i] = text_input
+                if model_args.eol_type == 'all_disassembleeol':
+                    disassemble_text_inputs = processor(
+                        text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
+                        return_tensors="pt",
+                        padding=True).to('cuda')
+                    disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
+                                                      return_dict=True)
+                    if data_args.reps_loc == 'after_pad':
+                        disassemble_logits = disassemble_output.logits[:, -1, :]
+                    else:
+                        disassemble_logits = disassemble_output.logits
+                        disassemble_sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
+                        disassemble_batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']),
+                                                             device=disassemble_logits.device)
+                        disassemble_logits = disassemble_output.logits[
+                            disassemble_batch_ids, disassemble_sequence_lengths]
+                    disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
+                    embs = disassemble_output.hidden_states[-1][:, -1, :]
+                    return disassemble_logits, embs
+
+                if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
                     text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                             return_tensors="pt",
-                                            padding=True,
-                                            max_length=data_args.max_length,
-                                            pad_to_multiple_of=data_args.pad_to_multiple_of).to('cuda')
-                else:
-                    if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
-                        text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
-                                                return_tensors="pt",
-                                                padding=True).to('cuda')
-                    elif 'disassembleeol' in model_args.eol_type:
-                        text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
-                                                return_tensors="pt",
-                                                padding=True).to('cuda')
-                        disassemble_text_inputs = processor(
-                            text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
-                            return_tensors="pt",
-                            padding=True).to('cuda')
-                        disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
-                                                          return_dict=True)
-                        if data_args.reps_loc == 'after_pad':
-                            disassemble_logits = disassemble_output.logits[:, -1, :]
-                        else:
-                            disassemble_logits = disassemble_output.logits
-                            disassemble_sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
-                            disassemble_batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']),
-                                                                 device=disassemble_logits.device)
-                            disassemble_logits = disassemble_output.logits[
-                                disassemble_batch_ids, disassemble_sequence_lengths]
-                        disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
+                                            padding=True).to('cuda')
+                elif 'disassembleeol' in model_args.eol_type:
+                    text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
+                                            return_tensors="pt",
+                                            padding=True).to('cuda')
+                    disassemble_text_inputs = processor(
+                        text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
+                        return_tensors="pt",
+                        padding=True).to('cuda')
+                    disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
+                                                      return_dict=True)
+                    if data_args.reps_loc == 'after_pad':
+                        disassemble_logits = disassemble_output.logits[:, -1, :]
                     else:
-                        prompts = [llama3_template.format(task_text_prompt) for task_text_prompt in
-                                   task_text_prompts_copy]
-                        # 输入text的顺序是，对于每个input中的text，按照task_text_prompts中的顺序组装成列表
-                        text_inputs = processor(
-                            text=[task_text_prompt.replace('<sent>', text) for text in input for task_text_prompt in
-                                  prompts],
-                            return_tensors="pt",
-                            padding=True).to('cuda')
+                        disassemble_logits = disassemble_output.logits
+                        disassemble_sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
+                        disassemble_batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']),
+                                                             device=disassemble_logits.device)
+                        disassemble_logits = disassemble_output.logits[
+                            disassemble_batch_ids, disassemble_sequence_lengths]
+                    disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
+                else:
+                    prompts = [llama3_template.format(task_text_prompt) for task_text_prompt in
+                               task_text_prompts_copy]
+                    # 输入text的顺序是，对于每个input中的text，按照task_text_prompts中的顺序组装成列表
+                    text_inputs = processor(
+                        text=[task_text_prompt.replace('<sent>', text) for text in input for task_text_prompt in
+                              prompts],
+                        return_tensors="pt",
+                        padding=True).to('cuda')
                 output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
                 # print(text_inputs['input_ids'])
                 # print(output.logits.shape)
@@ -160,10 +162,10 @@ class MLLMRetrievalModel(nn.Module):
                         batch_ids, sequence_lengths]
                 # 这里对应原文的log+relu操作
                 logits = torch.log(1 + torch.relu(logits))
-                if 'disassembleeol' in model_args.eol_type:
+                if 'disassembleeol_concrete' in model_args.eol_type:
                     logits = torch.cat([logits, disassemble_logits], dim=0)
-                if model_args.eol_type == 'all_disassembleeol':
-                    embs = disassemble_output.hidden_states[-1][:, -1, :]
+                if 'disassembleeol_separate' in model_args.eol_type:
+                    logits = disassemble_logits
 
             return logits, embs
         elif input_type == 'image':

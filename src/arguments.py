@@ -39,6 +39,9 @@ class ModelArguments(tevatron.retriever.arguments.ModelArguments):
     use_output_embedding_cluster: bool = field(default=False)
     cluster_sum: int = field(default=8000)
     eol_type: str = field(default='prompteol')
+    # 当eol_type为all_disassembleeol时，稀疏特征和密集特征都用各方面prompt综合编码
+    # 当eol_type为disassembleeol_concrete时，密集特征用原来的，稀疏特征由各方面选词，让后到原来的logit去找
+    # 当eol_type为disassembleeol_separate时，密集特征用原来的，稀疏特征用各方面prompt综合编码
 
 
 

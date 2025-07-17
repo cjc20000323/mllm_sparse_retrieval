@@ -145,8 +145,8 @@ def get_img_valid_tokens_values_with_cluster(tokenizer, logits, vocab_dict, orig
     return tokens, values
 
 
-def get_img_valid_disassemble_tokens_values(tokenizer, logits, disassemble_logits, vocab_dict, data_args, filtered_ids,
-                                            model_args=None):
+def get_img_valid_disassemble_tokens_values(tokenizer, disassemble_logits, vocab_dict, data_args, filtered_ids,
+                                            logits=None, model_args=None):
     word_set = set()
     word_values = dict()
     if data_args.sparse_manual:
@@ -323,8 +323,8 @@ def get_text_valid_tokens_values_with_cluster(text, tokenizer, logits, vocab_dic
     return tokens, values
 
 
-def get_text_valid_disassemble_tokens_values(text, tokenizer, logits, disassemble_logits, vocab_dict, data_args,
-                                             filtered_ids, model_args=None):
+def get_text_valid_disassemble_tokens_values(text, tokenizer, disassemble_logits, vocab_dict, data_args,
+                                             filtered_ids, logits=None, model_args=None):
     word_set = set()
     word_values = dict()
     if data_args.sparse_manual:
@@ -620,9 +620,11 @@ def main():
                     if model_args.eol_type == 'metaeol':
                         logits = logits.reshape(-1, len(task_text_prompts_copy), logits.shape[1]).mean(1)
                         reps = reps.reshape(-1, len(task_text_prompts_copy), reps.shape[1]).mean(1)
-                    elif 'disassembleeol' in model_args.eol_type:
+                    elif 'disassembleeol_concrete' in model_args.eol_type:
                         disassemble_logits = logits[data_args.per_device_batch_size:]
                         logits = logits[:data_args.per_device_batch_size]
+                    elif 'disassembleeol' in model_args.eol_type:
+                        disassemble_logits = logits
 
                 else:
                     # Preparation for inference
@@ -646,12 +648,18 @@ def main():
                             logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
                         elif 'disassembleeol' in model_args.eol_type:
                             # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
-                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                            img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
-                                                   return_tensors="pt",
-                                                   padding=True)
-                            imgs = img_inputs.to(device)
-                            logits, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
+                            # all_disassembleeol表示稀疏特征和密集特征都用各个子方面（角度）的结果
+                            if model_args.eol_type != 'all_disassembleeol':
+                                raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                                img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                                       return_tensors="pt",
+                                                       padding=True)
+                                imgs = img_inputs.to(device)
+                                if model_args.eol_type == 'disassembleeol_concrete':
+                                    logits, reps = model.encode_data(imgs, 'image', processor, device, model_args,
+                                                                     data_args)
+                                else:
+                                    _, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
 
                             disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
                                                       range(len(prompts))]
@@ -725,18 +733,28 @@ def main():
                     if training_args.encode_type == 'text':
                         for text_indice in range(len(ids)):
                             id = ids[text_indice]
-                            logit = logits[text_indice]
+                            if model_args.eol_type == 'disassembleeol_concrete':
+                                logit = logits[text_indice]
                             text = texts[text_indice]
                             disassemble_logit = disassemble_logits[
                                                 text_indice * len(llama3_retrieval_disassemble_text_prompts):(
                                                                                                                      text_indice + 1) * len(
                                                     llama3_retrieval_disassemble_text_prompts)]
                             vector = dict()
-                            tokens, values = get_text_valid_disassemble_tokens_values(text, processor, logit,
-                                                                                      disassemble_logit,
-                                                                                      vocab_dict,
-                                                                                      data_args,
-                                                                                      filtered_ids, model_args)
+                            if model_args.eol_type == 'disassembleeol_concrete':
+                                tokens, values = get_text_valid_disassemble_tokens_values(text, processor,
+                                                                                          disassemble_logit,
+                                                                                          vocab_dict,
+                                                                                          data_args,
+                                                                                          filtered_ids, logit,
+                                                                                          model_args)
+                            else:
+                                tokens, values = get_text_valid_disassemble_tokens_values(text, processor,
+                                                                                          disassemble_logit,
+                                                                                          vocab_dict,
+                                                                                          data_args,
+                                                                                          filtered_ids, None,
+                                                                                          model_args)
 
                             for token, v in zip(tokens, values):
                                 if token in vector.keys():
@@ -759,18 +777,28 @@ def main():
                     else:
                         for img_indice in range(len(ids)):
                             id = ids[img_indice]
-                            logit = logits[img_indice]
+                            if model_args.eol_type == 'disassembleeol_concrete':
+                                logit = logits[text_indice]
                             text = texts[img_indice]
                             disassemble_logit = disassemble_logits[
                                                 img_indice * len(llama3_retrieval_disassemble_image_prompts):(
                                                                                                                      img_indice + 1) * len(
                                                     llama3_retrieval_disassemble_image_prompts)]
                             vector = dict()
-                            tokens, values = get_img_valid_disassemble_tokens_values(processor, logit,
-                                                                                     disassemble_logit,
-                                                                                     vocab_dict,
-                                                                                     data_args,
-                                                                                     filtered_ids, model_args)
+                            if model_args.eol_type == 'disassembleeol_concrete':
+                                tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                         disassemble_logit,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, logit,
+                                                                                         model_args)
+                            else:
+                                tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                         disassemble_logit,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, None,
+                                                                                         model_args)
                             for token, v in zip(tokens, values):
                                 if token in vector.keys():
                                     if data_args.sparse_value_type == 'replace':

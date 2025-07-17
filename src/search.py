@@ -362,9 +362,11 @@ def main():
                         query_logits = query_logits.reshape(-1, len(task_text_prompts), query_logits.shape[1]).mean(1)
                         query_dense_reps = query_dense_reps.reshape(-1, len(task_text_prompts),
                                                                     query_dense_reps.shape[1]).mean(1)
-                    elif 'disassembleeol' in model_args.eol_type:
+                    elif 'disassembleeol_concrete' in model_args.eol_type:
                         disassemble_logits = query_logits[data_args.per_device_batch_size:]
                         query_logits = query_logits[:data_args.per_device_batch_size]
+                    elif 'disassembleeol' in model_args.eol_type:
+                        disassemble_logits = logits
                 else:
                     if 'InternVL2_5-8B' in model_args.model_name_or_path:
                         prompt = processor.apply_chat_template(
@@ -394,8 +396,12 @@ def main():
                                                    return_tensors="pt",
                                                    padding=True)
                             imgs = img_inputs.to(device)
-                            query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
-                                                                               model_args, data_args)
+                            if model_args.eol_type == 'disassembleeol_concrete':
+                                query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
+                                                                                   model_args, data_args)
+                            else:
+                                _, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
+                                                                                   model_args, data_args)
                             del imgs
 
                             disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
@@ -439,15 +445,6 @@ def main():
 
                         elif model_args.eol_type == 'all_disassembleeol':
                             # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
-                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                            img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
-                                                   return_tensors="pt",
-                                                   padding=True)
-                            imgs = img_inputs.to(device)
-                            query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
-                                                                               model_args, data_args)
-                            del imgs
-
                             disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
                                                       range(len(prompts) // 5)]
                             '''
@@ -663,18 +660,28 @@ def main():
                             if search_args.query_type == 'text':
                                 for text_indice in range(len(batch_ids)):
                                     id = batch_ids[text_indice]
-                                    logit = query_logits[text_indice]
+                                    if model_args.eol_type == 'disassembleeol_concrete':
+                                        logit = query_logits[text_indice]
                                     text = texts[text_indice]
                                     disassemble_logit = disassemble_logits[
                                                         text_indice * len(llama3_retrieval_disassemble_text_prompts):(
                                                                                                                              text_indice + 1) * len(
                                                             llama3_retrieval_disassemble_text_prompts)]
                                     vector = dict()
-                                    tokens, values = get_text_valid_disassemble_tokens_values(text, processor, logit,
-                                                                                              disassemble_logit,
-                                                                                              vocab_dict,
-                                                                                              data_args,
-                                                                                              filtered_ids, model_args)
+                                    if model_args.eol_type == 'disassembleeol_concrete':
+                                        tokens, values = get_text_valid_disassemble_tokens_values(text, processor,
+                                                                                                  disassemble_logit,
+                                                                                                  vocab_dict,
+                                                                                                  data_args,
+                                                                                                  filtered_ids, logit,
+                                                                                                  model_args)
+                                    else:
+                                        tokens, values = get_text_valid_disassemble_tokens_values(text, processor,
+                                                                                                  disassemble_logit,
+                                                                                                  vocab_dict,
+                                                                                                  data_args,
+                                                                                                  filtered_ids, None,
+                                                                                                  model_args)
 
                                     for token, v in zip(tokens, values):
                                         if token in vector.keys():
@@ -699,18 +706,28 @@ def main():
                             else:
                                 for img_indice in range(len(batch_ids)):
                                     id = batch_ids[img_indice]
-                                    logit = query_logits[img_indice]
+                                    if model_args.eol_type == 'disassembleeol_concrete':
+                                        logit = query_logits[text_indice]
                                     text = texts[img_indice]
                                     disassemble_logit = disassemble_logits[
                                                         img_indice * len(llama3_retrieval_disassemble_image_prompts):(
                                                                                                                              img_indice + 1) * len(
                                                             llama3_retrieval_disassemble_image_prompts)]
                                     vector = dict()
-                                    tokens, values = get_img_valid_disassemble_tokens_values(processor, logit,
-                                                                                             disassemble_logit,
-                                                                                             vocab_dict,
-                                                                                             data_args,
-                                                                                             filtered_ids, model_args)
+                                    if model_args.eol_type == 'disassembleeol_concrete':
+                                        tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                                 disassemble_logit,
+                                                                                                 vocab_dict,
+                                                                                                 data_args,
+                                                                                                 filtered_ids, logit,
+                                                                                                 model_args)
+                                    else:
+                                        tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                                 disassemble_logit,
+                                                                                                 vocab_dict,
+                                                                                                 data_args,
+                                                                                                 filtered_ids, None,
+                                                                                                 model_args)
                                     for token, v in zip(tokens, values):
                                         if token in vector.keys():
                                             if data_args.sparse_value_type == 'replace':
