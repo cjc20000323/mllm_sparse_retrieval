@@ -92,7 +92,7 @@ class MLLMRetrievalModel(nn.Module):
                 # 这里对应原文的log+relu操作
                 logits = torch.log(1 + torch.relu(logits))
             else:
-                if model_args.eol_type == 'all_disassembleeol':
+                if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
                     disassemble_text_inputs = processor(
                         text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
                         return_tensors="pt",
@@ -312,6 +312,51 @@ class MLLMRetrievalModel(nn.Module):
         else:
             prompts = llama3_retrieval_disassemble_text_prompts
         if input_type == 'text':
+            if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
+                disassemble_text_inputs = processor(
+                    text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
+                    return_tensors="pt",
+                    padding=True).to('cuda')
+                disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
+                                                  return_dict=True)
+                if embedding_type == 'dense':
+                    if data_args.reps_loc == 'after_pad':
+                        embs = disassemble_output.hidden_states[-1][:, -1, :]
+                    else:
+                        embs = disassemble_output.hidden_states
+                        sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
+                        batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']), device=embs.device)
+                        embs = disassemble_output.hidden_states[-1][batch_ids, sequence_lengths]
+                    return embs
+                elif embedding_type == 'sparse':
+                    if data_args.reps_loc == 'after_pad':
+                        logits = disassemble_output.logits[:, -1, :]
+                    else:
+                        # logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+                        logits = disassemble_output.logits
+                        # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                        # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                        sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
+                        batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']), device=logits.device)
+                        logits = disassemble_output.logits[batch_ids, sequence_lengths]
+                    # 这里对应原文的log+relu操作
+                    logits = torch.log(1 + torch.relu(logits))
+                    return logits
+                else:
+                    if data_args.reps_loc == 'after_pad':
+                        logits, embs = disassemble_output.logits[:, -1, :], disassemble_output.hidden_states[-1][:, -1, :]
+                    else:
+                        # logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+                        logits = disassemble_output.logits
+                        # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                        # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                        sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
+                        batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']), device=logits.device)
+                        logits, embs = disassemble_output.logits[batch_ids, sequence_lengths], disassemble_output.hidden_states[-1][
+                            batch_ids, sequence_lengths]
+                    # 这里对应原文的log+relu操作
+                    logits = torch.log(1 + torch.relu(logits))
+                    return logits, embs
             if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
                 text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                         return_tensors="pt",
@@ -326,16 +371,20 @@ class MLLMRetrievalModel(nn.Module):
                     padding=True).to('cuda')
                 disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
                                                   return_dict=True)
-                if data_args.reps_loc == 'after_pad':
-                    disassemble_logits = disassemble_output.logits[:, -1, :]
-                else:
-                    disassemble_logits = disassemble_output.logits
-                    disassemble_sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
-                    disassemble_batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']),
-                                                         device=disassemble_logits.device)
-                    disassemble_logits = disassemble_output.logits[
-                        disassemble_batch_ids, disassemble_sequence_lengths]
-                disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
+
+                if embedding_type != 'dense':
+                    if data_args.reps_loc == 'after_pad':
+                        disassemble_logits = disassemble_output.logits[:, -1, :]
+                    else:
+                        # logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+                        disassemble_logits = disassemble_output.logits
+                        # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                        # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                        sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
+                        batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']), device=disassemble_logits.device)
+                        disassemble_logits = disassemble_output.logits[batch_ids, sequence_lengths]
+                    # 这里对应原文的log+relu操作
+                    disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
             else:
                 prompts = [llama3_template.format(task_text_prompt) for task_text_prompt in
                            task_text_prompts_copy]
@@ -361,6 +410,9 @@ class MLLMRetrievalModel(nn.Module):
                 return embs
 
             elif embedding_type == 'sparse':
+                if 'disassembleeol_separate' in model_args.eol_type:
+                    logits = disassemble_logits
+                    return logits
                 if data_args.reps_loc == 'after_pad':
                     logits = output.logits[:, -1, :]
                 else:
@@ -373,6 +425,8 @@ class MLLMRetrievalModel(nn.Module):
                     logits = output.logits[batch_ids, sequence_lengths]
                 # 这里对应原文的log+relu操作
                 logits = torch.log(1 + torch.relu(logits))
+                if 'disassembleeol_concrete' in model_args.eol_type:
+                    logits = torch.cat([logits, disassemble_logits], dim=0)
                 return logits
             else:
                 if data_args.reps_loc == 'after_pad':
@@ -388,10 +442,10 @@ class MLLMRetrievalModel(nn.Module):
                         batch_ids, sequence_lengths]
                 # 这里对应原文的log+relu操作
                 logits = torch.log(1 + torch.relu(logits))
-                if 'disassembleeol' in model_args.eol_type:
+                if 'disassembleeol_concrete' in model_args.eol_type:
                     logits = torch.cat([logits, disassemble_logits], dim=0)
-                if model_args.eol_type == 'all_disassembleeol':
-                    embs = disassemble_output.hidden_states[-1][:, -1, :]
+                if 'disassembleeol_separate' in model_args.eol_type:
+                    logits = disassemble_logits
 
                 return logits, embs
         elif input_type == 'image':

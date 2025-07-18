@@ -351,7 +351,7 @@ def main():
                 # batch = batch.to(training_args.device)
                 # batch['qids'] = batch_ids
                 # model_output: EncoderOutput = model(query=batch)
-                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
+                if 'disassembleeol' in model_args.eol_type:
                     prompts = llama3_retrieval_disassemble_image_prompts
                 else:
                     prompts = llama3_retrieval_disassemble_image_prompts
@@ -389,7 +389,7 @@ def main():
                             query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
                                                                                model_args,
                                                                                data_args)
-                        elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate':
+                        elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'disassembleeol_separate_origin_text':
                             # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
                             raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                             img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
@@ -401,7 +401,7 @@ def main():
                                                                                    model_args, data_args)
                             else:
                                 _, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
-                                                                                   model_args, data_args)
+                                                                        model_args, data_args)
                             del imgs
 
                             disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
@@ -443,7 +443,7 @@ def main():
                                                                       model_args, data_args)
                             '''
 
-                        elif model_args.eol_type == 'all_disassembleeol':
+                        elif model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
                             # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
                             disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
                                                       range(len(prompts) // 5)]
@@ -478,7 +478,7 @@ def main():
                                     disassemble_logits[j].append(
                                         disassemble_logits_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
                                     disassemble_reps[j].append(
-                                        disassemble_reps_sub[j * len(prompts) // 4:(j + 1) * len(prompts) // 4])
+                                        disassemble_reps_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
                             disassemble_logits = [item for disassemble_logit in disassemble_logits for item in
                                                   disassemble_logit]
                             disassemble_reps = [item for disassemble_rep in disassemble_reps for item in
@@ -556,7 +556,7 @@ def main():
 
                     else:
                         query_dense_reps = F.normalize(query_dense_reps, dim=-1)
-                        if model_args.eol_type == 'all_disassembleeol':
+                        if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
                             query_dense_reps = query_dense_reps.reshape(-1, len(prompts),
                                                                         query_dense_reps.shape[1]).mean(1)
                         query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
@@ -707,7 +707,7 @@ def main():
                                 for img_indice in range(len(batch_ids)):
                                     id = batch_ids[img_indice]
                                     if model_args.eol_type == 'disassembleeol_concrete':
-                                        logit = query_logits[text_indice]
+                                        logit = query_logits[img_indice]
                                     text = texts[img_indice]
                                     disassemble_logit = disassemble_logits[
                                                         img_indice * len(llama3_retrieval_disassemble_image_prompts):(
