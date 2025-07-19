@@ -72,9 +72,11 @@ def get_run_dict(batch_ids, batch_scores, batch_rankings, remove_query):
         run_dict[qid] = {}
         run_dict[qid]['docs'] = {}
         for score, doc in zip(scores, rankings):
+            '''
             if remove_query:
                 if doc == qid:
                     continue
+            '''
             run_dict[qid]['docs'][doc] = score
         if len(scores) == 0:
             run_dict[qid]['min_score'] = 0
