@@ -354,6 +354,7 @@ def main():
                         '''
                     elif model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
                         # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
+                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                         disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
                                                   range(len(prompts) // 5)]
                         '''
@@ -429,14 +430,14 @@ def main():
                                                     llama3_retrieval_disassemble_text_prompts)]
                             vector = dict()
                             if model_args.eol_type == 'disassembleeol_concrete':
-                                tokens, values = get_text_valid_disassemble_tokens_values(text, processor,
+                                tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
                                                                                           disassemble_logit,
                                                                                           vocab_dict,
                                                                                           data_args,
                                                                                           filtered_ids, logit,
                                                                                           model_args)
                             else:
-                                tokens, values = get_text_valid_disassemble_tokens_values(text, processor,
+                                tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
                                                                                           disassemble_logit,
                                                                                           vocab_dict,
                                                                                           data_args,

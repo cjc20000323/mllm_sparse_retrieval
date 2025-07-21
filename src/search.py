@@ -2,6 +2,8 @@ import glob
 import json
 import os
 import pickle
+import time
+
 import faiss
 from tqdm import tqdm
 from transformers import (
@@ -335,6 +337,8 @@ def main():
             analyzer = JWhiteSpaceAnalyzer()
             sparse_retriever.set_analyzer(analyzer)
 
+        time.sleep(8)
+
         with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
@@ -368,7 +372,7 @@ def main():
                         disassemble_logits = query_logits[data_args.per_device_batch_size:]
                         query_logits = query_logits[:data_args.per_device_batch_size]
                     elif 'disassembleeol' in model_args.eol_type:
-                        disassemble_logits = logits
+                        disassemble_logits = query_logits
                 else:
                     if 'InternVL2_5-8B' in model_args.model_name_or_path:
                         prompt = processor.apply_chat_template(
@@ -447,6 +451,7 @@ def main():
 
                         elif model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
                             # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                             disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
                                                       range(len(prompts) // 5)]
                             '''
@@ -567,301 +572,213 @@ def main():
                         dense_run.update(
                             get_run_dict(batch_ids, dense_scores, dense_rankings, search_args.remove_query))
                 if sparse_retriever is not None:
-                    if isinstance(query_logits, list):
+                    batch_topics = []
+                    if 'disassembleeol' in model_args.eol_type:
                         if search_args.query_type == 'text':
-                            for qid, reps, text in zip(batch_ids, query_logits, texts):
-                                batch_topics = []
-                                for logits in reps:
-                                    if model_args.use_output_embedding_cluster:
-                                        if 'InternVL2_5-8B' in model_args.model_name_or_path:
-                                            tokens, values = get_text_valid_tokens_values_with_cluster(text, processor,
-                                                                                                       logits,
-                                                                                                       centroids_dict,
-                                                                                                       origin_to_centroids_dict,
-                                                                                                       data_args,
-                                                                                                       filtered_ids)
-                                        else:
-                                            tokens, values = get_text_valid_tokens_values_with_cluster(text,
-                                                                                                       processor.tokenizer,
-                                                                                                       logits,
-                                                                                                       centroids_dict,
-                                                                                                       origin_to_centroids_dict,
-                                                                                                       data_args,
-                                                                                                       filtered_ids)
-                                    else:
-                                        if 'InternVL2_5-8B' in model_args.model_name_or_path:
-                                            tokens, values = get_text_valid_tokens_values(text, processor, logits,
-                                                                                          vocab_dict,
-                                                                                          data_args,
-                                                                                          filtered_ids)
-                                        else:
-                                            tokens, values = get_text_valid_tokens_values(text, processor.tokenizer,
-                                                                                          logits,
-                                                                                          vocab_dict,
-                                                                                          data_args, filtered_ids)
-                                    query = ""
-                                    for token, v in zip(tokens, values):
-                                        query += (' ' + token) * v
-                                    batch_topics.append(query.strip())
-                                sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
-                                                                               [qid] * len(batch_topics),
-                                                                               search_args)
-                                if qid not in sparse_run:
-                                    sparse_run[qid] = []
-                                    for scores, ranking in zip(sparse_scores, sparse_rankings):
-                                        sparse_run[qid].append(
-                                            [get_run_dict([qid], [scores], [ranking], search_args.remove_query)])
+                            for text_indice in range(len(batch_ids)):
+                                id = batch_ids[text_indice]
+                                if model_args.eol_type == 'disassembleeol_concrete':
+                                    logit = query_logits[text_indice]
+                                text = texts[text_indice]
+                                disassemble_logit = disassemble_logits[
+                                                    text_indice * len(llama3_retrieval_disassemble_text_prompts):(
+                                                                                                                         text_indice + 1) * len(
+                                                        llama3_retrieval_disassemble_text_prompts)]
+                                vector = dict()
+                                if model_args.eol_type == 'disassembleeol_concrete':
+                                    tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
+                                                                                              disassemble_logit,
+                                                                                              vocab_dict,
+                                                                                              data_args,
+                                                                                              filtered_ids, logit,
+                                                                                              model_args)
                                 else:
-                                    for i, (scores, ranking) in enumerate(zip(sparse_scores, sparse_rankings)):
-                                        sparse_run[qid][i].append(
-                                            get_run_dict([qid], [scores], [ranking], search_args.remove_query))
-                        if search_args.query_type == 'image':
-                            for qid, reps in zip(batch_ids, query_logits):
-                                batch_topics = []
-                                for logits in reps:
-                                    if model_args.use_output_embedding_cluster:
-                                        if 'InternVL2_5-8B' in model_args.model_name_or_path:
-                                            tokens, values = get_img_valid_tokens_values_with_cluster(processor, logits,
-                                                                                                      centroids_dict,
-                                                                                                      origin_to_centroids_dict,
-                                                                                                      data_args,
-                                                                                                      filtered_ids)
+                                    tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
+                                                                                              disassemble_logit,
+                                                                                              vocab_dict,
+                                                                                              data_args,
+                                                                                              filtered_ids, None,
+                                                                                              model_args)
+
+                                for token, v in zip(tokens, values):
+                                    if token in vector.keys():
+                                        if data_args.sparse_value_type == 'replace':
+                                            vector[token] = int(v)
+                                        elif data_args.sparse_value_type == 'sum':
+                                            vector[token] += int(v)
                                         else:
-                                            tokens, values = get_img_valid_tokens_values_with_cluster(
-                                                processor.tokenizer, logits,
-                                                centroids_dict, origin_to_centroids_dict,
-                                                data_args, filtered_ids)
+                                            if int(v) > vector[token]:
+                                                vector[token] = int(v)
                                     else:
-                                        if 'InternVL2_5-8B' in model_args.model_name_or_path:
-                                            tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
-                                                                                         data_args, filtered_ids)
-                                        else:
-                                            tokens, values = get_img_valid_tokens_values(processor.tokenizer, logits,
-                                                                                         vocab_dict,
-                                                                                         data_args, filtered_ids)
-                                    query = ""
-                                    for token, v in zip(tokens, values):
-                                        query += (' ' + token) * v
-                                    batch_topics.append(query.strip())
-                                sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
-                                                                               [qid] * len(batch_topics),
-                                                                               search_args)
-                                if qid not in sparse_run:
-                                    sparse_run[qid] = []
-                                    for scores, ranking in zip(sparse_scores, sparse_rankings):
-                                        sparse_run[qid].append(
-                                            [get_run_dict([qid], [scores], [ranking], search_args.remove_query)])
+                                        vector[token] = int(v)
+                                query = ""
+                                for token, v in vector.items():
+                                    query += (' ' + token) * v
+                                batch_topics.append(query.strip())
+                            sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
+                                                                           batch_ids,
+                                                                           search_args)
+                            sparse_run.update(
+                                get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
+                        else:
+                            for img_indice in range(len(batch_ids)):
+                                id = batch_ids[img_indice]
+                                if model_args.eol_type == 'disassembleeol_concrete':
+                                    logit = query_logits[img_indice]
+                                text = texts[img_indice]
+                                disassemble_logit = disassemble_logits[
+                                                    img_indice * len(llama3_retrieval_disassemble_image_prompts):(
+                                                                                                                         img_indice + 1) * len(
+                                                        llama3_retrieval_disassemble_image_prompts)]
+                                print(disassemble_logits)
+                                print(disassemble_logits.shape)
+                                vector = dict()
+                                if model_args.eol_type == 'disassembleeol_concrete':
+                                    tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                             disassemble_logit,
+                                                                                             vocab_dict,
+                                                                                             data_args,
+                                                                                             filtered_ids, logit,
+                                                                                             model_args)
                                 else:
-                                    for i, (scores, ranking) in enumerate(zip(sparse_scores, sparse_rankings)):
-                                        sparse_run[qid][i].append(
-                                            get_run_dict([qid], [scores], [ranking], search_args.remove_query))
+                                    tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                             disassemble_logit,
+                                                                                             vocab_dict,
+                                                                                             data_args,
+                                                                                             filtered_ids, None,
+                                                                                             model_args)
+                                for token, v in zip(tokens, values):
+                                    if token in vector.keys():
+                                        if data_args.sparse_value_type == 'replace':
+                                            vector[token] = int(v)
+                                        elif data_args.sparse_value_type == 'sum':
+                                            vector[token] += int(v)
+                                        else:
+                                            if int(v) > vector[token]:
+                                                vector[token] = int(v)
+                                    else:
+                                        vector[token] = int(v)
+                                query = ""
+                                for token, v in vector.items():
+                                    query += (' ' + token) * v
+                                batch_topics.append(query.strip())
+                            sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
+                                                                           batch_ids,
+                                                                           search_args)
+                            sparse_run.update(
+                                get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
 
                     else:
-                        batch_topics = []
-                        if 'disassembleeol' in model_args.eol_type:
-                            if search_args.query_type == 'text':
-                                for text_indice in range(len(batch_ids)):
-                                    id = batch_ids[text_indice]
-                                    if model_args.eol_type == 'disassembleeol_concrete':
-                                        logit = query_logits[text_indice]
-                                    text = texts[text_indice]
-                                    disassemble_logit = disassemble_logits[
-                                                        text_indice * len(llama3_retrieval_disassemble_text_prompts):(
-                                                                                                                             text_indice + 1) * len(
-                                                            llama3_retrieval_disassemble_text_prompts)]
-                                    vector = dict()
-                                    if model_args.eol_type == 'disassembleeol_concrete':
-                                        tokens, values = get_text_valid_disassemble_tokens_values(text, processor,
-                                                                                                  disassemble_logit,
-                                                                                                  vocab_dict,
-                                                                                                  data_args,
-                                                                                                  filtered_ids, logit,
-                                                                                                  model_args)
+                        if search_args.query_type == 'text':
+                            for _, logits, text in zip(batch_ids, query_logits, texts):
+                                vector = dict()
+                                if model_args.use_output_embedding_cluster:
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                        tokens, values = get_text_valid_tokens_values_with_cluster(text, processor,
+                                                                                                   logits,
+                                                                                                   centroids_dict,
+                                                                                                   origin_to_centroids_dict,
+                                                                                                   data_args,
+                                                                                                   filtered_ids)
                                     else:
-                                        tokens, values = get_text_valid_disassemble_tokens_values(text, processor,
-                                                                                                  disassemble_logit,
-                                                                                                  vocab_dict,
-                                                                                                  data_args,
-                                                                                                  filtered_ids, None,
-                                                                                                  model_args)
+                                        tokens, values = get_text_valid_tokens_values_with_cluster(text,
+                                                                                                   processor.tokenizer,
+                                                                                                   logits,
+                                                                                                   centroids_dict,
+                                                                                                   origin_to_centroids_dict,
+                                                                                                   data_args,
+                                                                                                   filtered_ids)
+                                else:
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                        tokens, values = get_text_valid_tokens_values(text, processor, logits,
+                                                                                      vocab_dict,
+                                                                                      data_args, filtered_ids)
+                                    else:
+                                        tokens, values = get_text_valid_tokens_values(text, processor.tokenizer,
+                                                                                      logits,
+                                                                                      vocab_dict,
+                                                                                      data_args,
+                                                                                      filtered_ids)
+                                for token, v in zip(tokens, values):
+                                    if token in vector.keys():
+                                        if data_args.sparse_value_type == 'replace':
+                                            vector[token] = int(v)
+                                        elif data_args.sparse_value_type == 'sum':
+                                            vector[token] += int(v)
+                                        else:
+                                            if int(v) > vector[token]:
+                                                vector[token] = int(v)
+                                    else:
+                                        vector[token] = int(v)
 
-                                    for token, v in zip(tokens, values):
-                                        if token in vector.keys():
-                                            if data_args.sparse_value_type == 'replace':
-                                                vector[token] = int(v)
-                                            elif data_args.sparse_value_type == 'sum':
-                                                vector[token] += int(v)
-                                            else:
-                                                if int(v) > vector[token]:
-                                                    vector[token] = int(v)
-                                        else:
-                                            vector[token] = int(v)
-                                    query = ""
-                                    for token, v in vector.items():
-                                        query += (' ' + token) * v
-                                    batch_topics.append(query.strip())
-                                sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
-                                                                               batch_ids,
-                                                                               search_args)
-                                sparse_run.update(
-                                    get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
-                            else:
-                                for img_indice in range(len(batch_ids)):
-                                    id = batch_ids[img_indice]
-                                    if model_args.eol_type == 'disassembleeol_concrete':
-                                        logit = query_logits[img_indice]
-                                    text = texts[img_indice]
-                                    disassemble_logit = disassemble_logits[
-                                                        img_indice * len(llama3_retrieval_disassemble_image_prompts):(
-                                                                                                                             img_indice + 1) * len(
-                                                            llama3_retrieval_disassemble_image_prompts)]
-                                    vector = dict()
-                                    if model_args.eol_type == 'disassembleeol_concrete':
-                                        tokens, values = get_img_valid_disassemble_tokens_values(processor,
-                                                                                                 disassemble_logit,
-                                                                                                 vocab_dict,
-                                                                                                 data_args,
-                                                                                                 filtered_ids, logit,
-                                                                                                 model_args)
-                                    else:
-                                        tokens, values = get_img_valid_disassemble_tokens_values(processor,
-                                                                                                 disassemble_logit,
-                                                                                                 vocab_dict,
-                                                                                                 data_args,
-                                                                                                 filtered_ids, None,
-                                                                                                 model_args)
-                                    for token, v in zip(tokens, values):
-                                        if token in vector.keys():
-                                            if data_args.sparse_value_type == 'replace':
-                                                vector[token] = int(v)
-                                            elif data_args.sparse_value_type == 'sum':
-                                                vector[token] += int(v)
-                                            else:
-                                                if int(v) > vector[token]:
-                                                    vector[token] = int(v)
-                                        else:
-                                            vector[token] = int(v)
-                                    query = ""
-                                    for token, v in vector.items():
-                                        query += (' ' + token) * v
-                                    batch_topics.append(query.strip())
-                                sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
-                                                                               batch_ids,
-                                                                               search_args)
-                                sparse_run.update(
-                                    get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
+                                query = ""
+                                for token, v in vector.items():
+                                    query += (' ' + token) * v
+                                batch_topics.append(query.strip())
+                            sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
+                                                                           batch_ids,
+                                                                           search_args)
+                            sparse_run.update(
+                                get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
 
                         else:
-                            if search_args.query_type == 'text':
-                                for _, logits, text in zip(batch_ids, query_logits, texts):
-                                    vector = dict()
-                                    if model_args.use_output_embedding_cluster:
-                                        if 'InternVL2_5-8B' in model_args.model_name_or_path:
-                                            tokens, values = get_text_valid_tokens_values_with_cluster(text, processor,
-                                                                                                       logits,
-                                                                                                       centroids_dict,
-                                                                                                       origin_to_centroids_dict,
-                                                                                                       data_args,
-                                                                                                       filtered_ids)
-                                        else:
-                                            tokens, values = get_text_valid_tokens_values_with_cluster(text,
-                                                                                                       processor.tokenizer,
-                                                                                                       logits,
-                                                                                                       centroids_dict,
-                                                                                                       origin_to_centroids_dict,
-                                                                                                       data_args,
-                                                                                                       filtered_ids)
+                            for _, logits, text in zip(batch_ids, query_logits, texts):
+                                vector = dict()
+                                if model_args.use_output_embedding_cluster:
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                        tokens, values = get_img_valid_tokens_values_with_cluster(processor, logits,
+                                                                                                  centroids_dict,
+                                                                                                  origin_to_centroids_dict,
+                                                                                                  data_args,
+                                                                                                  filtered_ids)
                                     else:
-                                        if 'InternVL2_5-8B' in model_args.model_name_or_path:
-                                            tokens, values = get_text_valid_tokens_values(text, processor, logits,
-                                                                                          vocab_dict,
-                                                                                          data_args, filtered_ids)
-                                        else:
-                                            tokens, values = get_text_valid_tokens_values(text, processor.tokenizer,
-                                                                                          logits,
-                                                                                          vocab_dict,
-                                                                                          data_args,
-                                                                                          filtered_ids)
-                                    for token, v in zip(tokens, values):
-                                        if token in vector.keys():
-                                            if data_args.sparse_value_type == 'replace':
-                                                vector[token] = int(v)
-                                            elif data_args.sparse_value_type == 'sum':
-                                                vector[token] += int(v)
-                                            else:
-                                                if int(v) > vector[token]:
-                                                    vector[token] = int(v)
-                                        else:
-                                            vector[token] = int(v)
+                                        tokens, values = get_img_valid_tokens_values_with_cluster(
+                                            processor.tokenizer,
+                                            logits,
+                                            centroids_dict,
+                                            origin_to_centroids_dict,
+                                            data_args,
+                                            filtered_ids)
 
-                                    query = ""
-                                    for token, v in vector.items():
-                                        query += (' ' + token) * v
-                                    batch_topics.append(query.strip())
-                                sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
-                                                                               batch_ids,
-                                                                               search_args)
-                                sparse_run.update(
-                                    get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
-
-                            else:
-                                for _, logits, text in zip(batch_ids, query_logits, texts):
-                                    vector = dict()
-                                    if model_args.use_output_embedding_cluster:
-                                        if 'InternVL2_5-8B' in model_args.model_name_or_path:
-                                            tokens, values = get_img_valid_tokens_values_with_cluster(processor, logits,
-                                                                                                      centroids_dict,
-                                                                                                      origin_to_centroids_dict,
-                                                                                                      data_args,
-                                                                                                      filtered_ids)
-                                        else:
-                                            tokens, values = get_img_valid_tokens_values_with_cluster(
-                                                processor.tokenizer,
-                                                logits,
-                                                centroids_dict,
-                                                origin_to_centroids_dict,
-                                                data_args,
-                                                filtered_ids)
-
+                                else:
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path:
+                                        tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
+                                                                                     data_args, filtered_ids)
                                     else:
-                                        if 'InternVL2_5-8B' in model_args.model_name_or_path:
-                                            tokens, values = get_img_valid_tokens_values(processor, logits, vocab_dict,
-                                                                                         data_args, filtered_ids)
+                                        if model_args.eol_type == 'prompteol_same_length':
+                                            tokens, values = get_img_valid_tokens_values(processor.tokenizer,
+                                                                                         logits,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, text=text)
                                         else:
-                                            if model_args.eol_type == 'prompteol_same_length':
-                                                tokens, values = get_img_valid_tokens_values(processor.tokenizer,
-                                                                                             logits,
-                                                                                             vocab_dict,
-                                                                                             data_args,
-                                                                                             filtered_ids, text=text)
-                                            else:
-                                                tokens, values = get_img_valid_tokens_values(processor.tokenizer,
-                                                                                             logits,
-                                                                                             vocab_dict,
-                                                                                             data_args,
-                                                                                             filtered_ids)
+                                            tokens, values = get_img_valid_tokens_values(processor.tokenizer,
+                                                                                         logits,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids)
 
-                                    for token, v in zip(tokens, values):
-                                        if token in vector.keys():
-                                            if data_args.sparse_value_type == 'replace':
-                                                vector[token] = int(v)
-                                            elif data_args.sparse_value_type == 'sum':
-                                                vector[token] += int(v)
-                                            else:
-                                                if int(v) > vector[token]:
-                                                    vector[token] = int(v)
-                                        else:
+                                for token, v in zip(tokens, values):
+                                    if token in vector.keys():
+                                        if data_args.sparse_value_type == 'replace':
                                             vector[token] = int(v)
+                                        elif data_args.sparse_value_type == 'sum':
+                                            vector[token] += int(v)
+                                        else:
+                                            if int(v) > vector[token]:
+                                                vector[token] = int(v)
+                                    else:
+                                        vector[token] = int(v)
 
-                                    query = ""
-                                    for token, v in vector.items():
-                                        query += (' ' + token) * v
-                                    batch_topics.append(query.strip())
-                                sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
-                                                                               batch_ids,
-                                                                               search_args)
-                                sparse_run.update(
-                                    get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
+                                query = ""
+                                for token, v in vector.items():
+                                    query += (' ' + token) * v
+                                batch_topics.append(query.strip())
+                            sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
+                                                                           batch_ids,
+                                                                           search_args)
+                            sparse_run.update(
+                                get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
 
                 if model_args.eol_type == 'metaeol':
                     del query_dense_reps

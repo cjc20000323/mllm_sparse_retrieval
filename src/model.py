@@ -101,6 +101,7 @@ class MLLMRetrievalModel(nn.Module):
                                                       return_dict=True)
                     if data_args.reps_loc == 'after_pad':
                         disassemble_logits = disassemble_output.logits[:, -1, :]
+                        embs = disassemble_output.hidden_states[-1][:, -1, :]
                     else:
                         disassemble_logits = disassemble_output.logits
                         disassemble_sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
@@ -108,8 +109,8 @@ class MLLMRetrievalModel(nn.Module):
                                                              device=disassemble_logits.device)
                         disassemble_logits = disassemble_output.logits[
                             disassemble_batch_ids, disassemble_sequence_lengths]
+                        embs = disassemble_output.hidden_states[-1][disassemble_batch_ids, disassemble_sequence_lengths]
                     disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
-                    embs = disassemble_output.hidden_states[-1][:, -1, :]
                     return disassemble_logits, embs
 
                 if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
