@@ -630,8 +630,6 @@ def main():
                                                     img_indice * len(llama3_retrieval_disassemble_image_prompts):(
                                                                                                                          img_indice + 1) * len(
                                                         llama3_retrieval_disassemble_image_prompts)]
-                                print(disassemble_logits)
-                                print(disassemble_logits.shape)
                                 vector = dict()
                                 if model_args.eol_type == 'disassembleeol_concrete':
                                     tokens, values = get_img_valid_disassemble_tokens_values(processor,
