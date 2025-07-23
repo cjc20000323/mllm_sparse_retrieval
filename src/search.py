@@ -337,8 +337,6 @@ def main():
             analyzer = JWhiteSpaceAnalyzer()
             sparse_retriever.set_analyzer(analyzer)
 
-        time.sleep(8)
-
         with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
