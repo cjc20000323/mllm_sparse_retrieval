@@ -113,7 +113,7 @@ class MLLMRetrievalModel(nn.Module):
                     disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
                     return disassemble_logits, embs
 
-                if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassemble_concrete_origin_text':
+                if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                     text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                             return_tensors="pt",
                                             padding=True).to('cuda')
@@ -245,8 +245,6 @@ class MLLMRetrievalModel(nn.Module):
                 logits = torch.log(1 + torch.relu(logits))
             else:
                 length = len(input.pixel_values)
-                if dist.get_rank() == 0:
-                    print(length)
                 # print('length is ', length)
                 for key in input.keys():
                     input[key] = input[key].squeeze()  # 数据集读取的时候，是直接多了一个维度计数，因此会有一个维度是1，把这个维度去掉
@@ -256,9 +254,6 @@ class MLLMRetrievalModel(nn.Module):
                         input[key] = input[key].unsqueeze(0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
                         # print(input[key].shape)
                 output = self.encoder(**input, output_hidden_states=True, return_dict=True, use_cache=True)
-                if dist.get_rank() == 0:
-                    # print(output)
-                    print(output.keys())
                 if data_args.reps_loc == 'after_pad':
                     logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
                 else:
