@@ -346,6 +346,10 @@ def main():
                                                                                   model_args,
                                                                                   data_args)
                     del imgs
+                    # 强制触发垃圾回收
+                    gc.collect()
+                    # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
+                    torch.cuda.empty_cache()
 
                     if search_args.embedding_type != 'dense':
                         disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
@@ -360,6 +364,12 @@ def main():
                                                                                  processor,
                                                                                  device, model_args,
                                                                                  data_args)
+                    del disassemble_imgs
+                    del disassemble_img_inputs
+                    # 强制触发垃圾回收
+                    gc.collect()
+                    # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
+                    torch.cuda.empty_cache()
 
                 elif model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
                     # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
@@ -392,6 +402,12 @@ def main():
                             device, model_args,
                             data_args)
                         query_dense_reps = disassemble_embs
+                    del disassemble_imgs
+                    del disassemble_img_inputs
+                    # 强制触发垃圾回收
+                    gc.collect()
+                    # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
+                    torch.cuda.empty_cache()
 
             if search_args.embedding_type != 'sparse':
                 reps = F.normalize(query_dense_reps, dim=-1)
@@ -424,6 +440,11 @@ def main():
             if search_args.embedding_type != 'sparse':
                 for id, rep in zip(batch_ids, reps):
                     id_to_dense_reps[id] = rep.cpu().detach().float()
+                    del rep
+                    # 强制触发垃圾回收
+                    gc.collect()
+                    # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
+                    torch.cuda.empty_cache()
 
             if search_args.embedding_type != 'dense':
                 # CPU时间开始
@@ -512,6 +533,15 @@ def main():
                             for token, v in vector.items():
                                 query += (' ' + token) * v
                         id_to_logit[id] = query
+                        if model_args.eol_type == 'disassembleeol_concrete':
+                            del logit
+                        del disassemble_logit
+                        del tokens
+                        del values
+                        # 强制触发垃圾回收
+                        gc.collect()
+                        # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
+                        torch.cuda.empty_cache()
                     else:
                         if search_args.query_type == 'text':
                             for id, logits, text in zip(batch_ids, query_logits, texts):
@@ -613,6 +643,7 @@ def main():
                                     query += (' ' + token) * v
                                 id_to_logit[id] = query
 
+
                 gpu_end.record()
                 torch.cuda.synchronize()  # 等待GPU完成
 
@@ -623,6 +654,12 @@ def main():
 
     del model
     del encoder
+    del reps
+    del query
+    del disassemble_logits
+    del query_dense_reps
+    if 'disassembleeol_concrete' in model_args.eol_type:
+        del query_logits
     # 强制触发垃圾回收
     gc.collect()
     # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
@@ -630,8 +667,6 @@ def main():
 
     dense_retriever = None
     sparse_retriever = None
-
-    dist.barrier()
 
     for i in range(max(len(dense_retriever_indices), len(sparse_retriever_indices))):
         if dense_retriever_indices:

@@ -19,7 +19,7 @@ import torch.distributed as dist
 from arguments import TrainingArguments
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
     LlavaNextForConditionalGeneration, Qwen2_5_VLForConditionalGeneration, Qwen2_5_VLProcessor, AutoProcessor, \
-    AutoModelForCausalLM, AutoModel
+    AutoModelForCausalLM, AutoModel, LlamaForCausalLM
 from encode import get_filtered_ids
 from dataset import CrossModalRetrievalDataset
 from metrices import RecallMetrics
@@ -393,14 +393,14 @@ def main():
                             query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
                                                                                model_args,
                                                                                data_args)
-                        elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'disassembleeol_separate_origin_text':
+                        elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'disassembleeol_separate_origin_text' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
                             # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
                             raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                             img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
                                                    return_tensors="pt",
                                                    padding=True)
                             imgs = img_inputs.to(device)
-                            if model_args.eol_type == 'disassembleeol_concrete':
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
                                 query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
                                                                                    model_args, data_args)
                             else:
@@ -446,6 +446,51 @@ def main():
                             disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
                                                                       model_args, data_args)
                             '''
+
+                        elif model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                            # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                                   return_tensors="pt",
+                                                   padding=True)
+                            imgs = img_inputs.to(device)
+                            query_logits, _ = model.encode_data(imgs, 'image', processor, device,
+                                                                                   model_args, data_args)
+                            del imgs
+
+                            disassemble_logits = [[] for _ in range(len(imgs_path))]
+                            disassemble_reps = [[] for _ in range(len(imgs_path))]
+                            for i in range(5):
+                                # 这个i是为了控制当前轮次使用哪些prompt编码
+                                start = i * len(prompts) // 5
+                                end = (i + 1) * len(prompts) // 5
+
+                                disassemble_img_inputs = processor(images=disassemble_raw_images,
+                                                                   text=prompts[start:end] * len(imgs_path),
+                                                                   return_tensors="pt",
+                                                                   padding=True)
+
+                                disassemble_imgs = disassemble_img_inputs.to(device)
+
+                                # 在metaeol模式下，reps应该是[batch_size * len(task_prompts) // 4, reps_dim]
+                                disassemble_logits_sub, disassemble_reps_sub = model.encode_data(disassemble_imgs,
+                                                                                                 'image', processor,
+                                                                                                 device, model_args,
+                                                                                                 data_args)
+
+                                for j in range(len(imgs_path)):
+                                    # 这个j是为了控制要把第j个样本对应的数据存到对应索引下的列表中
+                                    disassemble_logits[j].append(
+                                        disassemble_logits_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
+                                    disassemble_reps[j].append(
+                                        disassemble_reps_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
+                            disassemble_logits = [item for disassemble_logit in disassemble_logits for item in
+                                                  disassemble_logit]
+                            disassemble_reps = [item for disassemble_rep in disassemble_reps for item in
+                                                disassemble_rep]
+                            disassemble_logits = torch.cat(disassemble_logits, dim=0)
+                            disassemble_reps = torch.cat(disassemble_reps, dim=0)
+                            query_dense_reps = disassemble_reps
 
                         elif model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
                             # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
@@ -561,7 +606,7 @@ def main():
 
                     else:
                         query_dense_reps = F.normalize(query_dense_reps, dim=-1)
-                        if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
+                        if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                             query_dense_reps = query_dense_reps.reshape(-1, len(prompts),
                                                                         query_dense_reps.shape[1]).mean(1)
                         query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
@@ -575,7 +620,7 @@ def main():
                         if search_args.query_type == 'text':
                             for text_indice in range(len(batch_ids)):
                                 id = batch_ids[text_indice]
-                                if model_args.eol_type == 'disassembleeol_concrete':
+                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                     logit = query_logits[text_indice]
                                 text = texts[text_indice]
                                 disassemble_logit = disassemble_logits[
@@ -583,7 +628,7 @@ def main():
                                                                                                                          text_indice + 1) * len(
                                                         llama3_retrieval_disassemble_text_prompts)]
                                 vector = dict()
-                                if model_args.eol_type == 'disassembleeol_concrete':
+                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                     tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
                                                                                               disassemble_logit,
                                                                                               vocab_dict,
@@ -621,7 +666,7 @@ def main():
                         else:
                             for img_indice in range(len(batch_ids)):
                                 id = batch_ids[img_indice]
-                                if model_args.eol_type == 'disassembleeol_concrete':
+                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                     logit = query_logits[img_indice]
                                 text = texts[img_indice]
                                 disassemble_logit = disassemble_logits[
@@ -629,7 +674,7 @@ def main():
                                                                                                                          img_indice + 1) * len(
                                                         llama3_retrieval_disassemble_image_prompts)]
                                 vector = dict()
-                                if model_args.eol_type == 'disassembleeol_concrete':
+                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                     tokens, values = get_img_valid_disassemble_tokens_values(processor,
                                                                                              disassemble_logit,
                                                                                              vocab_dict,
@@ -794,6 +839,9 @@ def main():
             )
         )
 
+    print(len(dense_run))
+    print(len(sparse_run))
+    print(len(fusion_run))
     metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()

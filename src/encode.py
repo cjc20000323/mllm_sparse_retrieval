@@ -331,7 +331,7 @@ def get_text_valid_disassemble_tokens_values(text, tokenizer, disassemble_logits
     else:
         top_k = data_args.sparse_length
     if model_args is not None and (
-            model_args.eol_type == 'disassembleeol_separate_origin_text' or model_args.eol_type == 'all_disassembleeol_origin_text'):
+            model_args.eol_type == 'disassembleeol_separate_origin_text' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text'):
         words = [i for i in word_tokenize(text.lower()) if
                  i not in set(stopwords.words('english') + list(string.punctuation))]
         token_ids = set()
@@ -392,6 +392,8 @@ def get_text_valid_disassemble_tokens_values(text, tokenizer, disassemble_logits
         else:
             tokens = [key for key in word_values.keys()]
     else:
+        if model_args is not None and (model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text'):
+            word_set = set(token_ids_in_text.tolist())
         values = [logits[indice].cpu().detach() for indice in word_set if indice < len(vocab_dict)]
         values = np.rint(np.array(values) * 100).astype(int)
 
@@ -681,8 +683,11 @@ def main():
                                                        return_tensors="pt",
                                                        padding=True)
                                 imgs = img_inputs.to(device)
-                                if model_args.eol_type == 'disassembleeol_concrete':
+                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
                                     logits, reps = model.encode_data(imgs, 'image', processor, device, model_args,
+                                                                     data_args)
+                                elif model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                    logits, _ = model.encode_data(imgs, 'image', processor, device, model_args,
                                                                      data_args)
                                 else:
                                     _, reps = model.encode_data(imgs, 'image', processor, device, model_args, data_args)
@@ -694,7 +699,7 @@ def main():
                                                                return_tensors="pt",
                                                                padding=True)
                             disassemble_imgs = disassemble_img_inputs.to(device)
-                            if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
+                            if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                 disassemble_logits, disassemble_embs = model.encode_data(disassemble_imgs, 'image',
                                                                                          processor, device,
                                                                                          model_args, data_args)
@@ -745,7 +750,7 @@ def main():
 
                 # print(logits.shape)
                 reps = F.normalize(reps, dim=-1)
-                if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
+                if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                     reps = reps.reshape(-1, len(prompts), reps.shape[1]).mean(1)
                 if training_args.encode_type == 'text':
                     lookup_indices.extend(text_ids)
@@ -759,7 +764,7 @@ def main():
                     if training_args.encode_type == 'text':
                         for text_indice in range(len(ids)):
                             id = ids[text_indice]
-                            if model_args.eol_type == 'disassembleeol_concrete':
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                 logit = logits[text_indice]
                             text = texts[text_indice]
                             disassemble_logit = disassemble_logits[
@@ -767,7 +772,7 @@ def main():
                                                                                                                      text_indice + 1) * len(
                                                     llama3_retrieval_disassemble_text_prompts)]
                             vector = dict()
-                            if model_args.eol_type == 'disassembleeol_concrete':
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                 tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
                                                                                           disassemble_logit,
                                                                                           vocab_dict,
@@ -803,7 +808,7 @@ def main():
                     else:
                         for img_indice in range(len(ids)):
                             id = ids[img_indice]
-                            if model_args.eol_type == 'disassembleeol_concrete':
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                 logit = logits[img_indice]
                             text = texts[img_indice]
                             disassemble_logit = disassemble_logits[
@@ -811,7 +816,7 @@ def main():
                                                                                                                      img_indice + 1) * len(
                                                     llama3_retrieval_disassemble_image_prompts)]
                             vector = dict()
-                            if model_args.eol_type == 'disassembleeol_concrete':
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                 tokens, values = get_img_valid_disassemble_tokens_values(processor,
                                                                                          disassemble_logit,
                                                                                          vocab_dict,
@@ -944,9 +949,6 @@ def main():
                             )
 
     encoded = np.concatenate(encoded)
-    if dist.get_rank() == 0:
-        print(encoded)
-        print(len(encoded))
 
     '''
     print(f'rank:{dist.get_rank()}, encoded length:{len(encoded)}')

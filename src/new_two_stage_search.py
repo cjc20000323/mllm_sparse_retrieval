@@ -562,8 +562,6 @@ def main():
     dense_retriever = None
     sparse_retriever = None
 
-    dist.barrier()
-
     lookup_to_reps = {}
 
     index_files = glob.glob(os.path.join(dense_retriever_indices[i], 'corpus*.pkl'))

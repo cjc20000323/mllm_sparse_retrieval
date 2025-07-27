@@ -297,6 +297,10 @@ def main():
                             _, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
                                                                     model_args, data_args)
                         del imgs
+                        # 强制触发垃圾回收
+                        gc.collect()
+                        # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
+                        torch.cuda.empty_cache()
 
                         disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
                                                   range(len(prompts))]
@@ -304,9 +308,20 @@ def main():
                                                            text=prompts * len(imgs_path),
                                                            return_tensors="pt",
                                                            padding=True)
+                        '''
+                        if dist.get_rank() == 0:
+                            print(disassemble_img_inputs.keys())
+                            print(disassemble_img_inputs['input_ids'].shape)
+                        '''
                         disassemble_imgs = disassemble_img_inputs.to(device)
                         disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
                                                                   model_args, data_args)
+                        del disassemble_imgs
+                        del disassemble_img_inputs
+                        # 强制触发垃圾回收
+                        gc.collect()
+                        # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
+                        torch.cuda.empty_cache()
 
                     elif model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
                         # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
@@ -322,6 +337,12 @@ def main():
                                                                                  processor, device,
                                                                                  model_args, data_args)
                         query_dense_reps = disassemble_embs
+                        del disassemble_imgs
+                        del disassemble_img_inputs
+                        # 强制触发垃圾回收
+                        gc.collect()
+                        # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
+                        torch.cuda.empty_cache()
                     else:
                         # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
                         # 也就是说，对于批次中的每个图像，按照下面每次循环使用的prompt个数，加入到raw_images中
@@ -373,7 +394,12 @@ def main():
                 batch_ids = img_ids
 
             for id, rep in zip(batch_ids, reps):
-                id_to_dense_reps[id] = rep.cpu().detach().float()
+                id_to_dense_reps[id] = rep.unsqueeze(0).cpu().detach().float()
+                del rep
+                # 强制触发垃圾回收
+                gc.collect()
+                # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
+                torch.cuda.empty_cache()
 
             for indice in range(len(batch_ids)):
                 if 'disassembleeol' in model_args.eol_type:
@@ -453,7 +479,16 @@ def main():
                         query = ""
                         for token, v in vector.items():
                             query += (' ' + token) * v
-                    id_to_logit[id] = query
+                    if model_args.eol_type == 'disassembleeol_concrete':
+                        del logit
+                    del disassemble_logit
+                    del tokens
+                    del values
+                    # 强制触发垃圾回收
+                    gc.collect()
+                    # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
+                    torch.cuda.empty_cache()
+                    id_to_logit[id] = query.strip()
                 else:
                     if search_args.query_type == 'text':
                         for id, logits, text in zip(batch_ids, query_logits, texts):
@@ -500,7 +535,7 @@ def main():
                             query = ""
                             for token, v in vector.items():
                                 query += (' ' + token) * v
-                            id_to_logit[id] = query
+                            id_to_logit[id] = query.strip()
                     else:
                         for id, logits, text in zip(batch_ids, query_logits, texts):
                             vector = dict()
@@ -553,10 +588,16 @@ def main():
                             query = ""
                             for token, v in vector.items():
                                 query += (' ' + token) * v
-                            id_to_logit[id] = query
+                            id_to_logit[id] = query.strip()
 
     del model
     del encoder
+    del reps
+    del query
+    del disassemble_logits
+    del query_dense_reps
+    if 'disassembleeol_concrete' in model_args.eol_type:
+        del query_logits
     # 强制触发垃圾回收
     gc.collect()
     # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
@@ -564,8 +605,6 @@ def main():
 
     dense_retriever = None
     sparse_retriever = None
-
-    dist.barrier()
 
     for i in range(max(len(dense_retriever_indices), len(sparse_retriever_indices))):
         if dense_retriever_indices:
@@ -617,7 +656,7 @@ def main():
                 count += 1
                 batch_reps.append(rep)
                 batch_ids.append(id)
-                if count == search_args.retrieval_batch_size:
+                if count % search_args.retrieval_batch_size == 0 or count == len(id_to_dense_reps):
                     batch_reps = torch.cat(batch_reps, dim=0).numpy()
 
                     dense_scores, dense_rankings = search_queries(dense_retriever, batch_reps, look_up,
@@ -626,8 +665,6 @@ def main():
                         get_run_dict(batch_ids, dense_scores, dense_rankings, search_args.remove_query))
                     batch_reps = []
                     batch_ids = []
-                    count = 0
-
 
         if sparse_retriever_indices:
             sparse_retriever = LuceneImpactSearcher(os.path.join(sparse_retriever_indices[i], 'index'), None)
@@ -641,9 +678,9 @@ def main():
             if sparse_retriever is not None:
                 count += 1
                 query = logit
-                batch_topics.append(query.strip())
+                batch_topics.append(query)
                 batch_ids.append(id)
-                if count == search_args.retrieval_batch_size:
+                if count % search_args.retrieval_batch_size == 0 or count == len(id_to_logit):
                     sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                    batch_ids,
                                                                    search_args)
@@ -651,7 +688,6 @@ def main():
                         get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
                     batch_topics = []
                     batch_ids = []
-                    count = 0
 
     if search_args.passage_reps is not None and search_args.sparse_index is not None:
         fusion_run.update(

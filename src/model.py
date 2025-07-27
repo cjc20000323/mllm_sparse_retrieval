@@ -113,6 +113,51 @@ class MLLMRetrievalModel(nn.Module):
                     disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
                     return disassemble_logits, embs
 
+                if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassemble_concrete_origin_text':
+                    text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
+                                            return_tensors="pt",
+                                            padding=True).to('cuda')
+                    output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
+                    # print(text_inputs['input_ids'])
+                    # print(output.logits.shape)
+                    # print(output.hidden_states[-1].shape)
+                    if data_args.reps_loc == 'after_pad':
+                        logits = output.logits[:, -1, :]
+                    else:
+                        # logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+                        logits = output.logits
+                        # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                        # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                        sequence_lengths = text_inputs['attention_mask'].sum(dim=-1) - 1
+                        batch_ids = torch.arange(len(text_inputs['input_ids']), device=logits.device)
+                        logits = output.logits[batch_ids, sequence_lengths]
+
+                    disassemble_text_inputs = processor(
+                        text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
+                        return_tensors="pt",
+                        padding=True).to('cuda')
+                    disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
+                                                      return_dict=True)
+
+                    if data_args.reps_loc == 'after_pad':
+                        disassemble_logits = disassemble_output.logits[:, -1, :]
+                        embs = disassemble_output.hidden_states[-1][:, -1, :]
+                    else:
+                        disassemble_logits = disassemble_output.logits
+                        disassemble_sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
+                        disassemble_batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']),
+                                                             device=disassemble_logits.device)
+                        disassemble_logits = disassemble_output.logits[
+                            disassemble_batch_ids, disassemble_sequence_lengths]
+                        embs = disassemble_output.hidden_states[-1][disassemble_batch_ids, disassemble_sequence_lengths]
+                    disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
+
+                    # 这里对应原文的log+relu操作
+                    logits = torch.log(1 + torch.relu(logits))
+                    logits = torch.cat([logits, disassemble_logits], dim=0)
+
+                    return logits, embs
+
                 if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
                     text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                             return_tensors="pt",
@@ -200,6 +245,8 @@ class MLLMRetrievalModel(nn.Module):
                 logits = torch.log(1 + torch.relu(logits))
             else:
                 length = len(input.pixel_values)
+                if dist.get_rank() == 0:
+                    print(length)
                 # print('length is ', length)
                 for key in input.keys():
                     input[key] = input[key].squeeze()  # 数据集读取的时候，是直接多了一个维度计数，因此会有一个维度是1，把这个维度去掉
@@ -208,7 +255,10 @@ class MLLMRetrievalModel(nn.Module):
                     for key in input.keys():
                         input[key] = input[key].unsqueeze(0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
                         # print(input[key].shape)
-                output = self.encoder(**input, output_hidden_states=True, return_dict=True)
+                output = self.encoder(**input, output_hidden_states=True, return_dict=True, use_cache=True)
+                if dist.get_rank() == 0:
+                    # print(output)
+                    print(output.keys())
                 if data_args.reps_loc == 'after_pad':
                     logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
                 else:
