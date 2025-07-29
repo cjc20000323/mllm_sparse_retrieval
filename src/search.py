@@ -67,6 +67,16 @@ def search_queries(retriever, q_reps, p_lookup, args):
     psg_indices = np.array(psg_indices)
     return all_scores, psg_indices
 
+def search_queries_two_stage(retriever, q_reps, p_lookup, args):
+    if args.retrieval_batch_size > 0:
+        all_scores, all_indices = retriever.batch_search(q_reps, args.first_stage_search_sum, args.retrieval_batch_size, args.quiet)
+    else:
+        all_scores, all_indices = retriever.search(q_reps, args.first_stage_search_sum)
+
+    psg_indices = [[str(p_lookup[x]) for x in q_dd] for q_dd in all_indices]
+    psg_indices = np.array(psg_indices)
+    return all_scores, psg_indices
+
 
 def get_run_dict(batch_ids, batch_scores, batch_rankings, remove_query):
     run_dict = {}
@@ -457,6 +467,9 @@ def main():
                             query_logits, _ = model.encode_data(imgs, 'image', processor, device,
                                                                                    model_args, data_args)
                             del imgs
+
+                            disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
+                                                      range(len(prompts) // 5)]
 
                             disassemble_logits = [[] for _ in range(len(imgs_path))]
                             disassemble_reps = [[] for _ in range(len(imgs_path))]

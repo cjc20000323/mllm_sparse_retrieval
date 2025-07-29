@@ -280,7 +280,7 @@ def main():
                         query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
                                                                            model_args,
                                                                            data_args)
-                    elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'disassembleeol_separate_origin_text':
+                    elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'disassembleeol_separate_origin_text' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
                         # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
                         raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                         img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
@@ -295,6 +295,11 @@ def main():
                                                                     model_args, data_args)
                         del imgs
 
+                        # 强制触发垃圾回收
+                        gc.collect()
+                        # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
+                        torch.cuda.empty_cache()
+
                         disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
                                                   range(len(prompts))]
                         disassemble_img_inputs = processor(images=disassemble_raw_images,
@@ -304,6 +309,35 @@ def main():
                         disassemble_imgs = disassemble_img_inputs.to(device)
                         disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
                                                                   model_args, data_args)
+
+                    elif model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                        # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
+                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                        img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                               return_tensors="pt",
+                                               padding=True)
+                        imgs = img_inputs.to(device)
+                        query_logits, _ = model.encode_data(imgs, 'image', processor, device,
+                                                            model_args, data_args)
+                        del imgs
+
+                        # 强制触发垃圾回收
+                        gc.collect()
+                        # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
+                        torch.cuda.empty_cache()
+
+                        disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
+                                                  range(len(prompts))]
+
+                        disassemble_img_inputs = processor(images=disassemble_raw_images,
+                                                           text=prompts * len(imgs_path),
+                                                           return_tensors="pt",
+                                                           padding=True)
+                        disassemble_imgs = disassemble_img_inputs.to(device)
+                        disassemble_logits, disassemble_embs = model.encode_data(disassemble_imgs, 'image',
+                                                                                 processor, device,
+                                                                                 model_args, data_args)
+                        query_dense_reps = disassemble_embs
 
                     elif model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
                         # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
@@ -361,7 +395,7 @@ def main():
                         query_dense_reps = reps.reshape(-1, len(task_image_prompts), reps.shape[1]).mean(1)
 
             reps = F.normalize(query_dense_reps, dim=-1)
-            if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
+            if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                 reps = reps.reshape(-1, len(prompts), reps.shape[1]).mean(1)
 
             if search_args.query_type == 'text':
@@ -376,7 +410,7 @@ def main():
                 if 'disassembleeol' in model_args.eol_type:
                     if search_args.query_type == 'text':
                         id = batch_ids[indice]
-                        if model_args.eol_type == 'disassembleeol_concrete':
+                        if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                             logit = query_logits[indice]
                         disassemble_logit = disassemble_logits[
                                             indice * len(llama3_retrieval_disassemble_text_prompts):(
@@ -384,7 +418,7 @@ def main():
                                                 llama3_retrieval_disassemble_text_prompts)]
                         text = texts[indice]
                         vector = dict()
-                        if model_args.eol_type == 'disassembleeol_concrete':
+                        if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                             tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
                                                                                       disassemble_logit,
                                                                                       vocab_dict,
@@ -414,14 +448,14 @@ def main():
                             query += (' ' + token) * v
                     else:
                         id = batch_ids[indice]
-                        if model_args.eol_type == 'disassembleeol_concrete':
+                        if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                             logit = query_logits[indice]
                         disassemble_logit = disassemble_logits[
                                             indice * len(llama3_retrieval_disassemble_text_prompts):(
                                                                                                             indice + 1) * len(
                                                 llama3_retrieval_disassemble_text_prompts)]
                         vector = dict()
-                        if model_args.eol_type == 'disassembleeol_concrete':
+                        if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                             tokens, values = get_img_valid_disassemble_tokens_values(processor,
                                                                                      disassemble_logit,
                                                                                      vocab_dict,
@@ -564,7 +598,7 @@ def main():
 
     lookup_to_reps = {}
 
-    index_files = glob.glob(os.path.join(dense_retriever_indices[i], 'corpus*.pkl'))
+    index_files = glob.glob(os.path.join(dense_retriever_indices[0], 'corpus*.pkl'))
     print(index_files)
     if dist.get_rank() == 0:
         print(f'Pattern match found {len(index_files)} files; loading them into dense index.')
@@ -617,44 +651,54 @@ def main():
                 for k, v in batch_sparse_run.items():
                     sorted_by_value = sorted(v['docs'].items(), key=lambda x: x[1], reverse=True)
                     sorted_by_value_dict = dict(sorted_by_value[:search_args.first_stage_search_sum])
-                    min_value = min(sorted_by_value_dict.values())
-                    max_value = max(sorted_by_value_dict.values())
-                    batch_sparse_run[k] = {'docs': sorted_by_value_dict, 'min_score': min_value, 'max_score': max_value}
+                    if sorted_by_value_dict is not None:
+                        min_value = min(sorted_by_value_dict.values())
+                        max_value = max(sorted_by_value_dict.values())
+                        batch_sparse_run[k] = {'docs': sorted_by_value_dict, 'min_score': min_value,
+                                               'max_score': max_value}
 
-                    query_dense_rep = id_to_dense_reps[k]
+                        query_dense_rep = id_to_dense_reps[k]
 
-                    # 由于经过一阶段粗排后，每个数据的结果都不同，所以要单独处理每个数据的密集检索器
-                    single_look_up = []
-                    dense_retriever = FaissFlatSearcher(p_reps_0)
-                    for p_lookup in sorted_by_value_dict.keys():
-                        # 这里目前不太确定add输入的np.array应该具体是什么样的格式，通过输出search.sh观察，发现dense_retriever.add
-                        # 接受的是[[], [], ..., []]这样的结构，只不过我们现在是一个一个数据增加而不是一批数据增加，
-                        # 所以暂时先写成一个np.array里面套了一个array
-                        dense_retriever.add(np.array([lookup_to_reps[p_lookup]]))
-                        single_look_up += [p_lookup]
-                    if search_args.use_gpu:
-                        num_gpus = faiss.get_num_gpus()
-                        if num_gpus == 0:
-                            logger.error("No GPU found. Back to CPU.")
-                        else:
-                            logger.info(f"Using {num_gpus} GPU")
-                            if num_gpus == 1:
-                                co = faiss.GpuClonerOptions()
-                                co.useFloat16 = True
-                                res = faiss.StandardGpuResources()
-                                dense_retriever.index = faiss.index_cpu_to_gpu(res, 0, dense_retriever.index, co)
+                        # 由于经过一阶段粗排后，每个数据的结果都不同，所以要单独处理每个数据的密集检索器
+                        single_look_up = []
+                        dense_retriever = FaissFlatSearcher(p_reps_0)
+                        for p_lookup in sorted_by_value_dict.keys():
+                            # 这里目前不太确定add输入的np.array应该具体是什么样的格式，通过输出search.sh观察，发现dense_retriever.add
+                            # 接受的是[[], [], ..., []]这样的结构，只不过我们现在是一个一个数据增加而不是一批数据增加，
+                            # 所以暂时先写成一个np.array里面套了一个array
+                            dense_retriever.add(np.array([lookup_to_reps[p_lookup]]))
+                            single_look_up += [p_lookup]
+                        if search_args.use_gpu:
+                            num_gpus = faiss.get_num_gpus()
+                            if num_gpus == 0:
+                                logger.error("No GPU found. Back to CPU.")
                             else:
-                                co = faiss.GpuMultipleClonerOptions()
-                                co.shard = True
-                                co.useFloat16 = True
-                                dense_retriever.index = faiss.index_cpu_to_all_gpus(dense_retriever.index, co,
-                                                                                    ngpu=num_gpus)
+                                logger.info(f"Using {num_gpus} GPU")
+                                if num_gpus == 1:
+                                    co = faiss.GpuClonerOptions()
+                                    co.useFloat16 = True
+                                    res = faiss.StandardGpuResources()
+                                    dense_retriever.index = faiss.index_cpu_to_gpu(res, 0, dense_retriever.index, co)
+                                else:
+                                    co = faiss.GpuMultipleClonerOptions()
+                                    co.shard = True
+                                    co.useFloat16 = True
+                                    dense_retriever.index = faiss.index_cpu_to_all_gpus(dense_retriever.index, co,
+                                                                                        ngpu=num_gpus)
 
-                    dense_scores, dense_rankings = search_queries(dense_retriever,
-                                                                  query_dense_rep.cpu().detach().float().numpy(),
-                                                                  single_look_up, search_args)
-                    dense_scores_list.append(dense_scores[0])
-                    dense_rankings_list.append(dense_rankings[0])
+                        dense_scores, dense_rankings = search_queries(dense_retriever,
+                                                                      query_dense_rep.cpu().unsqueeze(
+                                                                          0).detach().float().numpy(),
+                                                                      single_look_up, search_args)
+                        dense_scores_list.append(dense_scores[0])
+                        dense_rankings_list.append(dense_rankings[0])
+                    else:
+                        min_value = 0
+                        max_value = 1
+                        batch_sparse_run[k] = {'docs': {}, 'min_score': min_value,
+                                               'max_score': max_value}
+                        dense_scores_list.append([])
+                        dense_rankings_list.append([])
 
                 sparse_run.update(batch_sparse_run)
                 dense_run.update(
