@@ -39,7 +39,7 @@ from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, ge
 from hybrid import fuse, normalize
 from utils import load_image
 from peft import PeftModel
-from search import pickle_load, search_queries, sparse_search, get_run_dict
+from search import pickle_load, search_queries, sparse_search, get_run_dict, search_queries_two_stage
 import time
 import gc
 
@@ -662,12 +662,14 @@ def main():
                         # 由于经过一阶段粗排后，每个数据的结果都不同，所以要单独处理每个数据的密集检索器
                         single_look_up = []
                         dense_retriever = FaissFlatSearcher(p_reps_0)
+                        chosen_lookup_to_reps = []
                         for p_lookup in sorted_by_value_dict.keys():
                             # 这里目前不太确定add输入的np.array应该具体是什么样的格式，通过输出search.sh观察，发现dense_retriever.add
                             # 接受的是[[], [], ..., []]这样的结构，只不过我们现在是一个一个数据增加而不是一批数据增加，
                             # 所以暂时先写成一个np.array里面套了一个array
-                            dense_retriever.add(np.array([lookup_to_reps[p_lookup]]))
+                            chosen_lookup_to_reps.append(lookup_to_reps[p_lookup])
                             single_look_up += [p_lookup]
+                        dense_retriever.add(np.array(chosen_lookup_to_reps))
                         if search_args.use_gpu:
                             num_gpus = faiss.get_num_gpus()
                             if num_gpus == 0:
@@ -686,10 +688,10 @@ def main():
                                     dense_retriever.index = faiss.index_cpu_to_all_gpus(dense_retriever.index, co,
                                                                                         ngpu=num_gpus)
 
-                        dense_scores, dense_rankings = search_queries(dense_retriever,
-                                                                      query_dense_rep.cpu().unsqueeze(
-                                                                          0).detach().float().numpy(),
-                                                                      single_look_up, search_args)
+                        dense_scores, dense_rankings = search_queries_two_stage(dense_retriever,
+                                                                                query_dense_rep.cpu().unsqueeze(
+                                                                                    0).detach().float().numpy(),
+                                                                                single_look_up, search_args)
                         dense_scores_list.append(dense_scores[0])
                         dense_rankings_list.append(dense_rankings[0])
                     else:
