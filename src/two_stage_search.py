@@ -212,7 +212,11 @@ def main():
 
     dense_run = {}
     sparse_run = {}
-    fusion_run = {}
+    fusion_run_1 = {}
+    fusion_run_2 = {}
+    fusion_run_3 = {}
+    fusion_run_4 = {}
+    fusion_run_5 = {}
 
     dense_retriever_indices = []
     sparse_retriever_indices = []
@@ -287,7 +291,7 @@ def main():
                         disassemble_logits = query_logits[data_args.per_device_batch_size:]
                         query_logits = query_logits[:data_args.per_device_batch_size]
                     elif 'disassembleeol' in model_args.eol_type:
-                        disassemble_logits = logits
+                        disassemble_logits = query_logits
                 else:
                     if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
                         if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
@@ -617,7 +621,13 @@ def main():
                 for k, v in batch_sparse_run.items():
                     sorted_by_value = sorted(v['docs'].items(), key=lambda x: x[1], reverse=True)
                     sorted_by_value_dict = dict(sorted_by_value[:search_args.first_stage_search_sum])
-                    if sorted_by_value_dict is not None:
+                    '''
+                    if dist.get_rank() == 0:
+                        print(len(sorted_by_value))
+                        print(len(sorted_by_value_dict))
+                        print(sorted_by_value_dict)
+                    '''
+                    if len(sorted_by_value_dict) != 0:
                         min_value = min(sorted_by_value_dict.values())
                         max_value = max(sorted_by_value_dict.values())
                         batch_sparse_run[k] = {'docs': sorted_by_value_dict, 'min_score': min_value,
@@ -653,12 +663,28 @@ def main():
                                     dense_retriever.index = faiss.index_cpu_to_all_gpus(dense_retriever.index, co,
                                                                                         ngpu=num_gpus)
 
-                        dense_scores, dense_rankings = search_queries_two_stage(dense_retriever,
-                                                                                query_dense_rep.cpu().unsqueeze(
-                                                                                    0).detach().float().numpy(),
-                                                                                single_look_up, search_args)
+                        if search_args.use_candidate_sum:
+                            dense_scores, dense_rankings = search_queries_two_stage(dense_retriever,
+                                                                                    query_dense_rep.cpu().unsqueeze(
+                                                                                        0).detach().float().numpy(),
+                                                                                    single_look_up, search_args,
+                                                                                    candidate_sum=len(
+                                                                                        sorted_by_value_dict))
+                        else:
+                            dense_scores, dense_rankings = search_queries_two_stage(dense_retriever,
+                                                                                    query_dense_rep.cpu().unsqueeze(
+                                                                                        0).detach().float().numpy(),
+                                                                                    single_look_up, search_args)
                         dense_scores_list.append(dense_scores[0])
                         dense_rankings_list.append(dense_rankings[0])
+                        '''
+                        if dist.get_rank() == 0:
+                            # print(len(sorted_by_value))
+                            # print(len(sorted_by_value_dict))
+                            print(len(dense_scores[0]))
+                            print(dense_scores[0])
+                            print(dense_rankings[0])
+                        '''
                     else:
                         min_value = 0
                         max_value = 1
@@ -671,14 +697,70 @@ def main():
                 dense_run.update(
                     get_run_dict(batch_ids, dense_scores_list, dense_rankings_list, search_args.remove_query))
 
-    fusion_run.update(
+    fusion_run_1.update(
         fuse(
             runs=[dense_run, sparse_run],
-            weights=[search_args.alpha, search_args.beta]
+            weights=[0.5, 0.5]
         )
     )
 
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args)
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_1, look_up, lookup_indices, search_args)
+
+    metric.sort_and_count()
+
+    metric.all_gather_object()
+    metric.print_recall()
+
+    fusion_run_2.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.6, 0.4]
+        )
+    )
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_2, look_up, lookup_indices, search_args)
+
+    metric.sort_and_count()
+
+    metric.all_gather_object()
+    metric.print_recall()
+
+    fusion_run_3.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.7, 0.3]
+        )
+    )
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_3, look_up, lookup_indices, search_args)
+
+    metric.sort_and_count()
+
+    metric.all_gather_object()
+    metric.print_recall()
+
+    fusion_run_4.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.8, 0.2]
+        )
+    )
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_4, look_up, lookup_indices, search_args)
+
+    metric.sort_and_count()
+
+    metric.all_gather_object()
+    metric.print_recall()
+
+    fusion_run_5.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.9, 0.1]
+        )
+    )
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_5, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
 
