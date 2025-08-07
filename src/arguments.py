@@ -29,8 +29,6 @@ class TrainingArguments(transformers.TrainingArguments):
     batch_size: int = field(default=32)
 
 
-
-
 @dataclass
 class ModelArguments(tevatron.retriever.arguments.ModelArguments):
     lora_bias: Literal["none", "all", "lora_only"] = field(default="none")
@@ -87,3 +85,9 @@ class PromptRepsLLMSearchArguments:
     embedding_type: str = field(default='dense')
     first_stage_search_sum: int = field(default=200)
     use_candidate_sum: bool = field(default=True)
+
+@dataclass
+class LogitInformationAnalysisArguments:
+    logit_information_analysis_text: str = field(default=None)
+    logit_information_analysis_image: str = field(default=None)
+    logit_information_analysis_type: str = field(default='text')

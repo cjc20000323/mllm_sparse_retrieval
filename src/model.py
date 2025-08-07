@@ -331,6 +331,218 @@ class MLLMRetrievalModel(nn.Module):
         else:
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
 
+
+    def encode_data_for_logit_information_analysis(self, input, input_type, processor, device, model_args, data_args):
+        if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
+            prompt = text_prompt_no_special_llava_v1_5
+        elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+            prompt = text_prompt_qwen_v2_5
+            prompt = processor.apply_chat_template(
+                prompt, tokenize=False, add_generation_prompt=True
+            )
+        elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+            prompt = text_prompt_intern_vl_v2_5
+            prompt = processor.apply_chat_template(
+                prompt, tokenize=False, add_generation_prompt=True
+            )
+        else:
+            prompt = text_prompt
+
+        if 'disassembleeol' in model_args.eol_type:
+            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
+                prompts = llama3_retrieval_disassemble_text_prompts
+            else:
+                prompts = llama3_retrieval_disassemble_text_prompts
+        else:
+            prompts = llama3_retrieval_disassemble_text_prompts
+        if input_type == 'text':
+            if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
+                disassemble_text_inputs = processor(
+                    text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
+                    return_tensors="pt",
+                    padding=True).to('cuda')
+                disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
+                                                  return_dict=True)
+                if data_args.reps_loc == 'after_pad':
+                    disassemble_logits = disassemble_output.logits[:, -1, :]
+                    embs = disassemble_output.hidden_states[-1][:, -1, :]
+                else:
+                    disassemble_logits = disassemble_output.logits
+                    disassemble_sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
+                    disassemble_batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']),
+                                                         device=disassemble_logits.device)
+                    disassemble_logits = disassemble_output.logits[
+                        disassemble_batch_ids, disassemble_sequence_lengths]
+                    embs = disassemble_output.hidden_states[-1][disassemble_batch_ids, disassemble_sequence_lengths]
+                raw_disassemble_logits = disassemble_logits
+                disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
+                return disassemble_logits, raw_disassemble_logits
+
+            if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
+                                        return_tensors="pt",
+                                        padding=True).to('cuda')
+                output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
+                # print(text_inputs['input_ids'])
+                # print(output.logits.shape)
+                # print(output.hidden_states[-1].shape)
+                if data_args.reps_loc == 'after_pad':
+                    logits = output.logits[:, -1, :]
+                else:
+                    # logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+                    logits = output.logits
+                    # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                    # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                    sequence_lengths = text_inputs['attention_mask'].sum(dim=-1) - 1
+                    batch_ids = torch.arange(len(text_inputs['input_ids']), device=logits.device)
+                    logits = output.logits[batch_ids, sequence_lengths]
+
+                disassemble_text_inputs = processor(
+                    text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
+                    return_tensors="pt",
+                    padding=True).to('cuda')
+                disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
+                                                  return_dict=True)
+
+                if data_args.reps_loc == 'after_pad':
+                    disassemble_logits = disassemble_output.logits[:, -1, :]
+                    embs = disassemble_output.hidden_states[-1][:, -1, :]
+                else:
+                    disassemble_logits = disassemble_output.logits
+                    disassemble_sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
+                    disassemble_batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']),
+                                                         device=disassemble_logits.device)
+                    disassemble_logits = disassemble_output.logits[
+                        disassemble_batch_ids, disassemble_sequence_lengths]
+                    embs = disassemble_output.hidden_states[-1][disassemble_batch_ids, disassemble_sequence_lengths]
+                raw_disassemble_logits = disassemble_logits
+                disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
+
+                # 这里对应原文的log+relu操作
+                raw_logits = torch.cat([logits, raw_disassemble_logits])
+                logits = torch.log(1 + torch.relu(logits))
+                logits = torch.cat([logits, disassemble_logits], dim=0)
+
+                return logits, raw_logits
+
+            if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
+                text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
+                                        return_tensors="pt",
+                                        padding=True).to('cuda')
+            elif 'disassembleeol' in model_args.eol_type:
+                text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
+                                        return_tensors="pt",
+                                        padding=True).to('cuda')
+                disassemble_text_inputs = processor(
+                    text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
+                    return_tensors="pt",
+                    padding=True).to('cuda')
+                disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
+                                                  return_dict=True)
+                if data_args.reps_loc == 'after_pad':
+                    disassemble_logits = disassemble_output.logits[:, -1, :]
+                else:
+                    disassemble_logits = disassemble_output.logits
+                    disassemble_sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
+                    disassemble_batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']),
+                                                         device=disassemble_logits.device)
+                    disassemble_logits = disassemble_output.logits[
+                        disassemble_batch_ids, disassemble_sequence_lengths]
+                raw_disassemble_logits = disassemble_logits
+                disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
+            else:
+                prompts = [llama3_template.format(task_text_prompt) for task_text_prompt in
+                           task_text_prompts_copy]
+                # 输入text的顺序是，对于每个input中的text，按照task_text_prompts中的顺序组装成列表
+                text_inputs = processor(
+                    text=[task_text_prompt.replace('<sent>', text) for text in input for task_text_prompt in
+                          prompts],
+                    return_tensors="pt",
+                    padding=True).to('cuda')
+            output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
+            # print(text_inputs['input_ids'])
+            # print(output.logits.shape)
+            # print(output.hidden_states[-1].shape)
+            if data_args.reps_loc == 'after_pad':
+                logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+            else:
+                # logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+                logits = output.logits
+                # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                sequence_lengths = text_inputs['attention_mask'].sum(dim=-1) - 1
+                batch_ids = torch.arange(len(text_inputs['input_ids']), device=logits.device)
+                logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
+                    batch_ids, sequence_lengths]
+            # 这里对应原文的log+relu操作
+            raw_logits = logits
+            logits = torch.log(1 + torch.relu(logits))
+            if 'disassembleeol_concrete' in model_args.eol_type:
+                raw_logits = torch.cat([raw_logits, raw_disassemble_logits], dim=0)
+                logits = torch.cat([logits, disassemble_logits], dim=0)
+            if 'disassembleeol_separate' in model_args.eol_type:
+                logits = disassemble_logits
+                raw_logits = raw_disassemble_logits
+
+            return logits, raw_logits
+        elif input_type == 'image':
+            if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                prompt = img_prompt_intern_vl_v2_5
+                prompt = processor.apply_chat_template(
+                    prompt, tokenize=False, add_generation_prompt=True
+                )
+                num_patches_list = [pixel_value.size(0) for pixel_value in input]
+                pixel_values = torch.cat(input, dim=0)
+                queries = []
+                for idx, num_patches in enumerate(num_patches_list):
+                    image_tokens = '<img>' + '<IMG_CONTEXT>' * self.encoder.num_image_token * num_patches + '</img>'
+                    query = prompt.replace('<image>', image_tokens, 1)
+                    queries.append(query)
+                model_inputs = processor(queries, return_tensors='pt', padding=True)
+                input_ids = model_inputs['input_ids'].to(device)
+                attention_mask = model_inputs['attention_mask'].to(device)
+                output = self.encoder.encode(processor, pixel_values, input_ids, attention_mask)
+                if data_args.reps_loc == 'after_pad':
+                    logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+                else:
+                    logits = output.logits
+                    # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                    # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                    sequence_lengths = model_inputs['attention_mask'].sum(dim=-1) - 1
+                    batch_ids = torch.arange(len(model_inputs['input_ids']), device=logits.device)
+                    logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
+                        batch_ids, sequence_lengths]
+                # 这里对应原文的log+relu操作
+                raw_logits = logits
+                logits = torch.log(1 + torch.relu(logits))
+            else:
+                length = len(input.pixel_values)
+                # print('length is ', length)
+                for key in input.keys():
+                    input[key] = input[key].squeeze()  # 数据集读取的时候，是直接多了一个维度计数，因此会有一个维度是1，把这个维度去掉
+                    # print(input[key].shape)
+                if length == 1:
+                    for key in input.keys():
+                        input[key] = input[key].unsqueeze(0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
+                        # print(input[key].shape)
+                output = self.encoder(**input, output_hidden_states=True, return_dict=True, use_cache=True)
+                if data_args.reps_loc == 'after_pad':
+                    logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+                else:
+                    logits = output.logits
+                    # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                    # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                    sequence_lengths = input['attention_mask'].sum(dim=-1) - 1
+                    batch_ids = torch.arange(len(input['input_ids']), device=logits.device)
+                    logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
+                        batch_ids, sequence_lengths]
+                # 这里对应原文的log+relu操作
+                raw_logits = logits
+                logits = torch.log(1 + torch.relu(logits))
+            return logits, raw_logits
+        else:
+            return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
+
     def encode_data_at_same_time(self, text_input, image_input, processor, device, model_args, data_args):
         pass
 
