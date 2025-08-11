@@ -40,7 +40,8 @@ from utils import split_model, load_image
 from peft import PeftModel, PeftConfig
 from encode import get_filtered_ids, get_img_valid_tokens_values, get_img_valid_disassemble_tokens_values, \
     get_img_valid_tokens_values_with_cluster, get_text_valid_tokens_values, get_text_valid_disassemble_tokens_values, \
-    get_text_valid_tokens_values_with_cluster
+    get_text_valid_tokens_values_with_cluster, get_text_disassemble_tokens_values_for_information_analysis, \
+    get_img_disassemble_tokens_values_for_information_analysis
 
 
 def main():
@@ -258,109 +259,30 @@ def main():
             print(disassemble_raw_information_content)
             print(information_content)
             print(raw_information_content)
-        if 'disassembleeol' in model_args.eol_type:
-            if training_args.encode_type == 'text':
-                vector = dict()
-                logit = logits
-                disassemble_logit = disassemble_logits
-                text = logit_information_analysis_args.logit_information_analysis_text
-                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                    tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
-                                                                              disassemble_logit,
-                                                                              vocab_dict,
-                                                                              data_args,
-                                                                              filtered_ids, logit,
-                                                                              model_args)
-                else:
-                    tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
-                                                                              disassemble_logit,
-                                                                              vocab_dict,
-                                                                              data_args,
-                                                                              filtered_ids, None,
-                                                                              model_args)
 
-                for token, v in zip(tokens, values):
-                    if token in vector.keys():
-                        if data_args.sparse_value_type == 'replace':
-                            vector[token] = int(v)
-                        elif data_args.sparse_value_type == 'sum':
-                            vector[token] += int(v)
-                        else:
-                            if int(v) > vector[token]:
-                                vector[token] = int(v)
-                    else:
-                        vector[token] = int(v)
-            else:
-                vector = dict()
-                logit = logits
-                disassemble_logit = disassemble_logits
-                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                    tokens, values = get_img_valid_disassemble_tokens_values(processor,
-                                                                             disassemble_logit,
-                                                                             vocab_dict,
-                                                                             data_args,
-                                                                             filtered_ids, logit,
-                                                                             model_args)
-                else:
-                    tokens, values = get_img_valid_disassemble_tokens_values(processor,
-                                                                             disassemble_logit,
-                                                                             vocab_dict,
-                                                                             data_args,
-                                                                             filtered_ids, None,
-                                                                             model_args)
-                for token, v in zip(tokens, values):
-                    if token in vector.keys():
-                        if data_args.sparse_value_type == 'replace':
-                            vector[token] = int(v)
-                        elif data_args.sparse_value_type == 'sum':
-                            vector[token] += int(v)
-                        else:
-                            if int(v) > vector[token]:
-                                vector[token] = int(v)
-                    else:
-                        vector[token] = int(v)
+        if training_args.encode_type == 'text':
+            vector = dict()
+            logit = logits
+            disassemble_logit = disassemble_logits
+            text = logit_information_analysis_args.logit_information_analysis_text
+            get_text_disassemble_tokens_values_for_information_analysis(text, processor.tokenizer,
+                                                                          disassemble_logit,
+                                                                          vocab_dict,
+                                                                          data_args,
+                                                                          filtered_ids, None,
+                                                                          model_args)
+
+
         else:
-            if training_args.encode_type == 'text':
-                vector = dict()
-                logit = logits
-                tokens, values = get_text_valid_tokens_values(text, processor.tokenizer,
-                                                              logit,
-                                                              vocab_dict,
-                                                              data_args,
-                                                              filtered_ids)
-                for token, v in zip(tokens, values):
-                    if token in vector.keys():
-                        if data_args.sparse_value_type == 'replace':
-                            vector[token] = int(v)
-                        elif data_args.sparse_value_type == 'sum':
-                            vector[token] += int(v)
-                        else:
-                            if int(v) > vector[token]:
-                                vector[token] = int(v)
-                    else:
-                        vector[token] = int(v)
-            else:
-                vector = dict()
-                logit = logits
-                if model_args.eol_type == 'prompteol_same_length':
-                    tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
-                                                                 vocab_dict,
-                                                                 data_args, filtered_ids, text=text)
-                else:
-                    tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
-                                                                 vocab_dict,
-                                                                 data_args, filtered_ids)
-                for token, v in zip(tokens, values):
-                    if token in vector.keys():
-                        if data_args.sparse_value_type == 'replace':
-                            vector[token] = int(v)
-                        elif data_args.sparse_value_type == 'sum':
-                            vector[token] += int(v)
-                        else:
-                            if int(v) > vector[token]:
-                                vector[token] = int(v)
-                    else:
-                        vector[token] = int(v)
+            vector = dict()
+            logit = logits
+            disassemble_logit = disassemble_logits
+            get_img_disassemble_tokens_values_for_information_analysis(processor,
+                                                                         disassemble_logit,
+                                                                         vocab_dict,
+                                                                         data_args,
+                                                                         filtered_ids, logit,
+                                                                         model_args)
 
     # 训练结束后添加同步屏障
     dist.barrier()

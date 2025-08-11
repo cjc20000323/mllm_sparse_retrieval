@@ -84,10 +84,16 @@ class PromptRepsLLMSearchArguments:
     beta: float = field(default=0.5, metadata={"help": 'The weight for sparse retrieval'})
     embedding_type: str = field(default='dense')
     first_stage_search_sum: int = field(default=200)
-    use_candidate_sum: bool = field(default=True)
+    use_candidate_sum: bool = field(default=False)
 
 @dataclass
 class LogitInformationAnalysisArguments:
     logit_information_analysis_text: str = field(default=None)
     logit_information_analysis_image: str = field(default=None)
     logit_information_analysis_type: str = field(default='text')
+
+@dataclass
+class PromptGenerationArguments:
+    prompt_generation_text: str = field(default=None)
+    prompt_generation_image: str = field(default='None')
+    prompt_generation_type: str = field(default='t2t')
