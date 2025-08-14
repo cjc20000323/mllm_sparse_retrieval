@@ -110,48 +110,66 @@ llama3_retrieval_disassemble_text_prompts = [llama3_template.format(prompt) for 
 llama3_retrieval_disassemble_image_prompts = [llama3_template.format(prompt) for prompt in retrieval_disassemble_image_prompts]
 
 prompt_generation_text_prompt = llama3_template.format(
-    'Your mission is to refer to the demonstrations and generate proper summary tasks from 3 to 5 aspects or perspectives for the new sentence.\n\n'
+    'Your mission is to generate proper summary tasks from 3 to 5 aspects or perspectives for the new sentence. You need to ensure that formats of all summary tasks like \'Summary the people or objects in above sentence in one word.\'.\n\n'
     '<sent>\n'
     'Summary tasks:\n'
 )
 
 prompt_generation_image_prompt = llama3_template.format(
-    'Your mission is to refer to the demonstrations and generate proper summary tasks from 3 to 5 aspects or perspectives for the new image.\n\n'
+    'Your mission is to generate proper summary tasks from 3 to 5 aspects or perspectives for the new image. You need to ensure that formats of all summary tasks like \'Summary the people or objects in above sentence in one word.\'.\n\n'
     '<image>\n'
     'Summary tasks:\n'
 )
 
 prompt_generation_from_text_prompt = llama3_template.format(
-    'We will provide a sentence and some corresponding summary tasks as demonstrations. Your mission is to refer to the demonstration and generate proper summary tasks for the new sentence.\n\n'
+    'We will provide a sentence and some corresponding summary tasks that can describe the content of sentence from different perspectives as examples. Your mission is to refer to format of the examples and generate proper summary tasks from three to five aspects or perspectives for the new sentence. You need to ensure that formats of all summary tasks like \'Summary the people or objects in above sentence in one word.\' and you do not need to answer these tasks.\n\n'
     '<sent>\n'
-    'Summary tasks:\nSummary the people or objects in above sentence in one word.\nSummary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word.\nSummary the environment, weather or places in above image in one word.\nSummary the actions or movements of main people or objects in above sentence in one word.\nSummary the appearance, such as color, meterial, decoration and so on, of main people or objects in above sentence in one word.\n\n'
+    'Summary tasks:\n1. Summary the people or objects in above sentence in one word.\n2. Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word.\n3. Summary the environment, weather or places in above sentence in one word.\n4. Summary the actions or movements of main people or objects in above sentence in one word.\n5. Summary the appearance, such as color, meterial, decoration and so on, of main people or objects in above sentence in one word.\n\n'
     '<sent>\n'
     'Summary tasks:\n'
 )
 prompt_generation_from_image_prompt = llama3_template.format(
-    'We will provide an image and some corresponding summary tasks as demonstrations. Your mission is to refer to the demonstration and generate proper summary tasks for the new image.\n\n'
+    'We will provide an image and some corresponding summary tasks that can describe the content of image from different perspectives as examples. Your mission is to refer to format of the examples and generate proper summary tasks from three to five aspects or perspectives for the new image. You need to ensure that formats of all summary tasks like \'Summary the people or objects in above image in one word.\' and you do not need to answer these tasks.\n\n'
     '<image>\n'
-    'Summary tasks:\nSummary the people or objects in above image in one word.\nSummary the relations, such as belongings or spatial position, between main people or objects in above image in one word.\nSummary the environment, weather or places in above image in one word.\nSummary the actions or movements of main people or objects in above image in one word.\nSummary the appearance, such as color, meterial, decoration and so on, of main people or objects in above image in one word.\n\n'
+    'Summary tasks:\n1. Summary the people or objects in above image in one word.\n2. Summary the relations, such as belongings or spatial position, between main people or objects in above image in one word.\n3. Summary the environment, weather or places in above image in one word.\n4. Summary the actions or movements of main people or objects in above image in one word.\n5. Summary the appearance, such as color, meterial, decoration and so on, of main people or objects in above image in one word.\n\n'
+    '<image>\n'
+    'Summary tasks:\n'
+)
+
+prompt_generation_image_from_text_prompt = llama3_template.format(
+    'We will provide a sentence and some corresponding summary tasks that can describe the content of sentence from different perspectives as examples. Your mission is to refer to format of the examples and generate proper summary tasks from three to five aspects or perspectives for the new sentence. You need to ensure that formats of all summary tasks like \'Summary the people or objects in above sentence in one word.\' and you do not need to answer these tasks.\n\n'
+    '<sent>\n'
+    'Summary tasks:\n1. Summary the people or objects in above sentence in one word.\n2. Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word.\n3. Summary the environment, weather or places in above sentence in one word.\n4. Summary the actions or movements of main people or objects in above sentence in one word.\n5. Summary the appearance, such as color, meterial, decoration and so on, of main people or objects in above sentence in one word.\n\n'
     '<image>\n'
     'Summary tasks:\n'
 )
 
 prompt_generation_from_text_prompt_2 = llama3_template.format(
-    'We will provide two sentences and some corresponding summary tasks as demonstrations. Your mission is to refer to the demonstration and generate proper summary tasks for the new sentence.\n\n'
+    'We will provide two sentences and some corresponding summary tasks that can describe the content of sentences from different perspectives as examples. Your mission is to refer to format of the examples and generate proper summary tasks from three to five aspects or perspectives for the new sentence. You need to ensure that formats of all summary tasks like \'Summary the people or objects in above sentence in one word.\' and you do not need to answer these tasks.\n\n'
     '<sent>\n'
-    'Summary tasks:\nSummary the people or objects in above sentence in one word.\nSummary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word.\nSummary the environment, weather or places in above image in one word.\nSummary the actions or movements of main people or objects in above sentence in one word.\nSummary the appearance, such as color, meterial, decoration and so on, of main people or objects in above sentence in one word.\n\n'
+    'Summary tasks:\n1. Summary the people or objects in above sentence in one word.\n2. Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word.\n3. Summary the environment, weather or places in above sentence in one word.\n4. Summary the actions or movements of main people or objects in above sentence in one word.\n5. Summary the appearance, such as color, meterial, decoration and so on, of main people or objects in above sentence in one word.\n\n'
     '<sent>\n'
-    'Summary tasks:\nSummary the people or objects in above sentence in one word.\nSummary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word.\nSummary the environment, weather or places in above image in one word.\nSummary the actions or movements of main people or objects in above sentence in one word.\nSummary the appearance, such as color, meterial, decoration and so on, of main people or objects in above sentence in one word.\n\n'
+    'Summary tasks:\n1. Summary the people or objects in above sentence in one word.\n2. Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word.\n3. Summary the environment, weather or places in above sentence in one word.\n4. Summary the actions or movements of main people or objects in above sentence in one word.\n5. Summary the appearance, such as color, meterial, decoration and so on, of main people or objects in above sentence in one word.\n\n'
     '<sent>\n'
     'Summary tasks:\n'
 )
 
 prompt_generation_from_image_prompt_2 = llama3_template.format(
-    'We will provide two images and some corresponding summary tasks as demonstrations. Your mission is to refer to the demonstration and generate proper summary tasks for the new image.\n\n'
+    'We will provide two images and some corresponding summary tasks that can describe the content of images from different perspectives as examples. Your mission is to refer to format of the examples and generate proper summary tasks from three to five aspects or perspectives for the new image. You need to ensure that formats of all summary tasks like \'Summary the people or objects in above image in one word.\' and you do not need to answer these tasks.\n\n'
     '<image>\n'
-    'Summary tasks:\nSummary the people or objects in above image in one word.\nSummary the relations, such as belongings or spatial position, between main people or objects in above image in one word.\nSummary the environment, weather or places in above image in one word.\nSummary the actions or movements of main people or objects in above image in one word.\nSummary the appearance, such as color, meterial, decoration and so on, of main people or objects in above image in one word.\n\n'
+    'Summary tasks:\n1. Summary the people or objects in above image in one word.\n2. Summary the relations, such as belongings or spatial position, between main people or objects in above image in one word.\n3. Summary the environment, weather or places in above image in one word.\n4. Summary the actions or movements of main people or objects in above image in one word.\n5. Summary the appearance, such as color, meterial, decoration and so on, of main people or objects in above image in one word.\n\n'
     '<image>\n'
-    'Summary tasks:\nSummary the people or objects in above image in one word.\nSummary the relations, such as belongings or spatial position, between main people or objects in above image in one word.\nSummary the environment, weather or places in above image in one word.\nSummary the actions or movements of main people or objects in above image in one word.\nSummary the appearance, such as color, meterial, decoration and so on, of main people or objects in above image in one word.\n\n'
+    'Summary tasks:\n1. Summary the people or objects in above image in one word.\n2. Summary the relations, such as belongings or spatial position, between main people or objects in above image in one word.\n3. Summary the environment, weather or places in above image in one word.\n4. Summary the actions or movements of main people or objects in above image in one word.\n5. Summary the appearance, such as color, meterial, decoration and so on, of main people or objects in above image in one word.\n\n'
+    '<image>\n'
+    'Summary tasks:\n'
+)
+
+prompt_generation_image_from_text_prompt_2 = llama3_template.format(
+    'We will provide two sentences and some corresponding summary tasks that can describe the content of sentences from different perspectives as examples. Your mission is to refer to format of the examples and generate proper summary tasks from three to five aspects or perspectives for the new sentence. You need to ensure that formats of all summary tasks like \'Summary the people or objects in above sentence in one word.\' and you do not need to answer these tasks.\n\n'
+    '<sent>\n'
+    'Summary tasks:\n1. Summary the people or objects in above sentence in one word.\n2. Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word.\n3. Summary the environment, weather or places in above sentence in one word.\n4. Summary the actions or movements of main people or objects in above sentence in one word.\n5. Summary the appearance, such as color, meterial, decoration and so on, of main people or objects in above sentence in one word.\n\n'
+    '<sent>\n'
+    'Summary tasks:\n1. Summary the people or objects in above sentence in one word.\n2. Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word.\n3. Summary the environment, weather or places in above sentence in one word.\n4. Summary the actions or movements of main people or objects in above sentence in one word.\n5. Summary the appearance, such as color, meterial, decoration and so on, of main people or objects in above sentence in one word.\n\n'
     '<image>\n'
     'Summary tasks:\n'
 )

@@ -43,7 +43,7 @@ from encode import get_filtered_ids, get_img_valid_tokens_values, get_img_valid_
     get_text_valid_tokens_values_with_cluster
 from template import prompt_generation_from_image_prompt, prompt_generation_from_text_prompt, \
     prompt_generation_from_text_prompt_2, prompt_generation_from_image_prompt_2, prompt_generation_text_prompt, \
-    prompt_generation_image_prompt
+    prompt_generation_image_prompt, prompt_generation_image_from_text_prompt, prompt_generation_image_from_text_prompt_2
 
 
 def main():
@@ -153,8 +153,8 @@ def main():
                 text_input = prompt.replace('<sent>', demonstration_sent_1, 1)
                 text_input = text_input.replace('<sent>', demonstration_sent_2, 1)
                 text_input = text_input.replace('<sent>', sent, 1)
-            inputs = processor(text=text_input, return_tensors="pt").to(model.device)
-            output = model.encoder.generate(**inputs, max_new_tokens=100)
+            inputs = processor(text=text_input, return_tensors="pt").to(encoder.device)
+            output = model.encoder.generate(**inputs, max_new_tokens=500)
             if dist.get_rank() == 0:
                 print(processor.decode(output[0], skip_special_tokens=True))
 
@@ -163,7 +163,7 @@ def main():
             demonstration_image_path_2 = './data/flickr/flickr30k-images/100207720.jpg'
             image_path = prompt_generation_args.prompt_generation_image
             if prompt_generation_args.demonstration_num == 0:
-                prompt = prompt_generation_from_image_prompt
+                prompt = prompt_generation_image_prompt
                 image = Image.open(image_path).convert('RGB')
                 image_list = [image]
             elif prompt_generation_args.demonstration_num == 1:
@@ -174,18 +174,41 @@ def main():
             elif prompt_generation_args.demonstration_num == 2:
                 demonstration_image_1 = Image.open(demonstration_image_path_1).convert('RGB')
                 demonstration_image_2 = Image.open(demonstration_image_path_2).convert('RGB')
-                prompt = prompt_generation_from_image_prompt
+                prompt = prompt_generation_from_image_prompt_2
                 image = Image.open(image_path).convert('RGB')
                 image_list = [demonstration_image_1, demonstration_image_2, image]
 
             img_inputs = processor(images=image_list, text=prompt,
                                    return_tensors="pt",
-                                   padding=True)
-            output = model.encoder.generate(**img_inputs, max_new_tokens=100)
+                                   padding=True).to(device)
+            output = model.encoder.generate(**img_inputs, max_new_tokens=500)
             if dist.get_rank() == 0:
                 print(processor.decode(output[0], skip_special_tokens=True))
-        else:
-            pass
+        elif prompt_generation_args.prompt_generation_type == 't2i':
+            demonstration_sent_1 = 'The white and brown dog is running over the surface of the snow.'
+            demonstration_sent_2 = 'Girl in black jacket sifting powdered sugar over a chocolate cake.'
+            image_path = prompt_generation_args.prompt_generation_image
+            if prompt_generation_args.demonstration_num == 0:
+                prompt = prompt_generation_image_prompt
+                image = Image.open(image_path).convert('RGB')
+                image_list = [image]
+            elif prompt_generation_args.demonstration_num == 1:
+                prompt = prompt_generation_image_from_text_prompt
+                text_input = prompt.replace('<sent>', demonstration_sent_1, 1)
+                image = Image.open(image_path).convert('RGB')
+                image_list = [image]
+            elif prompt_generation_args.demonstration_num == 2:
+                prompt = prompt_generation_image_from_text_prompt_2
+                text_input = prompt.replace('<sent>', demonstration_sent_1, 1)
+                text_input = text_input.replace('<sent>', demonstration_sent_2, 1)
+                image = Image.open(image_path).convert('RGB')
+                image_list = [image]
+            img_inputs = processor(images=image_list, text=text_input,
+                                   return_tensors="pt",
+                                   padding=True).to(device)
+            output = model.encoder.generate(**img_inputs, max_new_tokens=500)
+            if dist.get_rank() == 0:
+                print(processor.decode(output[0], skip_special_tokens=True))
 
 
     # 训练结束后添加同步屏障
