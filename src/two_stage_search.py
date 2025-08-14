@@ -645,6 +645,11 @@ def main():
                             chosen_lookup_to_reps.append(lookup_to_reps[p_lookup])
                             single_look_up += [p_lookup]
                         dense_retriever.add(np.array(chosen_lookup_to_reps))
+                        del chosen_lookup_to_reps
+                        # 强制触发垃圾回收
+                        gc.collect()
+                        # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
+                        torch.cuda.empty_cache()
                         if search_args.use_gpu:
                             num_gpus = faiss.get_num_gpus()
                             if num_gpus == 0:

@@ -251,8 +251,9 @@ def get_img_disassemble_tokens_values_for_information_analysis(tokenizer, disass
         vocabs = []
         for indice in top_k_indices.cpu().detach().float().numpy():
             vocabs.append(vocab_dict[int(indice.item())])
-        print(vocabs)
-        print(values)
+        if dist.get_rank() == 0:
+            print(vocabs)
+            print(values)
 
 
 def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args, filtered_ids, model_args=None):
@@ -520,8 +521,9 @@ def get_text_disassemble_tokens_values_for_information_analysis(text, tokenizer,
         vocabs = []
         for indice in top_k_indices.cpu().detach().float().numpy():
             vocabs.append(vocab_dict[int(indice.item())])
-        print(vocabs)
-        print(values)
+        if dist.get_rank() == 0:
+            print(vocabs)
+            print(values)
 
 
 '''

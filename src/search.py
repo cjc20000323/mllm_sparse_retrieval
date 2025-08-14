@@ -69,7 +69,6 @@ def search_queries(retriever, q_reps, p_lookup, args):
 
 
 def search_queries_two_stage(retriever, q_reps, p_lookup, args, candidate_sum=None):
-    print(candidate_sum)
     if candidate_sum is not None:
         if args.retrieval_batch_size > 0:
             all_scores, all_indices = retriever.batch_search(q_reps, candidate_sum,

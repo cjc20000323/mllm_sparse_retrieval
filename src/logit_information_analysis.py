@@ -153,9 +153,10 @@ def main():
 
         if logit_information_analysis_args.logit_information_analysis_type == 'text':
             text = logit_information_analysis_args.logit_information_analysis_text
+            if dist.get_rank() == 0:
+                print(text)
             logits, raw_logits = model.encode_data_for_logit_information_analysis([text], 'text', processor, device,
                                                                                   model_args, data_args)
-
             if 'disassembleeol_concrete' in model_args.eol_type:
                 disassemble_logits = logits[1:]
                 logits = logits[:1]
@@ -165,33 +166,38 @@ def main():
                 disassemble_logits = logits
                 raw_disassemble_logits = raw_logits
 
+            disassemble_logits = disassemble_logits.to(torch.float32)
+            raw_disassemble_logits = raw_disassemble_logits.to(torch.float32)
             disassemble_probs = F.softmax(disassemble_logits, dim=-1)
             disassemble_raw_probs = F.softmax(raw_disassemble_logits, dim=-1)
             probs = F.softmax(logits, dim=-1)
             raw_probs = F.softmax(raw_logits, dim=-1)
 
+            if dist.get_rank() == 0:
+                print(disassemble_logits)
+                print(disassemble_probs)
+                print(disassemble_probs.shape)
+                print(raw_disassemble_logits)
+                print(disassemble_raw_probs)
+                print(disassemble_raw_probs.shape)
+
             # Step 2: 计算每个类别的信息量 (单位：nats)
-            disassemble_information_content = -torch.log(disassemble_probs)
-            disassemble_raw_information_content = -torch.log(disassemble_raw_probs)
-            information_content = -torch.log(probs)
-            raw_information_content = -torch.log(raw_probs)
+            disassemble_information_content = -torch.log2(disassemble_probs)
+            disassemble_raw_information_content = -torch.log2(disassemble_raw_probs)
+            # disassemble_raw_information_content[torch.where(disassemble_raw_information_content == torch.inf)] = 5.9605e-08
 
-            disassemble_entropy = -torch.sum(disassemble_probs * torch.log(disassemble_probs), dim=-1)
-            disassemble_raw_entropy = -torch.sum(disassemble_raw_probs * torch.log(disassemble_raw_probs), dim=-1)
-            entropy = -torch.sum(probs * torch.log(probs), dim=-1)
-            raw_entropy = -torch.sum(raw_probs * torch.log(raw_probs), dim=-1)
+            disassemble_entropy = -torch.sum(disassemble_probs * -disassemble_information_content, dim=-1)
+            disassemble_raw_entropy = -torch.sum(disassemble_raw_probs * -disassemble_raw_information_content, dim=-1)
 
-            print('Entropy and raw entropy: ')
-            print(disassemble_entropy)
-            print(disassemble_raw_entropy)
-            print(entropy)
-            print(raw_entropy)
+            if dist.get_rank() == 0:
+                print('Entropy and raw entropy: ')
+                print(disassemble_entropy)
+                print(disassemble_raw_entropy)
 
-            print('Information content and raw information content: ')
-            print(disassemble_information_content)
-            print(disassemble_raw_information_content)
-            print(information_content)
-            print(raw_information_content)
+
+                print('Information content and raw information content: ')
+                print(disassemble_information_content)
+                print(disassemble_raw_information_content)
 
         else:
             img_path = logit_information_analysis_args.logit_information_analysis_image
@@ -222,43 +228,48 @@ def main():
                                                    padding=True)
                 disassemble_imgs = disassemble_img_inputs.to(device)
                 if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                    disassemble_logits, raw_disassemble_logits = model.encode_data(disassemble_imgs, 'image',
+                    disassemble_logits, raw_disassemble_logits = model.encode_data_for_logit_information_analysis(disassemble_imgs, 'image',
                                                                                    processor, device,
                                                                                    model_args, data_args)
                 else:
-                    disassemble_logits, raw_disassemble_logits = model.encode_data(disassemble_imgs, 'image', processor,
+                    disassemble_logits, raw_disassemble_logits = model.encode_data_for_logit_information_analysis(disassemble_imgs, 'image', processor,
                                                                                    device,
                                                                                    model_args, data_args)
             else:
                 pass
 
+            disassemble_logits = disassemble_logits.to(torch.float32)
+            raw_disassemble_logits = raw_disassemble_logits.to(torch.float32)
             disassemble_probs = F.softmax(disassemble_logits, dim=-1)
             disassemble_raw_probs = F.softmax(raw_disassemble_logits, dim=-1)
             probs = F.softmax(logits, dim=-1)
             raw_probs = F.softmax(raw_logits, dim=-1)
 
+            if dist.get_rank() == 0:
+                print(disassemble_logits)
+                print(disassemble_probs)
+                print(disassemble_probs.shape)
+                print(raw_disassemble_logits)
+                print(disassemble_raw_probs)
+                print(disassemble_raw_probs.shape)
+
             # Step 2: 计算每个类别的信息量 (单位：nats)
-            disassemble_information_content = -torch.log(disassemble_probs)
-            disassemble_raw_information_content = -torch.log(disassemble_raw_probs)
-            information_content = -torch.log(probs)
-            raw_information_content = -torch.log(raw_probs)
+            disassemble_information_content = -torch.log2(disassemble_probs)
+            disassemble_raw_information_content = -torch.log2(disassemble_raw_probs)
+            #disassemble_raw_information_content[
+            #    torch.where(disassemble_raw_information_content == torch.inf)] = 5.9605e-08
 
-            disassemble_entropy = -torch.sum(disassemble_probs * torch.log(disassemble_probs), dim=-1)
-            disassemble_raw_entropy = -torch.sum(disassemble_raw_probs * torch.log(disassemble_raw_probs), dim=-1)
-            entropy = -torch.sum(probs * torch.log(probs), dim=-1)
-            raw_entropy = -torch.sum(raw_probs * torch.log(raw_probs), dim=-1)
+            disassemble_entropy = -torch.sum(disassemble_probs * -disassemble_information_content, dim=-1)
+            disassemble_raw_entropy = -torch.sum(disassemble_raw_probs * -disassemble_raw_information_content, dim=-1)
 
-            print('Entropy and raw entropy: ')
-            print(disassemble_entropy)
-            print(disassemble_raw_entropy)
-            print(entropy)
-            print(raw_entropy)
+            if dist.get_rank() == 0:
+                print('Entropy and raw entropy: ')
+                print(disassemble_entropy)
+                print(disassemble_raw_entropy)
 
-            print('Information content and raw information content: ')
-            print(disassemble_information_content)
-            print(disassemble_raw_information_content)
-            print(information_content)
-            print(raw_information_content)
+                print('Information content and raw information content: ')
+                print(disassemble_information_content)
+                print(disassemble_raw_information_content)
 
         if training_args.encode_type == 'text':
             vector = dict()
