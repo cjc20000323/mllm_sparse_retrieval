@@ -26,6 +26,7 @@ from metrices import RecallMetrics
 
 import numpy as np
 import torch
+
 torch.set_printoptions(threshold=10000)  # 数字根据你的张量尺寸调整
 import torch.nn as nn
 import torch.utils.data as Data
@@ -411,12 +412,62 @@ def main():
                             img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
                                                    return_tensors="pt",
                                                    padding=True)
+                            img_inputs = img_inputs.to(device)
                             if dist.get_rank() == 0:
                                 print([prompt] * len(imgs_path))
+                                print()
                                 print(img_inputs['input_ids'])
                                 print(img_inputs['input_ids'].shape)
+                                decode_list = [processor.decode(input_id, encoding='utf-8', skip_special_tokens=True) for input in img_inputs['input_ids'] for input_id in input]
+                                print(decode_list)
+                                print(len(decode_list))
                                 print(img_inputs['attention_mask'])
                                 print(img_inputs['attention_mask'].shape)
+                                img_inputs_embeds = encoder.get_input_embeddings()(img_inputs['input_ids'])
+                                print(img_inputs_embeds.shape)
+                                dtype, device = img_inputs_embeds.dtype, img_inputs_embeds.device
+                                min_dtype = torch.finfo(dtype).min
+                                causal_mask = torch.full(
+                                    (img_inputs_embeds.shape[1], img_inputs['attention_mask'].shape[-1]),
+                                    fill_value=min_dtype, dtype=dtype, device=device
+                                )
+                                print(causal_mask)
+                                print(causal_mask.shape)
+                                causal_mask = torch.triu(causal_mask, diagonal=1)
+                                print(causal_mask)
+                                print(causal_mask.shape)
+                                cache_position = torch.arange(
+                                    0, 0 + img_inputs_embeds.shape[1],
+                                    device=img_inputs_embeds.device
+                                )
+                                print(cache_position)
+                                print(cache_position.shape)
+                                causal_mask *= torch.arange(img_inputs['attention_mask'].shape[-1],
+                                                            device=device) > cache_position.reshape(-1,
+                                                                                                    1)
+                                print(causal_mask)
+                                print(causal_mask.shape)
+                                causal_mask = causal_mask[None, None, :, :].expand(data_args.per_device_batch_size, 1, -1, -1)
+                                print(causal_mask)
+                                print(causal_mask.shape)
+                                causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+                                mask_length = img_inputs['attention_mask'].shape[-1]
+                                print(img_inputs['attention_mask'][:, None, None, :])
+                                print(img_inputs['attention_mask'][:, None, None, :].shape)
+                                padding_mask = causal_mask[:, :, :, :mask_length] + img_inputs['attention_mask'][:, None, None, :].to(
+                                    causal_mask.device
+                                )
+                                print(padding_mask)
+                                print(padding_mask.shape)
+                                padding_mask = padding_mask == 0
+                                print(padding_mask)
+                                print(padding_mask.shape)
+                                causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                                    padding_mask, min_dtype
+                                )
+                                print(causal_mask)
+                                print(causal_mask.shape)
+
                             imgs = img_inputs.to(device)
                             query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
                                                                                model_args,
@@ -862,151 +913,6 @@ def main():
             torch.cuda.empty_cache()
 
     del model
-
-    if search_args.passage_reps is not None and search_args.sparse_index is not None:
-        fusion_run.update(
-            fuse(
-                runs=[dense_run, sparse_run],
-                weights=[search_args.alpha, search_args.beta]
-            )
-        )
-
-    print(len(dense_run))
-    print(len(sparse_run))
-    print(len(fusion_run))
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args)
-
-    metric.sort_and_count()
-
-    metric.all_gather_object()
-    metric.print_recall()
-
-    '''
-    if not model_args.lora and not model_args.use_output_embedding_cluster:
-        sparse_correct_dict = {}
-        sparse_wrong_dict = {}
-        dense_correct_dict = {}
-        dense_wrong_dict = {}
-        hybrid_correct_dict = {}
-        hybrid_wrong_dict = {}
-
-        normalize_sparse_run = normalize(metric.sparse_run)
-        normalize_dense_run = normalize(metric.dense_run)
-        for k, v in tqdm(normalize_sparse_run.items()):
-            target = metric.dataset.get_target(k, metric.search_args.query_type)
-            if isinstance(target, list):
-                target = torch.tensor([int(i) for i in target]).cuda()
-            else:
-                target = int(target)
-            if len(v) == 0:
-                continue
-
-            search_results, search_scores = metric._sort_return_id_and_value(v)
-            if True in torch.isin(search_results[1], target):
-                sparse_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                          'r@1': True in torch.isin(search_results[1], target),
-                                          'r@5': True in torch.isin(search_results[5], target),
-                                          'r@10': True in torch.isin(search_results[10], target)}
-            else:
-                sparse_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                        'r@1': True in torch.isin(search_results[1], target),
-                                        'r@5': True in torch.isin(search_results[5], target),
-                                        'r@10': True in torch.isin(search_results[10], target)}
-
-        for k, v in tqdm(normalize_dense_run.items()):
-            target = metric.dataset.get_target(k, metric.search_args.query_type)
-            if isinstance(target, list):
-                target = torch.tensor([int(i) for i in target]).cuda()
-            else:
-                target = int(target)
-            if len(v) == 0:
-                continue
-
-            search_results, search_scores = metric._sort_return_id_and_value(v)
-            if True in torch.isin(search_results[1], target):
-                dense_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                         'r@1': True in torch.isin(search_results[1], target),
-                                         'r@5': True in torch.isin(search_results[5], target),
-                                         'r@10': True in torch.isin(search_results[10], target)}
-            else:
-                dense_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                       'r@1': True in torch.isin(search_results[1], target),
-                                       'r@5': True in torch.isin(search_results[5], target),
-                                       'r@10': True in torch.isin(search_results[10], target)}
-
-        for k, v in tqdm(metric.fusion_run.items()):
-            target = metric.dataset.get_target(k, metric.search_args.query_type)
-            if isinstance(target, list):
-                target = torch.tensor([int(i) for i in target]).cuda()
-            else:
-                target = int(target)
-            if len(v) == 0:
-                continue
-
-            search_results, search_scores = metric._sort_return_id_and_value(v)
-            if True in torch.isin(search_results[1], target):
-                hybrid_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                          'r@1': True in torch.isin(search_results[1], target),
-                                          'r@5': True in torch.isin(search_results[5], target),
-                                          'r@10': True in torch.isin(search_results[10], target)}
-            else:
-                hybrid_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                        'r@1': True in torch.isin(search_results[1], target),
-                                        'r@5': True in torch.isin(search_results[5], target),
-                                        'r@10': True in torch.isin(search_results[10], target)}
-
-        os.makedirs(f'./case_study', exist_ok=True)
-        if data_args.sparse_manual:
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_sparse_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_sparse_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_dense_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_dense_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_hybrid_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_hybrid_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_wrong_dict, f)
-        else:
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_wrong_dict, f)
-    '''
 
     # 训练结束后添加同步屏障
     dist.barrier()

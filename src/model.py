@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 
 import torch
+torch.set_printoptions(threshold=10000)  # 数字根据你的张量尺寸调整
 import torch.distributed as dist
 from torch import nn, Tensor
 
@@ -162,6 +163,12 @@ class MLLMRetrievalModel(nn.Module):
                     text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                             return_tensors="pt",
                                             padding=True).to('cuda')
+                    if dist.get_rank() == 0:
+                        print([prompt.replace('<sent>', text) for text in input])
+                        print(text_inputs['input_ids'])
+                        print(text_inputs['input_ids'].shape)
+                        print(text_inputs['attention_mask'])
+                        print(text_inputs['attention_mask'].shape)
                 elif 'disassembleeol' in model_args.eol_type:
                     text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                             return_tensors="pt",
