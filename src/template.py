@@ -5,6 +5,8 @@ llama3_template_content_element = '<|begin_of_text|>{}<|eot_id|><|start_header_i
 llava_v1_5_template = '<s>user\n\n{}</s><s>assistant\n\n \n'
 img_prompt = llama3_template.format('<image>\nSummary above image in one word: ')
 text_prompt = llama3_template.format('<sent>\nSummary above sentence in one word: ')
+img_prompt_for_concat = 'Summary above image in one word: '
+text_prompt_for_concat = 'Summary above sentence in one word: '
 img_prompt_no_one_word = llama3_template.format('<image>\nSummary above image: ')
 text_prompt_no_one_word = llama3_template.format('<sent>\nSummary above sentence: ')
 img_prompt_no_special_llava_v1_5 = llava_v1_5_template.format('<image>\nSummary above image in one word: ')
@@ -93,7 +95,7 @@ task_image_prompts_copy = [
     ]
 
 
-retreival_disassemble_text_prompts = [
+retrieval_disassemble_text_prompts = [
     '<sent>\nSummary the people or objects in above sentence in one word: ',
     '<sent>\nSummary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word: ',
     '<sent>\nSummary the environment, weather or places in above sentence in one word: ',
@@ -101,10 +103,24 @@ retreival_disassemble_text_prompts = [
     '<sent>\nSummary the appearance, such as color, meterial, decoration and so on, of main people or objects in above sentence in one word: '
 ]
 
+retrieval_disassemble_text_prompts_for_concat = [
+    'Summary the people or objects in above sentence in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word: ',
+    'Summary the environment, weather or places in above sentence in one word: ',
+    'Summary the actions or movements of main people or objects in above sentence in one word: ',
+    'Summary the appearance, such as color, meterial, decoration and so on, of main people or objects in above sentence in one word: '
+]
+
 retrieval_disassemble_text_prompts_3 = [
     '<sent>\nSummary the people or objects in above sentence in one word: ',
     '<sent>\nSummary the environment, weather or places in above sentence in one word: ',
     '<sent>\nSummary the actions or movements of main people or objects in above sentence in one word: ',
+]
+
+retrieval_disassemble_text_prompts_3_for_concat = [
+    'Summary the people or objects in above sentence in one word: ',
+    'Summary the environment, weather or places in above sentence in one word: ',
+    'Summary the actions or movements of main people or objects in above sentence in one word: ',
 ]
 
 retrieval_disassemble_image_prompts = [
@@ -115,13 +131,27 @@ retrieval_disassemble_image_prompts = [
     '<image>\nSummary the appearance, such as color, meterial, decoration and so on, of main people or objects in above image in one word: '
 ]
 
+retrieval_disassemble_image_prompts_for_concat = [
+    'Summary the people or objects in above image in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above image in one word: ',
+    'Summary the environment, weather or places in above image in one word: ',
+    'Summary the actions or movements of main people or objects in above image in one word: ',
+    'Summary the appearance, such as color, meterial, decoration and so on, of main people or objects in above image in one word: '
+]
+
 retrieval_disassemble_image_prompts_3 = [
     '<image>\nSummary the people or objects in above image in one word: ',
     '<image>\nSummary the environment, weather or places in above image in one word: ',
     '<image>\nSummary the actions or movements of main people or objects in above image in one word: ',
 ]
 
-llama3_retrieval_disassemble_text_prompts = [llama3_template.format(prompt) for prompt in retreival_disassemble_text_prompts]
+retrieval_disassemble_image_prompts_3_for_concat = [
+    'Summary the people or objects in above image in one word: ',
+    'Summary the environment, weather or places in above image in one word: ',
+    'Summary the actions or movements of main people or objects in above image in one word: ',
+]
+
+llama3_retrieval_disassemble_text_prompts = [llama3_template.format(prompt) for prompt in retrieval_disassemble_text_prompts]
 llama3_retrieval_disassemble_image_prompts = [llama3_template.format(prompt) for prompt in retrieval_disassemble_image_prompts]
 
 prompt_generation_text_prompt = llama3_template.format(

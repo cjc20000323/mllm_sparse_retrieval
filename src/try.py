@@ -36,7 +36,10 @@ import string
 from template import img_prompt, \
     img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, task_image_prompts, \
     llama3_template, task_text_prompts, llama3_retrieval_disassemble_image_prompts, \
-    llama3_retrieval_disassemble_text_prompts
+    llama3_retrieval_disassemble_text_prompts, llama3_template_image_prefix, llama3_template_content_element, \
+    retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, text_prompt_no_special_llava_v1_5, \
+    text_prompt_qwen_v2_5, text_prompt_intern_vl_v2_5, text_prompt, retrieval_disassemble_text_prompts_for_concat, \
+    llama3_template_text_prefix
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
     get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, \
     get_img_valid_disassemble_tokens_values
@@ -383,6 +386,109 @@ def main():
                 else:
                     prompts = llama3_retrieval_disassemble_image_prompts
                 if search_args.query_type == 'text':
+                    if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
+                        prompt = text_prompt_no_special_llava_v1_5
+                    elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                        prompt = text_prompt_qwen_v2_5
+                        prompt = processor.apply_chat_template(
+                            prompt, tokenize=False, add_generation_prompt=True
+                        )
+                    elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                        prompt = text_prompt_intern_vl_v2_5
+                        prompt = processor.apply_chat_template(
+                            prompt, tokenize=False, add_generation_prompt=True
+                        )
+                    else:
+                        prompt = text_prompt
+
+                    prompt_template = llama3_template_text_prefix
+                    # prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                    for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
+                        content_element = llama3_template_content_element.format(
+                            llama3_retrieval_disassemble_text_prompt)
+                        prompt_template += content_element
+
+                    text_inputs = processor(text=[prompt_template.replace('<sent>', text) for text in texts],
+                                            return_tensors="pt",
+                                            padding=True).to('cuda')
+                    if dist.get_rank() == 0:
+                        print(prompt_template)
+                        print(text_inputs['input_ids'])
+                        print(text_inputs['input_ids'].shape)
+                        begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
+                        end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
+                        begin_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(begin_of_text_id))
+                        end_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(end_of_text_id))
+                        begin_row, begin_col = begin_of_text_indices[0], begin_of_text_indices[1]
+                        begin_coordinates = list(zip(begin_row.tolist(), begin_col.tolist()))
+                        end_row, end_col = end_of_text_indices[0], end_of_text_indices[1]
+                        end_coordinates = list(zip(end_row.tolist(), end_col.tolist()))
+                        new_begin_coordinates = []
+                        for i in range(len(begin_coordinates)):
+                            if i % (len(retrieval_disassemble_image_prompts_for_concat) + 1) != 0:
+                                new_begin_coordinates.append(begin_coordinates[i])
+                        begin_coordinates = new_begin_coordinates
+                        begin_col_list = []
+                        for i in range(len(begin_of_text_indices[1])):
+                            if i % (len(retrieval_disassemble_image_prompts_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        begin_col_list = sorted(list(set(begin_col_list)))
+                        end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
+                        print(begin_coordinates)
+                        print(end_coordinates)
+                        print(begin_of_text_indices)
+                        print(end_of_text_indices)
+                        print(begin_col_list)
+                        print(end_col_list)
+                        print(text_inputs['attention_mask'])
+                        print(text_inputs['attention_mask'].shape)
+                        text_inputs_embeds = encoder.get_input_embeddings()(text_inputs['input_ids'])
+                        print(text_inputs_embeds.shape)
+                        dtype, device = text_inputs_embeds.dtype, text_inputs_embeds.device
+                        min_dtype = torch.finfo(dtype).min
+                        causal_mask = torch.full(
+                            (text_inputs_embeds.shape[1], text_inputs['attention_mask'].shape[-1]),
+                            fill_value=min_dtype, dtype=dtype, device=device
+                        )
+                        print(causal_mask)
+                        print(causal_mask.shape)
+                        causal_mask = torch.triu(causal_mask, diagonal=1)
+                        print(causal_mask)
+                        print(causal_mask.shape)
+                        cache_position = torch.arange(
+                            0, 0 + text_inputs_embeds.shape[1],
+                            device=text_inputs_embeds.device
+                        )
+                        print(cache_position)
+                        print(cache_position.shape)
+                        causal_mask *= torch.arange(text_inputs['attention_mask'].shape[-1],
+                                                    device=device) > cache_position.reshape(-1,
+                                                                                            1)
+                        print(causal_mask)
+                        print(causal_mask.shape)
+                        causal_mask = causal_mask[None, None, :, :].expand(data_args.per_device_batch_size, 1, -1, -1)
+                        print(causal_mask)
+                        print(causal_mask.shape)
+                        causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+                        mask_length = text_inputs['attention_mask'].shape[-1]
+                        print(text_inputs['attention_mask'][:, None, None, :])
+                        print(text_inputs['attention_mask'][:, None, None, :].shape)
+                        padding_mask = causal_mask[:, :, :, :mask_length] + text_inputs['attention_mask'][:, None, None,
+                                                                            :].to(
+                            causal_mask.device
+                        )
+                        print(padding_mask)
+                        print(padding_mask.shape)
+                        padding_mask = padding_mask == 0
+                        print(padding_mask)
+                        print(padding_mask.shape)
+                        causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                            padding_mask, min_dtype
+                        )
+                        print(causal_mask)
+                        print(causal_mask.shape)
+                        edit_causal_mask = causal_mask.clone()
+
                     query_logits, query_dense_reps = model.encode_data(texts, 'text', processor, device, model_args,
                                                                        data_args)
                     if model_args.eol_type == 'metaeol':
@@ -409,18 +515,45 @@ def main():
                                     img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
                                 )
                             raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                            img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                            prompt_template = llama3_template_image_prefix
+                            prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
+                                content_element = llama3_template_content_element.format(
+                                    llama3_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                            img_inputs = processor(images=raw_images, text=[prompt_template] * len(imgs_path),
                                                    return_tensors="pt",
                                                    padding=True)
                             img_inputs = img_inputs.to(device)
                             if dist.get_rank() == 0:
-                                print([prompt] * len(imgs_path))
-                                print()
+                                print(prompt_template)
                                 print(img_inputs['input_ids'])
                                 print(img_inputs['input_ids'].shape)
-                                decode_list = [processor.decode(input_id, encoding='utf-8', skip_special_tokens=True) for input in img_inputs['input_ids'] for input_id in input]
-                                print(decode_list)
-                                print(len(decode_list))
+                                begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
+                                end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
+                                begin_of_text_indices = torch.where(img_inputs['input_ids'] == torch.tensor(begin_of_text_id))
+                                end_of_text_indices = torch.where(img_inputs['input_ids'] == torch.tensor(end_of_text_id))
+                                begin_row, begin_col = begin_of_text_indices[0], begin_of_text_indices[1]
+                                begin_coordinates = list(zip(begin_row.tolist(), begin_col.tolist()))
+                                end_row, end_col = end_of_text_indices[0], end_of_text_indices[1]
+                                end_coordinates = list(zip(end_row.tolist(), end_col.tolist()))
+                                new_begin_coordinates = []
+                                for i in range(len(begin_coordinates)):
+                                    if i % (len(retrieval_disassemble_image_prompts_for_concat) + 2) != 0:
+                                        new_begin_coordinates.append(begin_coordinates[i])
+                                begin_coordinates = new_begin_coordinates
+                                begin_col_list = []
+                                for i in range(len(begin_of_text_indices[1])):
+                                    if i % (len(retrieval_disassemble_image_prompts_for_concat) + 2) != 0:
+                                        begin_col_list.append(begin_of_text_indices[1][i].item())
+                                begin_col_list = sorted(list(set(begin_col_list)))
+                                end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
+                                print(begin_coordinates)
+                                print(end_coordinates)
+                                print(begin_of_text_indices)
+                                print(end_of_text_indices)
+                                print(begin_col_list)
+                                print(end_col_list)
                                 print(img_inputs['attention_mask'])
                                 print(img_inputs['attention_mask'].shape)
                                 img_inputs_embeds = encoder.get_input_embeddings()(img_inputs['input_ids'])
@@ -434,6 +567,17 @@ def main():
                                 print(causal_mask)
                                 print(causal_mask.shape)
                                 causal_mask = torch.triu(causal_mask, diagonal=1)
+                                edit_causal_mask = causal_mask.clone()
+                                start_indice = 0
+                                for i in range(len(list(zip(begin_col_list, end_col_list)))):
+                                    if i == 0:
+                                        start_indice = begin_col_list[i]
+                                    else:
+                                        current_begin_col_indice = begin_col_list[i]
+                                        current_end_col_indice = end_col_list[i]
+                                        edit_causal_mask[current_begin_col_indice:current_end_col_indice+1, start_indice:current_begin_col_indice] = 1
+                                    print(begin_col_list[i], end_col_list[i])
+                                edit_causal_mask = edit_causal_mask[None, None, :, :].expand(data_args.per_device_batch_size, 1, -1, -1)
                                 print(causal_mask)
                                 print(causal_mask.shape)
                                 cache_position = torch.arange(
@@ -467,6 +611,20 @@ def main():
                                 )
                                 print(causal_mask)
                                 print(causal_mask.shape)
+                                edit_causal_mask = edit_causal_mask == 1
+                                causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                                    edit_causal_mask, min_dtype
+                                )
+                                print(causal_mask)
+                                print(causal_mask.shape)
+                                print(causal_mask[:, :, 1482:1518, 1482:1518])
+                                print(img_inputs['input_ids'][:, 1518])
+                                print(processor.decode(img_inputs['input_ids'][0][1498:1519]))
+                                print(processor.decode(img_inputs['input_ids'][0][1518]))
+                                print(img_inputs['input_ids'][:, end_of_text_indices[1]])
+                                img_inputs['attention_mask'] = causal_mask
+                                print(img_inputs)
+
 
                             imgs = img_inputs.to(device)
                             query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,

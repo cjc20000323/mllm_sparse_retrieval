@@ -1,22 +1,19 @@
-from dataclasses import dataclass
-from typing import Dict, Optional
-
 import torch
+
 torch.set_printoptions(threshold=10000)  # 数字根据你的张量尺寸调整
 import torch.distributed as dist
-from torch import nn, Tensor
+from torch import nn
 
-from transformers import PreTrainedModel, AutoModel, AutoModelForCausalLM, LlamaForCausalLM
-from peft import LoraConfig, TaskType, get_peft_model, PeftModel
-from transformers import AutoProcessor
+from transformers import AutoModelForCausalLM
+from peft import LoraConfig, PeftModel
 
-from transformers.file_utils import ModelOutput
-from template import text_prompt, img_prompt, img_prompt_no_one_word, text_prompt_no_one_word, \
-    text_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, text_prompt_intern_vl_v2_5, img_prompt_intern_vl_v2_5, \
-    task_text_prompts, llama3_template, task_text_prompts_copy, llama3_retrieval_disassemble_text_prompts
+from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, text_prompt_intern_vl_v2_5, \
+    img_prompt_intern_vl_v2_5, \
+    llama3_template, task_text_prompts_copy, llama3_retrieval_disassemble_text_prompts, \
+    llama3_template_text_prefix, llama3_template_content_element, text_prompt_for_concat, \
+    retrieval_disassemble_text_prompts_3_for_concat, retrieval_disassemble_text_prompts_for_concat, \
+    retrieval_disassemble_image_prompts_for_concat
 import torch.nn.functional as F
-
-import logging
 
 
 class MLLMRetrievalModel(nn.Module):
@@ -338,7 +335,6 @@ class MLLMRetrievalModel(nn.Module):
         else:
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
 
-
     def encode_data_for_logit_information_analysis(self, input, input_type, processor, device, model_args, data_args):
         if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
             prompt = text_prompt_no_special_llava_v1_5
@@ -609,7 +605,8 @@ class MLLMRetrievalModel(nn.Module):
                     return logits
                 else:
                     if data_args.reps_loc == 'after_pad':
-                        logits, embs = disassemble_output.logits[:, -1, :], disassemble_output.hidden_states[-1][:, -1, :]
+                        logits, embs = disassemble_output.logits[:, -1, :], disassemble_output.hidden_states[-1][:, -1,
+                                                                            :]
                     else:
                         # logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
                         logits = disassemble_output.logits
@@ -617,8 +614,9 @@ class MLLMRetrievalModel(nn.Module):
                         # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
                         sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
                         batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']), device=logits.device)
-                        logits, embs = disassemble_output.logits[batch_ids, sequence_lengths], disassemble_output.hidden_states[-1][
-                            batch_ids, sequence_lengths]
+                        logits, embs = disassemble_output.logits[batch_ids, sequence_lengths], \
+                                       disassemble_output.hidden_states[-1][
+                                           batch_ids, sequence_lengths]
                     # 这里对应原文的log+relu操作
                     logits = torch.log(1 + torch.relu(logits))
                     return logits, embs
@@ -646,7 +644,8 @@ class MLLMRetrievalModel(nn.Module):
                         # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
                         # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
                         sequence_lengths = disassemble_text_inputs['attention_mask'].sum(dim=-1) - 1
-                        batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']), device=disassemble_logits.device)
+                        batch_ids = torch.arange(len(disassemble_text_inputs['input_ids']),
+                                                 device=disassemble_logits.device)
                         disassemble_logits = disassemble_output.logits[batch_ids, sequence_lengths]
                     # 这里对应原文的log+relu操作
                     disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
@@ -762,6 +761,178 @@ class MLLMRetrievalModel(nn.Module):
                 # 这里对应原文的log+relu操作
                 logits = torch.log(1 + torch.relu(logits))
                 return logits, embs
+        else:
+            return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
+
+    def encode_data_concat(self, input, input_type, processor, device, model_args, data_args):
+        prompt_template = llama3_template_text_prefix
+        if data_args.prompt_type == 'prompt_5':
+            if 'concrete' in model_args.eol_type:
+                prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_for_concat:
+                content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_image_prompt)
+                prompt_template += content_element
+        elif data_args.prompt_type == 'prompt_3':
+            if 'concrete' in model_args.eol_type:
+                prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_3_for_concat:
+                content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_image_prompt)
+                prompt_template += content_element
+        else:
+            pass
+        if input_type == 'text':
+            text_inputs = processor(text=[prompt_template.replace('<sent>', text) for text in input])
+            begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
+            end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
+            begin_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(begin_of_text_id))
+            end_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(end_of_text_id))
+            begin_col_list = []
+            for i in range(len(begin_of_text_indices[1])):
+                if 'concrete' in model_args.eol_type:
+                    if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
+                        begin_col_list.append(begin_of_text_indices[1][i].item())
+                else:
+                    if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                        begin_col_list.append(begin_of_text_indices[1][i].item())
+            begin_col_list = sorted(list(set(begin_col_list)))
+            end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
+
+            text_inputs_embeds = self.encoder.get_input_embeddings()(text_inputs['input_ids'])
+            dtype, device = text_inputs_embeds.dtype, text_inputs_embeds.device
+            min_dtype = torch.finfo(dtype).min
+            causal_mask = torch.full(
+                (text_inputs_embeds.shape[1], text_inputs['attention_mask'].shape[-1]),
+                fill_value=min_dtype, dtype=dtype, device=device
+            )
+            causal_mask = torch.triu(causal_mask, diagonal=1)
+            edit_causal_mask = causal_mask.clone()
+            start_indice = 0
+            for i in range(len(list(zip(begin_col_list, end_col_list)))):
+                if i == 0:
+                    start_indice = begin_col_list[i]
+                else:
+                    current_begin_col_indice = begin_col_list[i]
+                    current_end_col_indice = end_col_list[i]
+                    edit_causal_mask[current_begin_col_indice:current_end_col_indice + 1,
+                    start_indice:current_begin_col_indice] = 1
+            edit_causal_mask = edit_causal_mask[None, None, :, :].expand(data_args.per_device_batch_size, 1, -1, -1)
+            cache_position = torch.arange(
+                0, 0 + text_inputs_embeds.shape[1],
+                device=text_inputs_embeds.device
+            )
+            causal_mask *= torch.arange(text_inputs['attention_mask'].shape[-1],
+                                        device=device) > cache_position.reshape(-1, 1)
+            causal_mask = causal_mask[None, None, :, :].expand(data_args.per_device_batch_size, 1, -1, -1)
+            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+            mask_length = text_inputs['attention_mask'].shape[-1]
+            padding_mask = causal_mask[:, :, :, :mask_length] + text_inputs['attention_mask'][:, None, None,
+                                                                :].to(causal_mask.device)
+            padding_mask = padding_mask == 0
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                padding_mask, min_dtype
+            )
+            edit_causal_mask = edit_causal_mask == 1
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                edit_causal_mask, min_dtype
+            )
+
+            text_inputs['attention_mask'] = causal_mask
+            output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
+            logits, embs = output.logits[:, end_of_text_indices[1], :], output.hidden_states[-1][:,
+                                                                        end_of_text_indices[1], :]
+
+            logits = torch.log(1 + torch.relu(logits))
+            return logits, embs
+        elif input_type == 'image':
+            length = len(input.pixel_values)
+            # print('length is ', length)
+            for key in input.keys():
+                input[key] = input[key].squeeze()  # 数据集读取的时候，是直接多了一个维度计数，因此会有一个维度是1，把这个维度去掉
+                # print(input[key].shape)
+            if length == 1:
+                for key in input.keys():
+                    input[key] = input[key].unsqueeze(0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
+                    # print(input[key].shape)
+
+            begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
+            end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
+            begin_of_text_indices = torch.where(input['input_ids'] == torch.tensor(begin_of_text_id))
+            end_of_text_indices = torch.where(input['input_ids'] == torch.tensor(end_of_text_id))
+            begin_row, begin_col = begin_of_text_indices[0], begin_of_text_indices[1]
+            begin_coordinates = list(zip(begin_row.tolist(), begin_col.tolist()))
+            end_row, end_col = end_of_text_indices[0], end_of_text_indices[1]
+            end_coordinates = list(zip(end_row.tolist(), end_col.tolist()))
+
+            begin_col_list = []
+            for i in range(len(begin_of_text_indices[1])):
+                if 'concrete' in model_args.eol_type:
+                    if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
+                        begin_col_list.append(begin_of_text_indices[1][i].item())
+                else:
+                    if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                        begin_col_list.append(begin_of_text_indices[1][i].item())
+            begin_col_list = sorted(list(set(begin_col_list)))
+            end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
+            img_inputs_embeds = self.encoder.get_input_embeddings()(input['input_ids'])
+            dtype, device = img_inputs_embeds.dtype, img_inputs_embeds.device
+            min_dtype = torch.finfo(dtype).min
+            causal_mask = torch.full(
+                (img_inputs_embeds.shape[1], input['attention_mask'].shape[-1]),
+                fill_value=min_dtype, dtype=dtype, device=device
+            )
+            edit_causal_mask = causal_mask.clone()
+            start_indice = 0
+            for i in range(len(list(zip(begin_col_list, end_col_list)))):
+                if i == 0:
+                    start_indice = begin_col_list[i]
+                else:
+                    current_begin_col_indice = begin_col_list[i]
+                    current_end_col_indice = end_col_list[i]
+                    edit_causal_mask[current_begin_col_indice:current_end_col_indice + 1,
+                    start_indice:current_begin_col_indice] = 1
+
+            edit_causal_mask = edit_causal_mask[None, None, :, :].expand(data_args.per_device_batch_size, 1, -1, -1)
+            cache_position = torch.arange(
+                0, 0 + img_inputs_embeds.shape[1],
+                device=img_inputs_embeds.device
+            )
+            causal_mask *= torch.arange(input['attention_mask'].shape[-1],
+                                        device=device) > cache_position.reshape(-1, 1)
+            causal_mask = causal_mask[None, None, :, :].expand(data_args.per_device_batch_size, 1, -1, -1)
+            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+            mask_length = input['attention_mask'].shape[-1]
+            padding_mask = causal_mask[:, :, :, :mask_length] + input['attention_mask'][:, None, None, :].to(
+                causal_mask.device
+            )
+            padding_mask = padding_mask == 0
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                padding_mask, min_dtype
+            )
+            edit_causal_mask = edit_causal_mask == 1
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                edit_causal_mask, min_dtype
+            )
+
+            input['attention_mask'] = causal_mask
+
+            output = self.encoder(**input, output_hidden_states=True, return_dict=True, use_cache=True)
+
+            if data_args.reps_loc == 'after_pad':
+                logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+            else:
+                logits = output.logits
+                # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                sequence_lengths = input['attention_mask'].sum(dim=-1) - 1
+                batch_ids = torch.arange(len(input['input_ids']), device=logits.device)
+                logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
+                    batch_ids, sequence_lengths]
+            # 这里对应原文的log+relu操作
+            logits, embs = output.logits[:, end_of_text_indices[1], :], output.hidden_states[-1][:,
+                                                                        end_of_text_indices[1], :]
+
+            logits = torch.log(1 + torch.relu(logits))
+            return logits, embs
         else:
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
 
