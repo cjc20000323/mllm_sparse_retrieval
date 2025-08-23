@@ -767,13 +767,13 @@ class MLLMRetrievalModel(nn.Module):
     def encode_data_concat(self, input, input_type, processor, device, model_args, data_args):
         prompt_template = llama3_template_text_prefix
         if data_args.prompt_type == 'prompt_5':
-            if 'concrete' in model_args.eol_type:
+            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                 prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
             for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_for_concat:
                 content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_image_prompt)
                 prompt_template += content_element
         elif data_args.prompt_type == 'prompt_3':
-            if 'concrete' in model_args.eol_type:
+            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                 prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
             for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_3_for_concat:
                 content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_image_prompt)
@@ -788,7 +788,7 @@ class MLLMRetrievalModel(nn.Module):
             end_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(end_of_text_id))
             begin_col_list = []
             for i in range(len(begin_of_text_indices[1])):
-                if 'concrete' in model_args.eol_type:
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                     if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
                         begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
@@ -838,10 +838,26 @@ class MLLMRetrievalModel(nn.Module):
 
             text_inputs['attention_mask'] = causal_mask
             output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
-            logits, embs = output.logits[:, end_of_text_indices[1], :], output.hidden_states[-1][:,
-                                                                        end_of_text_indices[1], :]
-
-            logits = torch.log(1 + torch.relu(logits))
+            if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                logits = output.logits[:, end_of_text_indices[1][0], :]
+                disassemble_logits = output.logits[:, end_of_text_indices[1][1:], :]
+                logits = torch.cat([logits, disassemble_logits], dim=0)
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_of_text_indices[1][1:], :]
+            elif model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
+                logits = output.logits[:, end_of_text_indices[1], :]
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_of_text_indices[1], :]
+            elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
+                logits = output.logits[:, end_of_text_indices[1][0], :]
+                disassemble_logits = output.logits[:, end_of_text_indices[1][1:], :]
+                logits = torch.cat([logits, disassemble_logits], dim=0)
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_of_text_indices[1][0], :]
+            else:
+                logits = output.logits[:, end_of_text_indices[1][1:], :]
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_of_text_indices[1][0], :]
             return logits, embs
         elif input_type == 'image':
             length = len(input.pixel_values)
@@ -858,14 +874,9 @@ class MLLMRetrievalModel(nn.Module):
             end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
             begin_of_text_indices = torch.where(input['input_ids'] == torch.tensor(begin_of_text_id))
             end_of_text_indices = torch.where(input['input_ids'] == torch.tensor(end_of_text_id))
-            begin_row, begin_col = begin_of_text_indices[0], begin_of_text_indices[1]
-            begin_coordinates = list(zip(begin_row.tolist(), begin_col.tolist()))
-            end_row, end_col = end_of_text_indices[0], end_of_text_indices[1]
-            end_coordinates = list(zip(end_row.tolist(), end_col.tolist()))
-
             begin_col_list = []
             for i in range(len(begin_of_text_indices[1])):
-                if 'concrete' in model_args.eol_type:
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                     if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
                         begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
@@ -916,22 +927,27 @@ class MLLMRetrievalModel(nn.Module):
             input['attention_mask'] = causal_mask
 
             output = self.encoder(**input, output_hidden_states=True, return_dict=True, use_cache=True)
-
-            if data_args.reps_loc == 'after_pad':
-                logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
-            else:
-                logits = output.logits
-                # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
-                # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
-                sequence_lengths = input['attention_mask'].sum(dim=-1) - 1
-                batch_ids = torch.arange(len(input['input_ids']), device=logits.device)
-                logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
-                    batch_ids, sequence_lengths]
             # 这里对应原文的log+relu操作
-            logits, embs = output.logits[:, end_of_text_indices[1], :], output.hidden_states[-1][:,
-                                                                        end_of_text_indices[1], :]
-
-            logits = torch.log(1 + torch.relu(logits))
+            if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                logits = output.logits[:, end_of_text_indices[1][0], :]
+                disassemble_logits = output.logits[:, end_of_text_indices[1][1:], :]
+                logits = torch.cat([logits, disassemble_logits], dim=0)
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_of_text_indices[1][1:], :]
+            elif model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
+                logits = output.logits[:, end_of_text_indices[1], :]
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_of_text_indices[1], :]
+            elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
+                logits = output.logits[:, end_of_text_indices[1][0], :]
+                disassemble_logits = output.logits[:, end_of_text_indices[1][1:], :]
+                logits = torch.cat([logits, disassemble_logits], dim=0)
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_of_text_indices[1][0], :]
+            else:
+                logits = output.logits[:, end_of_text_indices[1][1:], :]
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_of_text_indices[1][0], :]
             return logits, embs
         else:
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
