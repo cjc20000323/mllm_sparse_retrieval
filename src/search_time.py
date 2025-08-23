@@ -590,22 +590,19 @@ def main():
                             disassemble_logits = query_logits
 
                     else:
-                        if 'disassembleeol' in model_args.eol_type:
-                            # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
-                            # all_disassembleeol表示稀疏特征和密集特征都用各个子方面（角度）的结果
-                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                            img_inputs = processor(images=raw_images, text=[prompt_template] * len(imgs_path),
-                                                   return_tensors="pt",
-                                                   padding=True)
-                            imgs = img_inputs.to(device)
-                            query_logits, query_dense_reps = model.encode_data_concat(imgs, 'image', processor, device,
-                                                                                      model_args,
-                                                                                      data_args)
-                            if 'disassembleeol_concrete' in model_args.eol_type:
-                                disassemble_logits = query_logits[data_args.per_device_batch_size:]
-                                query_logits = query_logits[:data_args.per_device_batch_size]
-                            elif 'disassembleeol' in model_args.eol_type:
-                                disassemble_logits = query_logits
+                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                        img_inputs = processor(images=raw_images, text=[prompt_template] * len(imgs_path),
+                                               return_tensors="pt",
+                                               padding=True)
+                        imgs = img_inputs.to(device)
+                        query_logits, query_dense_reps = model.encode_data_concat(imgs, 'image', processor, device,
+                                                                                  model_args,
+                                                                                  data_args)
+                        if 'disassembleeol_concrete' in model_args.eol_type:
+                            disassemble_logits = query_logits[data_args.per_device_batch_size:]
+                            query_logits = query_logits[:data_args.per_device_batch_size]
+                        elif 'disassembleeol' in model_args.eol_type:
+                            disassemble_logits = query_logits
 
                 gpu_end.record()
                 torch.cuda.synchronize()  # 等待GPU完成
@@ -782,6 +779,12 @@ def main():
                                                     vector[token] = int(v)
                                         else:
                                             vector[token] = int(v)
+                                    if data_args.sparse_value_mean:
+                                        for token in vector.keys():
+                                            if data_args.prompt_type == 'prompt_5':
+                                                vector[token] /= 5
+                                            else:
+                                                vector[token] /= 3
                                     query = ""
                                     for token, v in vector.items():
                                         query += (' ' + token) * v
@@ -827,6 +830,12 @@ def main():
                                                     vector[token] = int(v)
                                         else:
                                             vector[token] = int(v)
+                                    if data_args.sparse_value_mean:
+                                        for token in vector.keys():
+                                            if data_args.prompt_type == 'prompt_5':
+                                                vector[token] /= 5
+                                            else:
+                                                vector[token] /= 3
                                     query = ""
                                     for token, v in vector.items():
                                         query += (' ' + token) * v
