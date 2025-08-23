@@ -223,8 +223,9 @@ def get_img_valid_disassemble_tokens_values(tokenizer, disassemble_logits, vocab
     return tokens, values
 
 
-def get_img_disassemble_tokens_values_for_information_analysis(tokenizer, disassemble_logits, vocab_dict, data_args, filtered_ids,
-                                            logits=None, model_args=None):
+def get_img_disassemble_tokens_values_for_information_analysis(tokenizer, disassemble_logits, vocab_dict, data_args,
+                                                               filtered_ids,
+                                                               logits=None, model_args=None):
     word_set = set()
     word_values = dict()
     if data_args.sparse_manual:
@@ -747,17 +748,17 @@ def main():
         else:
             prompt = img_prompt
 
-        if model_args.calculate_type == 'separate':
-            if 'disassembleeol' in model_args.eol_type:
-                prompts = llama3_retrieval_disassemble_image_prompts
-            else:
-                prompts = llama3_retrieval_disassemble_image_prompts
-            for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
-                                                                         total=len(test_dataloader)):
-                with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-                    if len(texts) != data_args.per_device_batch_size:
-                        print(len(texts))
-                        print(dist.get_rank())
+        if 'disassembleeol' in model_args.eol_type:
+            prompts = llama3_retrieval_disassemble_image_prompts
+        else:
+            prompts = llama3_retrieval_disassemble_image_prompts
+        for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
+                                                                     total=len(test_dataloader)):
+            with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+                if len(texts) != data_args.per_device_batch_size:
+                    print(len(texts))
+                    print(dist.get_rank())
+                if model_args.calculate_type == 'separate':
                     if training_args.encode_type == 'text':
                         logits, reps = model.encode_data(texts, 'text', processor, device, model_args, data_args)
                         if model_args.eol_type == 'metaeol':
@@ -867,230 +868,25 @@ def main():
                                 logits = logits.reshape(-1, len(task_image_prompts_copy), logits.shape[1]).mean(1)
                                 reps = reps.reshape(-1, len(task_image_prompts_copy), reps.shape[1]).mean(1)
 
-                    # print(logits.shape)
-                    reps = F.normalize(reps, dim=-1)
-                    if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                        reps = reps.reshape(-1, len(prompts), reps.shape[1]).mean(1)
-                    if training_args.encode_type == 'text':
-                        lookup_indices.extend(text_ids)
+                else:
+                    if data_args.prompt_type == 'prompt_5':
+                        prompt_template = llama3_template_image_prefix
+                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                            prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                        for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
+                            content_element = llama3_template_content_element.format(
+                                llama3_retrieval_disassemble_image_prompt)
+                            prompt_template += content_element
+                    elif data_args.prompt_type == 'prompt_3':
+                        prompt_template = llama3_template_image_prefix
+                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                            prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                        for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
+                            content_element = llama3_template_content_element.format(
+                                llama3_retrieval_disassemble_image_prompt)
+                            prompt_template += content_element
                     else:
-                        lookup_indices.extend(img_ids)
-
-                    encoded.append(reps.cpu().detach().float().numpy())
-
-                    ids = text_ids if training_args.encode_type == 'text' else img_ids
-                    if 'disassembleeol' in model_args.eol_type:
-                        if training_args.encode_type == 'text':
-                            for text_indice in range(len(ids)):
-                                id = ids[text_indice]
-                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                                    logit = logits[text_indice]
-                                text = texts[text_indice]
-                                disassemble_logit = disassemble_logits[
-                                                    text_indice * len(llama3_retrieval_disassemble_text_prompts):(
-                                                                                                                         text_indice + 1) * len(
-                                                        llama3_retrieval_disassemble_text_prompts)]
-                                vector = dict()
-                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                                    tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
-                                                                                              disassemble_logit,
-                                                                                              vocab_dict,
-                                                                                              data_args,
-                                                                                              filtered_ids, logit,
-                                                                                              model_args)
-                                else:
-                                    tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
-                                                                                              disassemble_logit,
-                                                                                              vocab_dict,
-                                                                                              data_args,
-                                                                                              filtered_ids, None,
-                                                                                              model_args)
-
-                                for token, v in zip(tokens, values):
-                                    if token in vector.keys():
-                                        if data_args.sparse_value_type == 'replace':
-                                            vector[token] = int(v)
-                                        elif data_args.sparse_value_type == 'sum':
-                                            vector[token] += int(v)
-                                        else:
-                                            if int(v) > vector[token]:
-                                                vector[token] = int(v)
-                                    else:
-                                        vector[token] = int(v)
-                                jsonl_data.append(
-                                    dict(
-                                        id=id,
-                                        content="",
-                                        vector=vector,
-                                    )
-                                )
-                        else:
-                            for img_indice in range(len(ids)):
-                                id = ids[img_indice]
-                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                                    logit = logits[img_indice]
-                                text = texts[img_indice]
-                                disassemble_logit = disassemble_logits[
-                                                    img_indice * len(llama3_retrieval_disassemble_image_prompts):(
-                                                                                                                         img_indice + 1) * len(
-                                                        llama3_retrieval_disassemble_image_prompts)]
-                                vector = dict()
-                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                                    tokens, values = get_img_valid_disassemble_tokens_values(processor,
-                                                                                             disassemble_logit,
-                                                                                             vocab_dict,
-                                                                                             data_args,
-                                                                                             filtered_ids, logit,
-                                                                                             model_args)
-                                else:
-                                    tokens, values = get_img_valid_disassemble_tokens_values(processor,
-                                                                                             disassemble_logit,
-                                                                                             vocab_dict,
-                                                                                             data_args,
-                                                                                             filtered_ids, None,
-                                                                                             model_args)
-                                for token, v in zip(tokens, values):
-                                    if token in vector.keys():
-                                        if data_args.sparse_value_type == 'replace':
-                                            vector[token] = int(v)
-                                        elif data_args.sparse_value_type == 'sum':
-                                            vector[token] += int(v)
-                                        else:
-                                            if int(v) > vector[token]:
-                                                vector[token] = int(v)
-                                    else:
-                                        vector[token] = int(v)
-                                jsonl_data.append(
-                                    dict(
-                                        id=id,
-                                        content="",
-                                        vector=vector,
-                                    )
-                                )
-                    else:
-                        if training_args.encode_type == 'text':
-                            for id, logit, text in zip(ids, logits, texts):
-                                vector = dict()
-                                if model_args.use_output_embedding_cluster:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                        tokens, values = get_text_valid_tokens_values_with_cluster(text, processor,
-                                                                                                   logit,
-                                                                                                   centroids_dict,
-                                                                                                   origin_to_centroids_dict,
-                                                                                                   data_args,
-                                                                                                   filtered_ids)
-                                    else:
-                                        tokens, values = get_text_valid_tokens_values_with_cluster(text,
-                                                                                                   processor.tokenizer,
-                                                                                                   logit,
-                                                                                                   centroids_dict,
-                                                                                                   origin_to_centroids_dict,
-                                                                                                   data_args,
-                                                                                                   filtered_ids)
-                                else:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                        tokens, values = get_text_valid_tokens_values(text, processor, logit,
-                                                                                      vocab_dict,
-                                                                                      data_args,
-                                                                                      filtered_ids)
-                                    else:
-                                        tokens, values = get_text_valid_tokens_values(text, processor.tokenizer,
-                                                                                      logit,
-                                                                                      vocab_dict,
-                                                                                      data_args,
-                                                                                      filtered_ids)
-                                for token, v in zip(tokens, values):
-                                    if token in vector.keys():
-                                        if data_args.sparse_value_type == 'replace':
-                                            vector[token] = int(v)
-                                        elif data_args.sparse_value_type == 'sum':
-                                            vector[token] += int(v)
-                                        else:
-                                            if int(v) > vector[token]:
-                                                vector[token] = int(v)
-                                    else:
-                                        vector[token] = int(v)
-                                jsonl_data.append(
-                                    dict(
-                                        id=id,
-                                        content="",
-                                        vector=vector,
-                                    )
-                                )
-                        else:
-                            for id, logit, text in zip(ids, logits, texts):
-                                vector = dict()
-                                if model_args.use_output_embedding_cluster:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                        tokens, values = get_img_valid_tokens_values_with_cluster(processor, logit,
-                                                                                                  centroids_dict,
-                                                                                                  origin_to_centroids_dict,
-                                                                                                  data_args,
-                                                                                                  filtered_ids)
-                                    else:
-                                        tokens, values = get_img_valid_tokens_values_with_cluster(
-                                            processor.tokenizer,
-                                            logit,
-                                            centroids_dict,
-                                            origin_to_centroids_dict,
-                                            data_args,
-                                            filtered_ids)
-                                else:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                        tokens, values = get_img_valid_tokens_values(processor, logit, vocab_dict,
-                                                                                     data_args, filtered_ids)
-                                    else:
-                                        if model_args.eol_type == 'prompteol_same_length':
-                                            tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
-                                                                                         vocab_dict,
-                                                                                         data_args, filtered_ids,
-                                                                                         text=text)
-                                        else:
-                                            tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
-                                                                                         vocab_dict,
-                                                                                         data_args, filtered_ids)
-                                for token, v in zip(tokens, values):
-                                    if token in vector.keys():
-                                        if data_args.sparse_value_type == 'replace':
-                                            vector[token] = int(v)
-                                        elif data_args.sparse_value_type == 'sum':
-                                            vector[token] += int(v)
-                                        else:
-                                            if int(v) > vector[token]:
-                                                vector[token] = int(v)
-                                    else:
-                                        vector[token] = int(v)
-                                jsonl_data.append(
-                                    dict(
-                                        id=id,
-                                        content="",
-                                        vector=vector,
-                                    )
-                                )
-
-        else:
-            if data_args.prompt_type == 'prompt_5':
-                prompt_template = llama3_template_image_prefix
-                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
-                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_image_prompt)
-                    prompt_template += content_element
-            elif data_args.prompt_type == 'prompt_3':
-                prompt_template = llama3_template_image_prefix
-                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
-                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_image_prompt)
-                    prompt_template += content_element
-            else:
-                pass
-            for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
-                                                                         total=len(test_dataloader)):
-                with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-                    if len(texts) != data_args.per_device_batch_size:
-                        print(len(texts))
-                        print(dist.get_rank())
+                        pass
                     if training_args.encode_type == 'text':
                         logits, reps = model.encode_data_concat(texts, 'text', processor, device, model_args, data_args)
                         if 'disassembleeol_concrete' in model_args.eol_type:
@@ -1104,258 +900,218 @@ def main():
                             # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
                             # all_disassembleeol表示稀疏特征和密集特征都用各个子方面（角度）的结果
                             raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                            img_inputs = processor(images=raw_images, text=[prompt_template] * len(imgs_path), return_tensors="pt",
-                                                       padding=True)
+                            img_inputs = processor(images=raw_images, text=[prompt_template] * len(imgs_path),
+                                                   return_tensors="pt",
+                                                   padding=True)
                             imgs = img_inputs.to(device)
-                            logits, reps = model.encode_data(imgs, 'image', processor, device, model_args,
-                                                             data_args)
+                            logits, reps = model.encode_data_concat(imgs, 'image', processor, device, model_args,
+                                                                    data_args)
                             if 'disassembleeol_concrete' in model_args.eol_type:
                                 disassemble_logits = logits[data_args.per_device_batch_size:]
                                 logits = logits[:data_args.per_device_batch_size]
                             elif 'disassembleeol' in model_args.eol_type:
                                 disassemble_logits = logits
-                        else:
-                            # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
-                            # 也就是说，对于批次中的每个图像，按照下面每次循环使用的prompt个数，加入到raw_images中
-                            raw_images = [Image.open(path).convert('RGB') for
-                                          path in imgs_path for _ in range(len(task_image_prompts_copy) // 4)]
-                            # 将task_prompt添加到llama3_template中
-                            prompts = [llama3_template.format(task_image_prompt) for task_image_prompt in
-                                       task_image_prompts_copy]
 
-                            logits = [[] for _ in range(len(imgs_path))]
-                            reps = [[] for _ in range(len(imgs_path))]
+                # print(logits.shape)
+                reps = F.normalize(reps, dim=-1)
+                if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                    reps = reps.reshape(-1, len(prompts), reps.shape[1]).mean(1)
+                if training_args.encode_type == 'text':
+                    lookup_indices.extend(text_ids)
+                else:
+                    lookup_indices.extend(img_ids)
 
-                            for i in range(4):
-                                # 这个i是为了控制当前轮次使用哪些prompt编码
-                                start = i * len(prompts) // 4
-                                end = (i + 1) * len(prompts) // 4
+                encoded.append(reps.cpu().detach().float().numpy())
 
-                                img_inputs = processor(images=raw_images, text=prompts[start:end] * len(imgs_path),
-                                                       return_tensors="pt",
-                                                       padding=True)
-
-                                imgs = img_inputs.to(device)
-
-                                # 在metaeol模式下，reps应该是[batch_size * len(task_prompts) // 4, reps_dim]
-                                logits_sub, reps_sub = model.encode_data(imgs, 'image', processor, device,
-                                                                         model_args,
-                                                                         data_args)
-
-                                for j in range(len(imgs_path)):
-                                    # 这个j是为了控制要把第j个样本对应的数据存到对应索引下的列表中
-                                    logits[j].append(logits_sub[j * len(prompts) // 4:(j + 1) * len(prompts) // 4])
-                                    reps[j].append(reps_sub[j * len(prompts) // 4:(j + 1) * len(prompts) // 4])
-
-                            logits = [item for logit in logits for item in logit]
-                            reps = [item for rep in reps for item in rep]
-
-                            logits = torch.cat(logits, dim=0)
-                            reps = torch.cat(reps, dim=0)
-
-                            logits = logits.reshape(-1, len(task_image_prompts_copy), logits.shape[1]).mean(1)
-                            reps = reps.reshape(-1, len(task_image_prompts_copy), reps.shape[1]).mean(1)
-
-                    # print(logits.shape)
-                    reps = F.normalize(reps, dim=-1)
-                    if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                        reps = reps.reshape(-1, len(prompts), reps.shape[1]).mean(1)
+                ids = text_ids if training_args.encode_type == 'text' else img_ids
+                if 'disassembleeol' in model_args.eol_type:
                     if training_args.encode_type == 'text':
-                        lookup_indices.extend(text_ids)
+                        for text_indice in range(len(ids)):
+                            id = ids[text_indice]
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                logit = logits[text_indice]
+                            text = texts[text_indice]
+                            disassemble_logit = disassemble_logits[
+                                                text_indice * len(llama3_retrieval_disassemble_text_prompts):(
+                                                                                                                     text_indice + 1) * len(
+                                                    llama3_retrieval_disassemble_text_prompts)]
+                            vector = dict()
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
+                                                                                          disassemble_logit,
+                                                                                          vocab_dict,
+                                                                                          data_args,
+                                                                                          filtered_ids, logit,
+                                                                                          model_args)
+                            else:
+                                tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
+                                                                                          disassemble_logit,
+                                                                                          vocab_dict,
+                                                                                          data_args,
+                                                                                          filtered_ids, None,
+                                                                                          model_args)
+
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
+                                        vector[token] = int(v)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
+                                )
+                            )
                     else:
-                        lookup_indices.extend(img_ids)
-
-                    encoded.append(reps.cpu().detach().float().numpy())
-
-                    ids = text_ids if training_args.encode_type == 'text' else img_ids
-                    if 'disassembleeol' in model_args.eol_type:
-                        if training_args.encode_type == 'text':
-                            for text_indice in range(len(ids)):
-                                id = ids[text_indice]
-                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                                    logit = logits[text_indice]
-                                text = texts[text_indice]
-                                disassemble_logit = disassemble_logits[
-                                                    text_indice * len(llama3_retrieval_disassemble_text_prompts):(
-                                                                                                                         text_indice + 1) * len(
-                                                        llama3_retrieval_disassemble_text_prompts)]
-                                vector = dict()
-                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                                    tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
-                                                                                              disassemble_logit,
-                                                                                              vocab_dict,
-                                                                                              data_args,
-                                                                                              filtered_ids, logit,
-                                                                                              model_args)
-                                else:
-                                    tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
-                                                                                              disassemble_logit,
-                                                                                              vocab_dict,
-                                                                                              data_args,
-                                                                                              filtered_ids, None,
-                                                                                              model_args)
-
-                                for token, v in zip(tokens, values):
-                                    if token in vector.keys():
-                                        if data_args.sparse_value_type == 'replace':
-                                            vector[token] = int(v)
-                                        elif data_args.sparse_value_type == 'sum':
-                                            vector[token] += int(v)
-                                        else:
-                                            if int(v) > vector[token]:
-                                                vector[token] = int(v)
-                                    else:
+                        for img_indice in range(len(ids)):
+                            id = ids[img_indice]
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                logit = logits[img_indice]
+                            text = texts[img_indice]
+                            disassemble_logit = disassemble_logits[
+                                                img_indice * len(llama3_retrieval_disassemble_image_prompts):(
+                                                                                                                     img_indice + 1) * len(
+                                                    llama3_retrieval_disassemble_image_prompts)]
+                            vector = dict()
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                         disassemble_logit,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, logit,
+                                                                                         model_args)
+                            else:
+                                tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                         disassemble_logit,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, None,
+                                                                                         model_args)
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
                                         vector[token] = int(v)
-                                jsonl_data.append(
-                                    dict(
-                                        id=id,
-                                        content="",
-                                        vector=vector,
-                                    )
-                                )
-                        else:
-                            for img_indice in range(len(ids)):
-                                id = ids[img_indice]
-                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                                    logit = logits[img_indice]
-                                text = texts[img_indice]
-                                disassemble_logit = disassemble_logits[
-                                                    img_indice * len(llama3_retrieval_disassemble_image_prompts):(
-                                                                                                                         img_indice + 1) * len(
-                                                        llama3_retrieval_disassemble_image_prompts)]
-                                vector = dict()
-                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                                    tokens, values = get_img_valid_disassemble_tokens_values(processor,
-                                                                                             disassemble_logit,
-                                                                                             vocab_dict,
-                                                                                             data_args,
-                                                                                             filtered_ids, logit,
-                                                                                             model_args)
-                                else:
-                                    tokens, values = get_img_valid_disassemble_tokens_values(processor,
-                                                                                             disassemble_logit,
-                                                                                             vocab_dict,
-                                                                                             data_args,
-                                                                                             filtered_ids, None,
-                                                                                             model_args)
-                                for token, v in zip(tokens, values):
-                                    if token in vector.keys():
-                                        if data_args.sparse_value_type == 'replace':
-                                            vector[token] = int(v)
-                                        elif data_args.sparse_value_type == 'sum':
-                                            vector[token] += int(v)
-                                        else:
-                                            if int(v) > vector[token]:
-                                                vector[token] = int(v)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
                                     else:
-                                        vector[token] = int(v)
-                                jsonl_data.append(
-                                    dict(
-                                        id=id,
-                                        content="",
-                                        vector=vector,
-                                    )
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
                                 )
+                            )
+                else:
+                    if training_args.encode_type == 'text':
+                        for id, logit, text in zip(ids, logits, texts):
+                            vector = dict()
+                            if model_args.use_output_embedding_cluster:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_text_valid_tokens_values_with_cluster(text, processor,
+                                                                                               logit,
+                                                                                               centroids_dict,
+                                                                                               origin_to_centroids_dict,
+                                                                                               data_args,
+                                                                                               filtered_ids)
+                                else:
+                                    tokens, values = get_text_valid_tokens_values_with_cluster(text,
+                                                                                               processor.tokenizer,
+                                                                                               logit,
+                                                                                               centroids_dict,
+                                                                                               origin_to_centroids_dict,
+                                                                                               data_args,
+                                                                                               filtered_ids)
+                            else:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_text_valid_tokens_values(text, processor, logit,
+                                                                                  vocab_dict,
+                                                                                  data_args,
+                                                                                  filtered_ids)
+                                else:
+                                    tokens, values = get_text_valid_tokens_values(text, processor.tokenizer,
+                                                                                  logit,
+                                                                                  vocab_dict,
+                                                                                  data_args,
+                                                                                  filtered_ids)
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
+                                        vector[token] = int(v)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
+                                )
+                            )
                     else:
-                        if training_args.encode_type == 'text':
-                            for id, logit, text in zip(ids, logits, texts):
-                                vector = dict()
-                                if model_args.use_output_embedding_cluster:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                        tokens, values = get_text_valid_tokens_values_with_cluster(text, processor,
-                                                                                                   logit,
-                                                                                                   centroids_dict,
-                                                                                                   origin_to_centroids_dict,
-                                                                                                   data_args,
-                                                                                                   filtered_ids)
-                                    else:
-                                        tokens, values = get_text_valid_tokens_values_with_cluster(text,
-                                                                                                   processor.tokenizer,
-                                                                                                   logit,
-                                                                                                   centroids_dict,
-                                                                                                   origin_to_centroids_dict,
-                                                                                                   data_args,
-                                                                                                   filtered_ids)
+                        for id, logit, text in zip(ids, logits, texts):
+                            vector = dict()
+                            if model_args.use_output_embedding_cluster:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values_with_cluster(processor, logit,
+                                                                                              centroids_dict,
+                                                                                              origin_to_centroids_dict,
+                                                                                              data_args,
+                                                                                              filtered_ids)
                                 else:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                        tokens, values = get_text_valid_tokens_values(text, processor, logit,
-                                                                                      vocab_dict,
-                                                                                      data_args,
-                                                                                      filtered_ids)
-                                    else:
-                                        tokens, values = get_text_valid_tokens_values(text, processor.tokenizer,
-                                                                                      logit,
-                                                                                      vocab_dict,
-                                                                                      data_args,
-                                                                                      filtered_ids)
-                                for token, v in zip(tokens, values):
-                                    if token in vector.keys():
-                                        if data_args.sparse_value_type == 'replace':
-                                            vector[token] = int(v)
-                                        elif data_args.sparse_value_type == 'sum':
-                                            vector[token] += int(v)
-                                        else:
-                                            if int(v) > vector[token]:
-                                                vector[token] = int(v)
-                                    else:
-                                        vector[token] = int(v)
-                                jsonl_data.append(
-                                    dict(
-                                        id=id,
-                                        content="",
-                                        vector=vector,
-                                    )
-                                )
-                        else:
-                            for id, logit, text in zip(ids, logits, texts):
-                                vector = dict()
-                                if model_args.use_output_embedding_cluster:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                        tokens, values = get_img_valid_tokens_values_with_cluster(processor, logit,
-                                                                                                  centroids_dict,
-                                                                                                  origin_to_centroids_dict,
-                                                                                                  data_args,
-                                                                                                  filtered_ids)
-                                    else:
-                                        tokens, values = get_img_valid_tokens_values_with_cluster(
-                                            processor.tokenizer,
-                                            logit,
-                                            centroids_dict,
-                                            origin_to_centroids_dict,
-                                            data_args,
-                                            filtered_ids)
+                                    tokens, values = get_img_valid_tokens_values_with_cluster(
+                                        processor.tokenizer,
+                                        logit,
+                                        centroids_dict,
+                                        origin_to_centroids_dict,
+                                        data_args,
+                                        filtered_ids)
+                            else:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values(processor, logit, vocab_dict,
+                                                                                 data_args, filtered_ids)
                                 else:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                        tokens, values = get_img_valid_tokens_values(processor, logit, vocab_dict,
+                                    if model_args.eol_type == 'prompteol_same_length':
+                                        tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                     vocab_dict,
+                                                                                     data_args, filtered_ids,
+                                                                                     text=text)
+                                    else:
+                                        tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                     vocab_dict,
                                                                                      data_args, filtered_ids)
-                                    else:
-                                        if model_args.eol_type == 'prompteol_same_length':
-                                            tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
-                                                                                         vocab_dict,
-                                                                                         data_args, filtered_ids,
-                                                                                         text=text)
-                                        else:
-                                            tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
-                                                                                         vocab_dict,
-                                                                                         data_args, filtered_ids)
-                                for token, v in zip(tokens, values):
-                                    if token in vector.keys():
-                                        if data_args.sparse_value_type == 'replace':
-                                            vector[token] = int(v)
-                                        elif data_args.sparse_value_type == 'sum':
-                                            vector[token] += int(v)
-                                        else:
-                                            if int(v) > vector[token]:
-                                                vector[token] = int(v)
-                                    else:
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
                                         vector[token] = int(v)
-                                jsonl_data.append(
-                                    dict(
-                                        id=id,
-                                        content="",
-                                        vector=vector,
-                                    )
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
                                 )
+                            )
 
     encoded = np.concatenate(encoded)
 

@@ -35,7 +35,9 @@ from template import img_prompt, \
     llama3_retrieval_disassemble_text_prompts
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
     get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, \
-    get_img_valid_disassemble_tokens_values
+    get_img_valid_disassemble_tokens_values, llama3_template_image_prefix, llama3_template_content_element, \
+    retrieval_disassemble_image_prompts_3_for_concat, \
+    retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat
 from hybrid import fuse, normalize
 from utils import load_image
 from peft import PeftModel
@@ -284,167 +286,214 @@ def main():
                     prompts = llama3_retrieval_disassemble_image_prompts
                 else:
                     prompts = llama3_retrieval_disassemble_image_prompts
-                if search_args.query_type == 'text':
-                    query_logits, query_dense_reps = model.encode_data(texts, 'text', processor, device, model_args,
-                                                                       data_args)
-                    if 'disassembleeol_concrete' in model_args.eol_type:
-                        disassemble_logits = query_logits[data_args.per_device_batch_size:]
-                        query_logits = query_logits[:data_args.per_device_batch_size]
-                    elif 'disassembleeol' in model_args.eol_type:
-                        disassemble_logits = query_logits
-                else:
-                    if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
-                        if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-                            prompt = processor.apply_chat_template(
-                                img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
-                            )
-                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
-                                               return_tensors="pt",
-                                               padding=True)
-                        imgs = img_inputs.to(device)
-                        query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
-                                                                           model_args,
+
+                if model_args.calculate_type == 'separate':
+                    if search_args.query_type == 'text':
+                        query_logits, query_dense_reps = model.encode_data(texts, 'text', processor, device, model_args,
                                                                            data_args)
-                    elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'disassembleeol_separate_origin_text' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
-                        # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
-                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
-                                               return_tensors="pt",
-                                               padding=True)
-                        imgs = img_inputs.to(device)
-                        if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
+                        if 'disassembleeol_concrete' in model_args.eol_type:
+                            disassemble_logits = query_logits[data_args.per_device_batch_size:]
+                            query_logits = query_logits[:data_args.per_device_batch_size]
+                        elif 'disassembleeol' in model_args.eol_type:
+                            disassemble_logits = query_logits
+                    else:
+                        if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
+                            if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                                prompt = processor.apply_chat_template(
+                                    img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
+                                )
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                                   return_tensors="pt",
+                                                   padding=True)
+                            imgs = img_inputs.to(device)
                             query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
-                                                                               model_args, data_args)
-                        else:
-                            _, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
-                                                                    model_args, data_args)
-                        del imgs
+                                                                               model_args,
+                                                                               data_args)
+                        elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'disassembleeol_separate_origin_text' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
+                            # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                                   return_tensors="pt",
+                                                   padding=True)
+                            imgs = img_inputs.to(device)
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
+                                query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
+                                                                                   model_args, data_args)
+                            else:
+                                _, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
+                                                                        model_args, data_args)
+                            del imgs
 
-                        # 强制触发垃圾回收
-                        gc.collect()
-                        # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
-                        torch.cuda.empty_cache()
+                            # 强制触发垃圾回收
+                            gc.collect()
+                            # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
+                            torch.cuda.empty_cache()
 
-                        disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
-                                                  range(len(prompts) // 5)]
-                        disassemble_logits = [[] for _ in range(len(imgs_path))]
-                        for i in range(5):
-                            # 这个i是为了控制当前轮次使用哪些prompt编码
-                            start = i * len(prompts) // 5
-                            end = (i + 1) * len(prompts) // 5
+                            disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
+                                                      range(len(prompts) // 5)]
+                            disassemble_logits = [[] for _ in range(len(imgs_path))]
+                            for i in range(5):
+                                # 这个i是为了控制当前轮次使用哪些prompt编码
+                                start = i * len(prompts) // 5
+                                end = (i + 1) * len(prompts) // 5
 
-                            disassemble_img_inputs = processor(images=disassemble_raw_images,
-                                                               text=prompts[start:end] * len(imgs_path),
-                                                               return_tensors="pt",
-                                                               padding=True)
+                                disassemble_img_inputs = processor(images=disassemble_raw_images,
+                                                                   text=prompts[start:end] * len(imgs_path),
+                                                                   return_tensors="pt",
+                                                                   padding=True)
 
-                            disassemble_imgs = disassemble_img_inputs.to(device)
+                                disassemble_imgs = disassemble_img_inputs.to(device)
 
-                            # 在metaeol模式下，reps应该是[batch_size * len(task_prompts) // 4, reps_dim]
-                            disassemble_logits_sub, _ = model.encode_data(disassemble_imgs, 'image', processor,
-                                                                          device, model_args,
-                                                                          data_args)
+                                # 在metaeol模式下，reps应该是[batch_size * len(task_prompts) // 4, reps_dim]
+                                disassemble_logits_sub, _ = model.encode_data(disassemble_imgs, 'image', processor,
+                                                                              device, model_args,
+                                                                              data_args)
 
-                            for j in range(len(imgs_path)):
-                                # 这个j是为了控制要把第j个样本对应的数据存到对应索引下的列表中
-                                disassemble_logits[j].append(
-                                    disassemble_logits_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
-                        disassemble_logits = [item for disassemble_logit in disassemble_logits for item in
-                                              disassemble_logit]
-                        disassemble_logits = torch.cat(disassemble_logits, dim=0)
+                                for j in range(len(imgs_path)):
+                                    # 这个j是为了控制要把第j个样本对应的数据存到对应索引下的列表中
+                                    disassemble_logits[j].append(
+                                        disassemble_logits_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
+                            disassemble_logits = [item for disassemble_logit in disassemble_logits for item in
+                                                  disassemble_logit]
+                            disassemble_logits = torch.cat(disassemble_logits, dim=0)
 
-                    elif model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                        # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
-                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
-                                               return_tensors="pt",
-                                               padding=True)
-                        imgs = img_inputs.to(device)
-                        query_logits, _ = model.encode_data(imgs, 'image', processor, device,
-                                                            model_args, data_args)
-                        del imgs
+                        elif model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                            # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                                   return_tensors="pt",
+                                                   padding=True)
+                            imgs = img_inputs.to(device)
+                            query_logits, _ = model.encode_data(imgs, 'image', processor, device,
+                                                                model_args, data_args)
+                            del imgs
 
-                        # 强制触发垃圾回收
-                        gc.collect()
-                        # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
-                        torch.cuda.empty_cache()
+                            # 强制触发垃圾回收
+                            gc.collect()
+                            # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
+                            torch.cuda.empty_cache()
 
-                        disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
-                                                  range(len(prompts) // 5)]
+                            disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
+                                                      range(len(prompts) // 5)]
 
-                        disassemble_logits = [[] for _ in range(len(imgs_path))]
-                        disassemble_reps = [[] for _ in range(len(imgs_path))]
-                        for i in range(5):
-                            # 这个i是为了控制当前轮次使用哪些prompt编码
-                            start = i * len(prompts) // 5
-                            end = (i + 1) * len(prompts) // 5
+                            disassemble_logits = [[] for _ in range(len(imgs_path))]
+                            disassemble_reps = [[] for _ in range(len(imgs_path))]
+                            for i in range(5):
+                                # 这个i是为了控制当前轮次使用哪些prompt编码
+                                start = i * len(prompts) // 5
+                                end = (i + 1) * len(prompts) // 5
 
-                            disassemble_img_inputs = processor(images=disassemble_raw_images,
-                                                               text=prompts[start:end] * len(imgs_path),
-                                                               return_tensors="pt",
-                                                               padding=True)
+                                disassemble_img_inputs = processor(images=disassemble_raw_images,
+                                                                   text=prompts[start:end] * len(imgs_path),
+                                                                   return_tensors="pt",
+                                                                   padding=True)
 
-                            disassemble_imgs = disassemble_img_inputs.to(device)
+                                disassemble_imgs = disassemble_img_inputs.to(device)
 
-                            # 在metaeol模式下，reps应该是[batch_size * len(task_prompts) // 4, reps_dim]
-                            disassemble_logits_sub, disassemble_reps_sub = model.encode_data(disassemble_imgs,
-                                                                                             'image', processor,
-                                                                                             device, model_args,
-                                                                                             data_args)
+                                # 在metaeol模式下，reps应该是[batch_size * len(task_prompts) // 4, reps_dim]
+                                disassemble_logits_sub, disassemble_reps_sub = model.encode_data(disassemble_imgs,
+                                                                                                 'image', processor,
+                                                                                                 device, model_args,
+                                                                                                 data_args)
 
-                            for j in range(len(imgs_path)):
-                                # 这个j是为了控制要把第j个样本对应的数据存到对应索引下的列表中
-                                disassemble_logits[j].append(
-                                    disassemble_logits_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
-                                disassemble_reps[j].append(
-                                    disassemble_reps_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
-                        disassemble_logits = [item for disassemble_logit in disassemble_logits for item in
-                                              disassemble_logit]
-                        disassemble_reps = [item for disassemble_rep in disassemble_reps for item in
-                                            disassemble_rep]
-                        disassemble_logits = torch.cat(disassemble_logits, dim=0)
-                        disassemble_reps = torch.cat(disassemble_reps, dim=0)
-                        query_dense_reps = disassemble_reps
+                                for j in range(len(imgs_path)):
+                                    # 这个j是为了控制要把第j个样本对应的数据存到对应索引下的列表中
+                                    disassemble_logits[j].append(
+                                        disassemble_logits_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
+                                    disassemble_reps[j].append(
+                                        disassemble_reps_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
+                            disassemble_logits = [item for disassemble_logit in disassemble_logits for item in
+                                                  disassemble_logit]
+                            disassemble_reps = [item for disassemble_rep in disassemble_reps for item in
+                                                disassemble_rep]
+                            disassemble_logits = torch.cat(disassemble_logits, dim=0)
+                            disassemble_reps = torch.cat(disassemble_reps, dim=0)
+                            query_dense_reps = disassemble_reps
 
-                    elif model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
-                        # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
-                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
-                                                  range(len(prompts) // 5)]
-                        disassemble_logits = [[] for _ in range(len(imgs_path))]
-                        disassemble_reps = [[] for _ in range(len(imgs_path))]
-                        for i in range(5):
-                            # 这个i是为了控制当前轮次使用哪些prompt编码
-                            start = i * len(prompts) // 5
-                            end = (i + 1) * len(prompts) // 5
+                        elif model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
+                            # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
+                                                      range(len(prompts) // 5)]
+                            disassemble_logits = [[] for _ in range(len(imgs_path))]
+                            disassemble_reps = [[] for _ in range(len(imgs_path))]
+                            for i in range(5):
+                                # 这个i是为了控制当前轮次使用哪些prompt编码
+                                start = i * len(prompts) // 5
+                                end = (i + 1) * len(prompts) // 5
 
-                            disassemble_img_inputs = processor(images=disassemble_raw_images,
-                                                               text=prompts[start:end] * len(imgs_path),
-                                                               return_tensors="pt",
-                                                               padding=True)
+                                disassemble_img_inputs = processor(images=disassemble_raw_images,
+                                                                   text=prompts[start:end] * len(imgs_path),
+                                                                   return_tensors="pt",
+                                                                   padding=True)
 
-                            disassemble_imgs = disassemble_img_inputs.to(device)
+                                disassemble_imgs = disassemble_img_inputs.to(device)
 
-                            # 在metaeol模式下，reps应该是[batch_size * len(task_prompts) // 4, reps_dim]
-                            disassemble_logits_sub, disassemble_reps_sub = model.encode_data(disassemble_imgs,
-                                                                                             'image', processor,
-                                                                                             device, model_args,
-                                                                                             data_args)
+                                # 在metaeol模式下，reps应该是[batch_size * len(task_prompts) // 4, reps_dim]
+                                disassemble_logits_sub, disassemble_reps_sub = model.encode_data(disassemble_imgs,
+                                                                                                 'image', processor,
+                                                                                                 device, model_args,
+                                                                                                 data_args)
 
-                            for j in range(len(imgs_path)):
-                                # 这个j是为了控制要把第j个样本对应的数据存到对应索引下的列表中
-                                disassemble_logits[j].append(
-                                    disassemble_logits_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
-                                disassemble_reps[j].append(
-                                    disassemble_reps_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
-                        disassemble_logits = [item for disassemble_logit in disassemble_logits for item in
-                                              disassemble_logit]
-                        disassemble_reps = [item for disassemble_rep in disassemble_reps for item in
-                                            disassemble_rep]
-                        disassemble_logits = torch.cat(disassemble_logits, dim=0)
-                        disassemble_reps = torch.cat(disassemble_reps, dim=0)
-                        query_dense_reps = disassemble_reps
+                                for j in range(len(imgs_path)):
+                                    # 这个j是为了控制要把第j个样本对应的数据存到对应索引下的列表中
+                                    disassemble_logits[j].append(
+                                        disassemble_logits_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
+                                    disassemble_reps[j].append(
+                                        disassemble_reps_sub[j * len(prompts) // 5:(j + 1) * len(prompts) // 5])
+                            disassemble_logits = [item for disassemble_logit in disassemble_logits for item in
+                                                  disassemble_logit]
+                            disassemble_reps = [item for disassemble_rep in disassemble_reps for item in
+                                                disassemble_rep]
+                            disassemble_logits = torch.cat(disassemble_logits, dim=0)
+                            disassemble_reps = torch.cat(disassemble_reps, dim=0)
+                            query_dense_reps = disassemble_reps
+                else:
+                    if data_args.prompt_type == 'prompt_5':
+                        prompt_template = llama3_template_image_prefix
+                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                            prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                        for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
+                            content_element = llama3_template_content_element.format(
+                                llama3_retrieval_disassemble_image_prompt)
+                            prompt_template += content_element
+                    elif data_args.prompt_type == 'prompt_3':
+                        prompt_template = llama3_template_image_prefix
+                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                            prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                        for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
+                            content_element = llama3_template_content_element.format(
+                                llama3_retrieval_disassemble_image_prompt)
+                            prompt_template += content_element
+                    else:
+                        pass
+                    if search_args.query_type == 'text':
+                        query_logits, query_dense_reps = model.encode_data_concat(texts, 'text', processor, device,
+                                                                                  model_args, data_args)
+                        if 'disassembleeol_concrete' in model_args.eol_type:
+                            disassemble_logits = query_logits[data_args.per_device_batch_size:]
+                            query_logits = query_logits[:data_args.per_device_batch_size]
+                        elif 'disassembleeol' in model_args.eol_type:
+                            disassemble_logits = query_logits
+
+                    else:
+                        if 'disassembleeol' in model_args.eol_type:
+                            # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
+                            # all_disassembleeol表示稀疏特征和密集特征都用各个子方面（角度）的结果
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            img_inputs = processor(images=raw_images, text=[prompt_template] * len(imgs_path),
+                                                   return_tensors="pt",
+                                                   padding=True)
+                            imgs = img_inputs.to(device)
+                            query_logits, query_dense_reps = model.encode_data_concat(imgs, 'image', processor, device,
+                                                                                      model_args,
+                                                                                      data_args)
+                            if 'disassembleeol_concrete' in model_args.eol_type:
+                                disassemble_logits = query_logits[data_args.per_device_batch_size:]
+                                query_logits = query_logits[:data_args.per_device_batch_size]
+                            elif 'disassembleeol' in model_args.eol_type:
+                                disassemble_logits = query_logits
 
                 query_dense_reps = F.normalize(query_dense_reps, dim=-1)
                 if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
