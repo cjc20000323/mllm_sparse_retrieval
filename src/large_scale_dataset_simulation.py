@@ -27,13 +27,19 @@ def main():
                 )
             )
 
+    os.makedirs(
+        f'./dense_output/llava-hf-llama3-llava-next-8b-hf/flickr/text/no_filter/large/0_no_manual_128_sum_no_cluster_after_pad_all_disassembleeol_lower',
+        exist_ok=True)
+    os.makedirs(
+        f'./sparse_output/llava-hf-llama3-llava-next-8b-hf/flickr/text/no_filter/large/0_no_manual_128_sum_no_cluster_after_pad_all_disassembleeol_lower',
+        exist_ok=True)
     with open(os.path.join(
-        f'./dense_output/llava-hf-llama3-llava-next-8b-hf/flickr/text/no_filter/concat/0_no_manual_128_sum_no_cluster_after_pad_all_disassembleeol_lower',
+        f'./dense_output/llava-hf-llama3-llava-next-8b-hf/flickr/text/no_filter/large/0_no_manual_128_sum_no_cluster_after_pad_all_disassembleeol_lower',
         f'corpus_0.pkl'), 'wb') as f:
         pickle.dump((encoded, lookup_indices), f)
 
     with open(os.path.join(
-        f'./sparse_output/llava-hf-llama3-llava-next-8b-hf/flickr/text/no_filter/concat/0_no_manual_128_sum_no_cluster_after_pad_all_disassembleeol_lower',
+        f'./sparse_output/llava-hf-llama3-llava-next-8b-hf/flickr/text/no_filter/large/0_no_manual_128_sum_no_cluster_after_pad_all_disassembleeol_lower',
         f'corpus_0.jsonl'), 'wb') as f:
         for data in jsonl_data:
             f.write(json.dumps(data) + "\n")

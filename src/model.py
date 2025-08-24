@@ -1,6 +1,6 @@
 import torch
-
-torch.set_printoptions(threshold=10000)  # 数字根据你的张量尺寸调整
+import sys
+torch.set_printoptions(threshold=sys.maxsize)  # 数字根据你的张量尺寸调整
 import torch.distributed as dist
 from torch import nn
 
@@ -109,6 +109,8 @@ class MLLMRetrievalModel(nn.Module):
                             disassemble_batch_ids, disassemble_sequence_lengths]
                         embs = disassemble_output.hidden_states[-1][disassemble_batch_ids, disassemble_sequence_lengths]
                     disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
+                    print(disassemble_logits.shape)
+                    print(embs.shape)
                     return disassemble_logits, embs
 
                 if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
@@ -216,6 +218,8 @@ class MLLMRetrievalModel(nn.Module):
                     logits = torch.cat([logits, disassemble_logits], dim=0)
                 if 'disassembleeol_separate' in model_args.eol_type:
                     logits = disassemble_logits
+                print(logits.shape)
+                print(embs.shape)
 
             return logits, embs
         elif input_type == 'image':
@@ -781,7 +785,8 @@ class MLLMRetrievalModel(nn.Module):
         else:
             pass
         if input_type == 'text':
-            text_inputs = processor(text=[prompt_template.replace('<sent>', text) for text in input])
+            text_inputs = processor(text=[prompt_template.replace('<sent>', text) for text in input],
+                                    return_tensors="pt", padding=True).to('cuda')
             begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
             end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
             begin_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(begin_of_text_id))
@@ -815,18 +820,17 @@ class MLLMRetrievalModel(nn.Module):
                     current_end_col_indice = end_col_list[i]
                     edit_causal_mask[current_begin_col_indice:current_end_col_indice + 1,
                     start_indice:current_begin_col_indice] = 1
-            edit_causal_mask = edit_causal_mask[None, None, :, :].expand(data_args.per_device_batch_size, 1, -1, -1)
+            edit_causal_mask = edit_causal_mask[None, None, :, :].expand(text_inputs['attention_mask'].shape[0], 1, -1, -1)
             cache_position = torch.arange(
                 0, 0 + text_inputs_embeds.shape[1],
                 device=text_inputs_embeds.device
             )
             causal_mask *= torch.arange(text_inputs['attention_mask'].shape[-1],
                                         device=device) > cache_position.reshape(-1, 1)
-            causal_mask = causal_mask[None, None, :, :].expand(data_args.per_device_batch_size, 1, -1, -1)
+            causal_mask = causal_mask[None, None, :, :].expand(text_inputs['attention_mask'].shape[0], 1, -1, -1)
             causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
             mask_length = text_inputs['attention_mask'].shape[-1]
-            padding_mask = causal_mask[:, :, :, :mask_length] + text_inputs['attention_mask'][:, None, None,
-                                                                :].to(causal_mask.device)
+            padding_mask = causal_mask[:, :, :, :mask_length] + text_inputs['attention_mask'][:, None, None, :].to(causal_mask.device)
             padding_mask = padding_mask == 0
             causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
                 padding_mask, min_dtype
@@ -837,27 +841,34 @@ class MLLMRetrievalModel(nn.Module):
             )
 
             text_inputs['attention_mask'] = causal_mask
+            '''
+            with open(f'tensor_values_{dist.get_rank()}.txt', 'w') as f:
+                for mask in causal_mask:
+                    f.write(str(mask.squeeze()))
+            '''
             output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
+            end_col_list = (torch.tensor(end_col_list) - 1).to('cuda')
+            batch_size = text_inputs['input_ids'].shape[0]
             if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                logits = output.logits[:, end_of_text_indices[1][0], :]
-                disassemble_logits = output.logits[:, end_of_text_indices[1][1:], :]
+                logits = output.logits[:, end_col_list[0], :]
+                disassemble_logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
                 logits = torch.cat([logits, disassemble_logits], dim=0)
                 logits = torch.log(1 + torch.relu(logits))
-                embs = output.hidden_states[-1][:, end_of_text_indices[1][1:], :]
+                embs = output.hidden_states[-1][:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
             elif model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
-                logits = output.logits[:, end_of_text_indices[1], :]
+                logits = output.logits[:, end_col_list, :].reshape(batch_size * len(end_col_list), -1)
                 logits = torch.log(1 + torch.relu(logits))
-                embs = output.hidden_states[-1][:, end_of_text_indices[1], :]
+                embs = output.hidden_states[-1][:, end_col_list, :].reshape(batch_size * len(end_col_list), -1)
             elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
                 logits = output.logits[:, end_of_text_indices[1][0], :]
-                disassemble_logits = output.logits[:, end_of_text_indices[1][1:], :]
+                disassemble_logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
                 logits = torch.cat([logits, disassemble_logits], dim=0)
                 logits = torch.log(1 + torch.relu(logits))
-                embs = output.hidden_states[-1][:, end_of_text_indices[1][0], :]
+                embs = output.hidden_states[-1][:, end_col_list[0], :]
             else:
-                logits = output.logits[:, end_of_text_indices[1][1:], :]
+                logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
                 logits = torch.log(1 + torch.relu(logits))
-                embs = output.hidden_states[-1][:, end_of_text_indices[1][0], :]
+                embs = output.hidden_states[-1][:, end_col_list[0], :]
             return logits, embs
         elif input_type == 'image':
             length = len(input.pixel_values)
@@ -902,14 +913,14 @@ class MLLMRetrievalModel(nn.Module):
                     edit_causal_mask[current_begin_col_indice:current_end_col_indice + 1,
                     start_indice:current_begin_col_indice] = 1
 
-            edit_causal_mask = edit_causal_mask[None, None, :, :].expand(data_args.per_device_batch_size, 1, -1, -1)
+            edit_causal_mask = edit_causal_mask[None, None, :, :].expand(input['attention_mask'].shape[0], 1, -1, -1)
             cache_position = torch.arange(
                 0, 0 + img_inputs_embeds.shape[1],
                 device=img_inputs_embeds.device
             )
             causal_mask *= torch.arange(input['attention_mask'].shape[-1],
                                         device=device) > cache_position.reshape(-1, 1)
-            causal_mask = causal_mask[None, None, :, :].expand(data_args.per_device_batch_size, 1, -1, -1)
+            causal_mask = causal_mask[None, None, :, :].expand(input['attention_mask'].shape[0], 1, -1, -1)
             causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
             mask_length = input['attention_mask'].shape[-1]
             padding_mask = causal_mask[:, :, :, :mask_length] + input['attention_mask'][:, None, None, :].to(
@@ -928,26 +939,30 @@ class MLLMRetrievalModel(nn.Module):
 
             output = self.encoder(**input, output_hidden_states=True, return_dict=True, use_cache=True)
             # 这里对应原文的log+relu操作
+            end_col_list = (torch.tensor(end_col_list) - 1).to('cuda')
+            batch_size = input['input_ids'].shape[0]
             if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                logits = output.logits[:, end_of_text_indices[1][0], :]
-                disassemble_logits = output.logits[:, end_of_text_indices[1][1:], :]
+                logits = output.logits[:, end_col_list[0], :]
+                disassemble_logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]),
+                                                                                   -1)
                 logits = torch.cat([logits, disassemble_logits], dim=0)
                 logits = torch.log(1 + torch.relu(logits))
-                embs = output.hidden_states[-1][:, end_of_text_indices[1][1:], :]
+                embs = output.hidden_states[-1][:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
             elif model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
-                logits = output.logits[:, end_of_text_indices[1], :]
+                logits = output.logits[:, end_col_list, :].reshape(batch_size * len(end_col_list), -1)
                 logits = torch.log(1 + torch.relu(logits))
-                embs = output.hidden_states[-1][:, end_of_text_indices[1], :]
+                embs = output.hidden_states[-1][:, end_col_list, :].reshape(batch_size * len(end_col_list), -1)
             elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
                 logits = output.logits[:, end_of_text_indices[1][0], :]
-                disassemble_logits = output.logits[:, end_of_text_indices[1][1:], :]
+                disassemble_logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]),
+                                                                                   -1)
                 logits = torch.cat([logits, disassemble_logits], dim=0)
                 logits = torch.log(1 + torch.relu(logits))
-                embs = output.hidden_states[-1][:, end_of_text_indices[1][0], :]
+                embs = output.hidden_states[-1][:, end_col_list[0], :]
             else:
-                logits = output.logits[:, end_of_text_indices[1][1:], :]
+                logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
                 logits = torch.log(1 + torch.relu(logits))
-                embs = output.hidden_states[-1][:, end_of_text_indices[1][0], :]
+                embs = output.hidden_states[-1][:, end_col_list[0], :]
             return logits, embs
         else:
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')

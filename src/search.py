@@ -291,7 +291,11 @@ def main():
 
     dense_run = {}
     sparse_run = {}
-    fusion_run = {}
+    fusion_run_1 = {}
+    fusion_run_2 = {}
+    fusion_run_3 = {}
+    fusion_run_4 = {}
+    fusion_run_5 = {}
 
     dense_retriever_indices = []
     sparse_retriever_indices = []
@@ -704,10 +708,14 @@ def main():
                                 if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                     logit = query_logits[text_indice]
                                 text = texts[text_indice]
+                                if data_args.prompt_type == 'prompt_5':
+                                    length = 5
+                                elif data_args.prompt_type == 'prompt_3':
+                                    length = 3
+                                else:
+                                    length = 5
                                 disassemble_logit = disassemble_logits[
-                                                    text_indice * len(llama3_retrieval_disassemble_text_prompts):(
-                                                                                                                         text_indice + 1) * len(
-                                                        llama3_retrieval_disassemble_text_prompts)]
+                                                    text_indice * length:(text_indice + 1) * length]
                                 vector = dict()
                                 if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                     tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,
@@ -756,10 +764,14 @@ def main():
                                 if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                     logit = query_logits[img_indice]
                                 text = texts[img_indice]
+                                if data_args.prompt_type == 'prompt_5':
+                                    length = 5
+                                elif data_args.prompt_type == 'prompt_3':
+                                    length = 3
+                                else:
+                                    length = 5
                                 disassemble_logit = disassemble_logits[
-                                                    img_indice * len(llama3_retrieval_disassemble_image_prompts):(
-                                                                                                                         img_indice + 1) * len(
-                                                        llama3_retrieval_disassemble_image_prompts)]
+                                                    img_indice * length:(img_indice + 1) * length]
                                 vector = dict()
                                 if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                     tokens, values = get_img_valid_disassemble_tokens_values(processor,
@@ -917,7 +929,6 @@ def main():
                 if model_args.eol_type == 'metaeol':
                     del query_dense_reps
                     del query_logits
-                break
 
         if dense_retriever:
             del dense_retriever
@@ -936,7 +947,70 @@ def main():
     print(len(dense_run))
     print(len(sparse_run))
     print(len(fusion_run))
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args)
+    fusion_run_1.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.5, 0.5]
+        )
+    )
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_1, look_up, lookup_indices, search_args)
+
+    metric.sort_and_count()
+
+    metric.all_gather_object()
+    metric.print_recall()
+
+    fusion_run_2.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.6, 0.4]
+        )
+    )
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_2, look_up, lookup_indices, search_args)
+
+    metric.sort_and_count()
+
+    metric.all_gather_object()
+    metric.print_recall()
+
+    fusion_run_3.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.7, 0.3]
+        )
+    )
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_3, look_up, lookup_indices, search_args)
+
+    metric.sort_and_count()
+
+    metric.all_gather_object()
+    metric.print_recall()
+
+    fusion_run_4.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.8, 0.2]
+        )
+    )
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_4, look_up, lookup_indices, search_args)
+
+    metric.sort_and_count()
+
+    metric.all_gather_object()
+    metric.print_recall()
+
+    fusion_run_5.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.9, 0.1]
+        )
+    )
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_5, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
 

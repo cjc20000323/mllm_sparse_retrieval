@@ -800,10 +800,14 @@ def main():
                                     if model_args.eol_type == 'disassembleeol_concrete':
                                         logit = query_logits[img_indice]
                                     text = texts[img_indice]
+                                    if data_args.prompt_type == 'prompt_5':
+                                        length = 5
+                                    elif data_args.prompt_type == 'prompt_3':
+                                        length = 3
+                                    else:
+                                        length = 5
                                     disassemble_logit = disassemble_logits[
-                                                        img_indice * len(llama3_retrieval_disassemble_image_prompts):(
-                                                                                                                             img_indice + 1) * len(
-                                                            llama3_retrieval_disassemble_image_prompts)]
+                                                        img_indice * length:(img_indice + 1) * length]
                                     vector = dict()
                                     if model_args.eol_type == 'disassembleeol_concrete':
                                         tokens, values = get_img_valid_disassemble_tokens_values(processor,
