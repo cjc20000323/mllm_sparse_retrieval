@@ -642,7 +642,16 @@ def main():
 
                     else:
                         if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
-                            query_dense_reps = query_dense_reps.reshape(-1, len(prompts),
+                            if model_args.calculate_type == 'concat':
+                                if data_args.prompt_type == 'prompt_5':
+                                    prompt_length = 5
+                                elif data_args.prompt_type == 'prompt_3':
+                                    prompt_length = 3
+                                else:
+                                    prompt_length = 5
+                            else:
+                                prompt_length = 5
+                            query_dense_reps = query_dense_reps.reshape(-1, prompt_length,
                                                                         query_dense_reps.shape[1]).mean(1)
                         query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
                         dense_scores, dense_rankings = search_queries(dense_retriever, query_dense_reps, look_up,
@@ -748,10 +757,14 @@ def main():
                                     if model_args.eol_type == 'disassembleeol_concrete':
                                         logit = query_logits[text_indice]
                                     text = texts[text_indice]
+                                    if data_args.prompt_type == 'prompt_5':
+                                        length = 5
+                                    elif data_args.prompt_type == 'prompt_3':
+                                        length = 3
+                                    else:
+                                        length = 5
                                     disassemble_logit = disassemble_logits[
-                                                        text_indice * len(llama3_retrieval_disassemble_text_prompts):(
-                                                                                                                             text_indice + 1) * len(
-                                                            llama3_retrieval_disassemble_text_prompts)]
+                                                        text_indice * length:(text_indice + 1) * length]
                                     vector = dict()
                                     if model_args.eol_type == 'disassembleeol_concrete':
                                         tokens, values = get_text_valid_disassemble_tokens_values(text, processor.tokenizer,

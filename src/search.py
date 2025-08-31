@@ -692,7 +692,16 @@ def main():
                     else:
                         query_dense_reps = F.normalize(query_dense_reps, dim=-1)
                         if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                            query_dense_reps = query_dense_reps.reshape(-1, len(prompts),
+                            if model_args.calculate_type == 'concat':
+                                if data_args.prompt_type == 'prompt_5':
+                                    prompt_length = 5
+                                elif data_args.prompt_type == 'prompt_3':
+                                    prompt_length = 3
+                                else:
+                                    prompt_length = 5
+                            else:
+                                prompt_length = 5
+                            query_dense_reps = query_dense_reps.reshape(-1, prompt_length,
                                                                         query_dense_reps.shape[1]).mean(1)
                         query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
                         dense_scores, dense_rankings = search_queries(dense_retriever, query_dense_reps, look_up,
@@ -936,6 +945,7 @@ def main():
 
     del model
 
+    '''
     if search_args.passage_reps is not None and search_args.sparse_index is not None:
         fusion_run.update(
             fuse(
@@ -947,6 +957,7 @@ def main():
     print(len(dense_run))
     print(len(sparse_run))
     print(len(fusion_run))
+    '''
     fusion_run_1.update(
         fuse(
             runs=[dense_run, sparse_run],

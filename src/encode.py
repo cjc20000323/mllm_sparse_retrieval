@@ -248,9 +248,6 @@ def get_img_disassemble_tokens_values_for_information_analysis(tokenizer, disass
         vocabs = []
         for indice in top_k_indices.cpu().detach().float().numpy():
             vocabs.append(vocab_dict[int(indice.item())])
-        if dist.get_rank() == 0:
-            print(vocabs)
-            print(values)
 
 
 def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args, filtered_ids, model_args=None):
@@ -526,9 +523,6 @@ def get_text_disassemble_tokens_values_for_information_analysis(text, tokenizer,
         vocabs = []
         for indice in top_k_indices.cpu().detach().float().numpy():
             vocabs.append(vocab_dict[int(indice.item())])
-        if dist.get_rank() == 0:
-            print(vocabs)
-            print(values)
 
 
 '''
@@ -921,7 +915,16 @@ def main():
                 # print(logits.shape)
                 reps = F.normalize(reps, dim=-1)
                 if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                    reps = reps.reshape(-1, len(prompts), reps.shape[1]).mean(1)
+                    if model_args.calculate_type == 'concat':
+                        if data_args.prompt_type == 'prompt_5':
+                            prompt_length = 5
+                        elif data_args.prompt_type == 'prompt_3':
+                            prompt_length = 3
+                        else:
+                            prompt_length = 5
+                    else:
+                        prompt_length = 5
+                    reps = reps.reshape(-1, prompt_length, reps.shape[1]).mean(1)
                 if training_args.encode_type == 'text':
                     lookup_indices.extend(text_ids)
                 else:

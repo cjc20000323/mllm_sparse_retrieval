@@ -109,8 +109,6 @@ class MLLMRetrievalModel(nn.Module):
                             disassemble_batch_ids, disassemble_sequence_lengths]
                         embs = disassemble_output.hidden_states[-1][disassemble_batch_ids, disassemble_sequence_lengths]
                     disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
-                    print(disassemble_logits.shape)
-                    print(embs.shape)
                     return disassemble_logits, embs
 
                 if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
@@ -162,12 +160,6 @@ class MLLMRetrievalModel(nn.Module):
                     text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                             return_tensors="pt",
                                             padding=True).to('cuda')
-                    if dist.get_rank() == 0:
-                        print([prompt.replace('<sent>', text) for text in input])
-                        print(text_inputs['input_ids'])
-                        print(text_inputs['input_ids'].shape)
-                        print(text_inputs['attention_mask'])
-                        print(text_inputs['attention_mask'].shape)
                 elif 'disassembleeol' in model_args.eol_type:
                     text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                             return_tensors="pt",
@@ -218,8 +210,6 @@ class MLLMRetrievalModel(nn.Module):
                     logits = torch.cat([logits, disassemble_logits], dim=0)
                 if 'disassembleeol_separate' in model_args.eol_type:
                     logits = disassemble_logits
-                print(logits.shape)
-                print(embs.shape)
 
             return logits, embs
         elif input_type == 'image':
@@ -794,11 +784,25 @@ class MLLMRetrievalModel(nn.Module):
             begin_col_list = []
             for i in range(len(begin_of_text_indices[1])):
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
-                        begin_col_list.append(begin_of_text_indices[1][i].item())
+                    if data_args.prompt_type == 'prompt_5':
+                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    elif data_args.prompt_type == 'prompt_3':
+                        if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    else:
+                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
-                    if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
-                        begin_col_list.append(begin_of_text_indices[1][i].item())
+                    if data_args.prompt_type == 'prompt_5':
+                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    elif data_args.prompt_type == 'prompt_3':
+                        if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    else:
+                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
 
@@ -888,11 +892,25 @@ class MLLMRetrievalModel(nn.Module):
             begin_col_list = []
             for i in range(len(begin_of_text_indices[1])):
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
-                        begin_col_list.append(begin_of_text_indices[1][i].item())
+                    if data_args.prompt_type == 'prompt_5':
+                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    elif data_args.prompt_type == 'prompt_3':
+                        if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    else:
+                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
-                    if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
-                        begin_col_list.append(begin_of_text_indices[1][i].item())
+                    if data_args.prompt_type == 'prompt_5':
+                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    elif data_args.prompt_type == 'prompt_3':
+                        if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    else:
+                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
             img_inputs_embeds = self.encoder.get_input_embeddings()(input['input_ids'])
