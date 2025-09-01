@@ -53,6 +53,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class EqualModule(nn.Module):
+    def __init__(self):  # 根据你的需求初始化参数
+        super(EqualModule, self).__init__()
+        # 在这里定义你需要的层或参数
+        # self.some_parameter = nn.Parameter(...)
+        # self.some_layer = nn.Linear(...)
+
+    def forward(self, x):
+        # 在这里实现你的 'equal' 操作
+        # your_custom_operation = ...
+        return x
+
+
 def main():
     parser = HfArgumentParser(
         (ModelArguments, PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, TrainingArguments))
@@ -134,9 +147,7 @@ def main():
     vocab_dict = {v: k for k, v in vocab_dict.items()}
 
     if search_args.embedding_type == 'dense':
-        def equal(name):
-            return name
-
+        equal = EqualModule()
         encoder.language_model.lm_head = equal
 
     if model_args.use_output_embedding_cluster:
@@ -223,10 +234,13 @@ def main():
 
     dense_retriever_indices = []
     sparse_retriever_indices = []
-    model_cpu_time = []
-    model_gpu_time = []
-    similarity_cpu_time = []
-    similarity_gpu_time = []
+    # model_cpu_time = []
+    # model_gpu_time = []
+    # similarity_cpu_time = []
+    # similarity_gpu_time = []
+    dense_search_time = []
+    sparse_search_time = []
+    embedding_time = []
 
     if search_args.passage_reps is not None:
         # 目前尚不清楚这里是怎么工作的
@@ -254,6 +268,8 @@ def main():
 
             p_reps_0, p_lookup_0 = pickle_load(index_files[0])
             print(p_reps_0.shape)
+            if model_args.calculate_type == 'large':
+                p_reps_0 = p_reps_0.squeeze()
             dense_retriever = FaissFlatSearcher(p_reps_0)
             # 经DeepSeek老师讲解，他说FaissFlatSearcher初始化时仅分配了内存结构，未添加任何数据。所以这里再重新加一下，
             # 这也和源代码中重复add了p_reps_0一致，希望D老师没骗我吧
@@ -610,19 +626,14 @@ def main():
                 # CPU时间结束
                 cpu_end = time.time()
 
-                model_cpu_time.append(cpu_end - cpu_start)
-                model_gpu_time.append(gpu_start.elapsed_time(gpu_end))
+                # model_cpu_time.append(cpu_end - cpu_start)
+                # model_gpu_time.append(gpu_start.elapsed_time(gpu_end))
+                embedding_time.append(cpu_end - cpu_start)
 
                 if search_args.query_type == 'text':
                     batch_ids = text_ids
                 else:
                     batch_ids = img_ids
-                # CPU时间开始
-                cpu_start = time.time()
-                # GPU事件开始
-                gpu_start = torch.cuda.Event(enable_timing=True)
-                gpu_end = torch.cuda.Event(enable_timing=True)
-                gpu_start.record()
                 if dense_retriever is not None:
                     if isinstance(query_dense_reps, list):
                         for qid, reps in zip(batch_ids, query_dense_reps):
@@ -654,10 +665,23 @@ def main():
                             query_dense_reps = query_dense_reps.reshape(-1, prompt_length,
                                                                         query_dense_reps.shape[1]).mean(1)
                         query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
+                        # CPU时间开始
+                        cpu_start = time.time()
+                        # GPU事件开始
+                        gpu_start = torch.cuda.Event(enable_timing=True)
+                        gpu_end = torch.cuda.Event(enable_timing=True)
+                        gpu_start.record()
                         dense_scores, dense_rankings = search_queries(dense_retriever, query_dense_reps, look_up,
                                                                       search_args)
+                        gpu_end.record()
+                        torch.cuda.synchronize()  # 等待GPU完成
+
+                        # CPU时间结束
+                        cpu_end = time.time()
+                        dense_search_time.append(cpu_end - cpu_start)
                         dense_run.update(
                             get_run_dict(batch_ids, dense_scores, dense_rankings, search_args.remove_query))
+
                 if sparse_retriever is not None:
                     if isinstance(query_logits, list):
                         if search_args.query_type == 'text':
@@ -802,9 +826,21 @@ def main():
                                     for token, v in vector.items():
                                         query += (' ' + token) * v
                                     batch_topics.append(query.strip())
+                                # CPU时间开始
+                                cpu_start = time.time()
+                                # GPU事件开始
+                                gpu_start = torch.cuda.Event(enable_timing=True)
+                                gpu_end = torch.cuda.Event(enable_timing=True)
+                                gpu_start.record()
                                 sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                                batch_ids,
                                                                                search_args)
+                                gpu_end.record()
+                                torch.cuda.synchronize()  # 等待GPU完成
+
+                                # CPU时间结束
+                                cpu_end = time.time()
+                                sparse_search_time.append(cpu_end - cpu_start)
                                 sparse_run.update(
                                     get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
                             else:
@@ -857,9 +893,21 @@ def main():
                                     for token, v in vector.items():
                                         query += (' ' + token) * v
                                     batch_topics.append(query.strip())
+                                # CPU时间开始
+                                cpu_start = time.time()
+                                # GPU事件开始
+                                gpu_start = torch.cuda.Event(enable_timing=True)
+                                gpu_end = torch.cuda.Event(enable_timing=True)
+                                gpu_start.record()
                                 sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                                batch_ids,
                                                                                search_args)
+                                gpu_end.record()
+                                torch.cuda.synchronize()  # 等待GPU完成
+
+                                # CPU时间结束
+                                cpu_end = time.time()
+                                sparse_search_time.append(cpu_end - cpu_start)
                                 sparse_run.update(
                                     get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
 
@@ -910,9 +958,21 @@ def main():
                                     for token, v in vector.items():
                                         query += (' ' + token) * v
                                     batch_topics.append(query.strip())
+                                # CPU时间开始
+                                cpu_start = time.time()
+                                # GPU事件开始
+                                gpu_start = torch.cuda.Event(enable_timing=True)
+                                gpu_end = torch.cuda.Event(enable_timing=True)
+                                gpu_start.record()
                                 sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                                batch_ids,
                                                                                search_args)
+                                gpu_end.record()
+                                torch.cuda.synchronize()  # 等待GPU完成
+
+                                # CPU时间结束
+                                cpu_end = time.time()
+                                sparse_search_time.append(cpu_end - cpu_start)
                                 sparse_run.update(
                                     get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
 
@@ -969,24 +1029,26 @@ def main():
                                     for token, v in vector.items():
                                         query += (' ' + token) * v
                                     batch_topics.append(query.strip())
+                                # CPU时间开始
+                                cpu_start = time.time()
+                                # GPU事件开始
+                                gpu_start = torch.cuda.Event(enable_timing=True)
+                                gpu_end = torch.cuda.Event(enable_timing=True)
+                                gpu_start.record()
                                 sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                                batch_ids,
                                                                                search_args)
+                                gpu_end.record()
+                                torch.cuda.synchronize()  # 等待GPU完成
+
+                                # CPU时间结束
+                                cpu_end = time.time()
+                                sparse_search_time.append(cpu_end - cpu_start)
                                 sparse_run.update(
                                     get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query))
 
-                gpu_end.record()
-                torch.cuda.synchronize()  # 等待GPU完成
-
-                # CPU时间结束
-                cpu_end = time.time()
-
-                similarity_cpu_time.append(cpu_end - cpu_start)
-                similarity_gpu_time.append(gpu_start.elapsed_time(gpu_end))
-
-                if model_args.eol_type == 'metaeol':
-                    del query_dense_reps
-                    del query_logits
+                # similarity_cpu_time.append(cpu_end - cpu_start)
+                # similarity_gpu_time.append(gpu_start.elapsed_time(gpu_end))
 
         if dense_retriever:
             del dense_retriever
@@ -994,28 +1056,24 @@ def main():
 
     del model
 
-    if search_args.passage_reps is not None and search_args.sparse_index is not None:
-        fusion_run.update(
-            fuse(
-                runs=[dense_run, sparse_run],
-                weights=[search_args.alpha, search_args.beta]
-            )
-        )
+    if len(embedding_time) == 0:
+        mean_embedding_time = 0
+    else:
+        mean_embedding_time = sum(embedding_time) / len(embedding_time)
+    if len(dense_search_time) == 0:
+        mean_dense_search_time = 0
+    else:
+        mean_dense_search_time = sum(dense_search_time) / len(dense_search_time)
+    if len(sparse_search_time) == 0:
+        mean_sparse_search_time = 0
+    else:
+        mean_sparse_search_time = sum(sparse_search_time) / len(sparse_search_time)
 
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args)
-
-    metric.sort_and_count()
-
-    metric.all_gather_object()
-    metric.print_recall()
-
-    print(f'rank {rank}, sum of model cpu time: {sum(model_cpu_time)}, sum of model gpu time: {sum(model_gpu_time)}'
-          f', mean of model cpu time: {sum(model_cpu_time) / len(model_cpu_time)}, '
-          f'mean of model gpu time: {sum(model_gpu_time) / len(model_gpu_time)}')
-    print(
-        f'rank {rank}, sum of similarity cpu time: {sum(similarity_cpu_time)}, sum of similarity gpu time: {sum(similarity_gpu_time)}'
-        f', mean of similarity cpu time: {sum(similarity_cpu_time) / len(similarity_cpu_time)}, '
-        f'mean of similarity gpu time: {sum(similarity_gpu_time) / len(similarity_gpu_time)}')
+    print(f'rank {rank}, sum of embedding_time: {sum(embedding_time)}, sum of dense search time: '
+          f'{sum(dense_search_time)}, sum of sparse search time: {sum(sparse_search_time)}'
+          f', mean of embedding_time: {mean_embedding_time}, '
+          f'mean of dense search time: {mean_dense_search_time}, '
+          f'mean of sparse search time: {mean_sparse_search_time}')
 
     # 训练结束后添加同步屏障
     dist.barrier()

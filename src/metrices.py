@@ -1,6 +1,7 @@
 import torch.distributed as dist
 import torch
 from tqdm import tqdm
+import pandas as pd
 
 
 class RecallMetrics:
@@ -109,9 +110,11 @@ class RecallMetrics:
         for k in self.recall_k_setting_list:
             dist.all_gather_object(object_list=self.fusion_recall_lists[k], obj=self.fusion_counts[k])
 
-    def print_recall(self):
+    def print_recall(self, output_path):
         if dist.get_rank() == 0:
             print(len(self.lookup_indices) * dist.get_world_size())
+            xlsx_data = []
+            xlsx_data.append([1, 5, 10, 100, 200, 300, 400])
             if len(self.dense_run) > 0:
                 print(len(self.look_up))
                 dense_recalls = {k: sum(self.dense_recall_lists[k]) for k in self.recall_k_setting_list}
@@ -127,6 +130,13 @@ class RecallMetrics:
                         dense_recalls[300],
                         dense_recalls[400]
                     ))
+                xlsx_data.append([dense_recalls[1],
+                                  dense_recalls[5],
+                                  dense_recalls[10],
+                                  dense_recalls[100],
+                                  dense_recalls[200],
+                                  dense_recalls[300],
+                                  dense_recalls[400]])
 
             if len(self.sparse_run) > 0:
                 sparse_recalls = {k: sum(self.sparse_recall_lists[k]) for k in self.recall_k_setting_list}
@@ -141,6 +151,13 @@ class RecallMetrics:
                         sparse_recalls[200],
                         sparse_recalls[300],
                         sparse_recalls[400]))
+                xlsx_data.append([sparse_recalls[1],
+                                  sparse_recalls[5],
+                                  sparse_recalls[10],
+                                  sparse_recalls[100],
+                                  sparse_recalls[200],
+                                  sparse_recalls[300],
+                                  sparse_recalls[400]])
             if len(self.fusion_run) > 0:
                 fusion_recalls = {k: sum(self.fusion_recall_lists[k]) for k in self.recall_k_setting_list}
                 for k in self.recall_k_setting_list:
@@ -154,3 +171,14 @@ class RecallMetrics:
                         fusion_recalls[200],
                         fusion_recalls[300],
                         fusion_recalls[400]))
+                xlsx_data.append([fusion_recalls[1],
+                        fusion_recalls[5],
+                        fusion_recalls[10],
+                        fusion_recalls[100],
+                        fusion_recalls[200],
+                        fusion_recalls[300],
+                        fusion_recalls[400]])
+            df = pd.DataFrame(xlsx_data[1:], columns=xlsx_data[0])
+
+            # 将DataFrame写入Excel文件，index=False表示不写入行索引
+            df.to_excel(output_path, index=False)

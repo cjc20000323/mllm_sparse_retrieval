@@ -494,16 +494,7 @@ def main():
 
                 query_dense_reps = F.normalize(query_dense_reps, dim=-1)
                 if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                    if model_args.calculate_type == 'concat':
-                        if data_args.prompt_type == 'prompt_5':
-                            prompt_length = 5
-                        elif data_args.prompt_type == 'prompt_3':
-                            prompt_length = 3
-                        else:
-                            prompt_length = 5
-                    else:
-                        prompt_length = 5
-                    query_dense_reps = query_dense_reps.reshape(-1, prompt_length,
+                    query_dense_reps = query_dense_reps.reshape(-1, len(prompts),
                                                                 query_dense_reps.shape[1]).mean(1)
                 if search_args.query_type == 'text':
                     batch_ids = text_ids
@@ -561,9 +552,9 @@ def main():
                             if data_args.sparse_value_mean:
                                 for token in vector.keys():
                                     if data_args.prompt_type == 'prompt_5':
-                                        vector[token] //= 5
+                                        vector[token] /= 5
                                     else:
-                                        vector[token] //= 3
+                                        vector[token] /= 3
                             query = ""
                             for token, v in vector.items():
                                 query += (' ' + token) * v
@@ -614,9 +605,9 @@ def main():
                             if data_args.sparse_value_mean:
                                 for token in vector.keys():
                                     if data_args.prompt_type == 'prompt_5':
-                                        vector[token] //= 5
+                                        vector[token] /= 5
                                     else:
-                                        vector[token] //= 3
+                                        vector[token] /= 3
                             query = ""
                             for token, v in vector.items():
                                 query += (' ' + token) * v
@@ -777,119 +768,6 @@ def main():
                 dense_run.update(
                     get_run_dict(batch_ids, dense_scores_list, dense_rankings_list, search_args.remove_query))
 
-    fusion_run_1.update(
-        fuse(
-            runs=[dense_run, sparse_run],
-            weights=[0.5, 0.5]
-        )
-    )
-
-    if data_args.is_filtered:
-        filtered = "filter"
-    else:
-        filtered = "no_filter"
-
-    if data_args.sparse_manual:
-        manual = 'manual'
-    else:
-        manual = "no_manual"
-
-    if model_args.use_output_embedding_cluster:
-        cluster = f'cluster_{model_args.cluster_sum}'
-    else:
-        cluster = 'no_cluster'
-
-    if data_args.sparse_value_mean:
-        use_sparse_value_mean = 'mean'
-    else:
-        use_sparse_value_mean = 'no_mean'
-
-    os.makedirs(
-        f'two_stage_search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
-        exist_ok=True)
-
-    output_path = os.path.join(
-                    f'two_stage_search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
-                    f'0_5_0_5.xlsx')
-
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_1, look_up, lookup_indices, search_args)
-
-    metric.sort_and_count()
-
-    metric.all_gather_object()
-    metric.print_recall(output_path)
-
-    fusion_run_2.update(
-        fuse(
-            runs=[dense_run, sparse_run],
-            weights=[0.6, 0.4]
-        )
-    )
-
-    output_path = os.path.join(
-        f'two_stage_search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
-        f'0_6_0_4.xlsx')
-
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_2, look_up, lookup_indices, search_args)
-
-    metric.sort_and_count()
-
-    metric.all_gather_object()
-    metric.print_recall(output_path)
-
-    fusion_run_3.update(
-        fuse(
-            runs=[dense_run, sparse_run],
-            weights=[0.7, 0.3]
-        )
-    )
-
-    output_path = os.path.join(
-        f'two_stage_search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
-        f'0_7_0_3.xlsx')
-
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_3, look_up, lookup_indices, search_args)
-
-    metric.sort_and_count()
-
-    metric.all_gather_object()
-    metric.print_recall(output_path)
-
-    fusion_run_4.update(
-        fuse(
-            runs=[dense_run, sparse_run],
-            weights=[0.8, 0.2]
-        )
-    )
-
-    output_path = os.path.join(
-        f'two_stage_search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
-        f'0_8_0_2.xlsx')
-
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_4, look_up, lookup_indices, search_args)
-
-    metric.sort_and_count()
-
-    metric.all_gather_object()
-    metric.print_recall(output_path)
-
-    fusion_run_5.update(
-        fuse(
-            runs=[dense_run, sparse_run],
-            weights=[0.9, 0.1]
-        )
-    )
-
-    output_path = os.path.join(
-        f'two_stage_search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
-        f'0_9_0_1.xlsx')
-
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_5, look_up, lookup_indices, search_args)
-
-    metric.sort_and_count()
-
-    metric.all_gather_object()
-    metric.print_recall(output_path)
 
     # 训练结束后添加同步屏障
     dist.barrier()
