@@ -886,9 +886,9 @@ def main():
                                     if data_args.sparse_value_mean:
                                         for token in vector.keys():
                                             if data_args.prompt_type == 'prompt_5':
-                                                vector[token] /= 5
+                                                vector[token] //= 5
                                             else:
-                                                vector[token] /= 3
+                                                vector[token] //= 3
                                     query = ""
                                     for token, v in vector.items():
                                         query += (' ' + token) * v
