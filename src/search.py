@@ -41,7 +41,7 @@ from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, ge
     get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, \
     get_img_valid_disassemble_tokens_values, llama3_template_image_prefix, llama3_template_content_element, \
     retrieval_disassemble_image_prompts_3_for_concat, \
-    retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat
+    retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, retrieval_disassemble_image_prompts_7_for_concat
 from hybrid import fuse, normalize
 from utils import load_image
 from peft import PeftModel
@@ -641,6 +641,14 @@ def main():
                             content_element = llama3_template_content_element.format(
                                 llama3_retrieval_disassemble_image_prompt)
                             prompt_template += content_element
+                    elif data_args.prompt_type == 'prompt_7':
+                        prompt_template = llama3_template_image_prefix
+                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                            prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                        for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
+                            content_element = llama3_template_content_element.format(
+                                llama3_retrieval_disassemble_image_prompt)
+                            prompt_template += content_element
                     else:
                         pass
                     if search_args.query_type == 'text':
@@ -697,6 +705,8 @@ def main():
                                     prompt_length = 5
                                 elif data_args.prompt_type == 'prompt_3':
                                     prompt_length = 3
+                                elif data_args.prompt_type == 'prompt_7':
+                                    prompt_length = 7
                                 else:
                                     prompt_length = 5
                             else:
@@ -721,6 +731,8 @@ def main():
                                     length = 5
                                 elif data_args.prompt_type == 'prompt_3':
                                     length = 3
+                                elif data_args.prompt_type == 'prompt_7':
+                                    length = 7
                                 else:
                                     length = 5
                                 disassemble_logit = disassemble_logits[
@@ -756,6 +768,8 @@ def main():
                                     for token in vector.keys():
                                         if data_args.prompt_type == 'prompt_5':
                                             vector[token] //= 5
+                                        elif data_args.prompt_type == 'prompt_7':
+                                            vector[token] //= 7
                                         else:
                                             vector[token] //= 3
                                 query = ""
@@ -777,6 +791,8 @@ def main():
                                     length = 5
                                 elif data_args.prompt_type == 'prompt_3':
                                     length = 3
+                                elif data_args.prompt_type == 'prompt_7':
+                                    length = 7
                                 else:
                                     length = 5
                                 disassemble_logit = disassemble_logits[
@@ -811,6 +827,8 @@ def main():
                                     for token in vector.keys():
                                         if data_args.prompt_type == 'prompt_5':
                                             vector[token] //= 5
+                                        elif data_args.prompt_type == 'prompt_7':
+                                            vector[token] //= 7
                                         else:
                                             vector[token] //= 3
                                 query = ""

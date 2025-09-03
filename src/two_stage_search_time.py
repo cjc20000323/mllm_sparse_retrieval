@@ -37,7 +37,7 @@ from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, ge
     get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, \
     get_img_valid_disassemble_tokens_values, llama3_template_image_prefix, llama3_template_content_element, \
     retrieval_disassemble_image_prompts_3_for_concat, \
-    retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat
+    retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, retrieval_disassemble_image_prompts_7_for_concat
 from hybrid import fuse, normalize
 from utils import load_image
 from peft import PeftModel
@@ -226,6 +226,9 @@ def main():
     dense_search_time = []
     sparse_search_time = []
     embedding_time = []
+    sparse_obtain_time = []
+    dense_obtain_time = []
+    dense_retriever_time = []
 
     if search_args.passage_reps is not None:
         # 目前尚不清楚这里是怎么工作的
@@ -267,8 +270,21 @@ def main():
             candidate_lookup.extend(p_lookup)
             look_up += p_lookup
         # 这个候选id到候选密集特征字典的键是字符串
+        print(f'candidate length: {len(candidate_reps)}')
+        print(type(candidate_reps))
+        print(type(candidate_lookup))
+
+        # candidate_reps = torch.tensor(candidate_reps)
+        # candidate_lookup = torch.tensor(candidate_lookup)
+        # print(f'candidate_reps shape: {candidate_reps.shape}')
+        # print(f'candidate_lookup shape: {candidate_lookup.shape}')
         for p_reps, p_lookup in zip(candidate_reps, candidate_lookup):
-            lookup_to_reps[p_lookup] = p_reps
+            if model_args.calculate_type == 'large':
+                lookup_to_reps[str(p_lookup)] = p_reps
+            else:
+                lookup_to_reps[p_lookup] = p_reps
+        if dist.get_rank() == 0:
+            print(list(lookup_to_reps.keys())[:12800])
 
         with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
@@ -479,6 +495,14 @@ def main():
                             content_element = llama3_template_content_element.format(
                                 llama3_retrieval_disassemble_image_prompt)
                             prompt_template += content_element
+                    elif data_args.prompt_type == 'prompt_7':
+                        prompt_template = llama3_template_image_prefix
+                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                            prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                        for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
+                            content_element = llama3_template_content_element.format(
+                                llama3_retrieval_disassemble_image_prompt)
+                            prompt_template += content_element
                     else:
                         pass
                     if search_args.query_type == 'text':
@@ -532,6 +556,13 @@ def main():
                 batch_topics = []
                 if 'disassembleeol' in model_args.eol_type:
                     if search_args.query_type == 'text':
+                        # CPU时间开始
+                        cpu_start = time.time()
+
+                        # GPU事件开始
+                        gpu_start = torch.cuda.Event(enable_timing=True)
+                        gpu_end = torch.cuda.Event(enable_timing=True)
+                        gpu_start.record()
                         for text_indice in range(len(batch_ids)):
                             id = batch_ids[text_indice]
                             if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
@@ -541,6 +572,8 @@ def main():
                                 length = 5
                             elif data_args.prompt_type == 'prompt_3':
                                 length = 3
+                            elif data_args.prompt_type == 'prompt_7':
+                                length = 7
                             else:
                                 length = 5
                             disassemble_logit = disassemble_logits[
@@ -576,12 +609,20 @@ def main():
                                 for token in vector.keys():
                                     if data_args.prompt_type == 'prompt_5':
                                         vector[token] //= 5
+                                    elif data_args.prompt_type == 'prompt_7':
+                                        vector[token] //= 7
                                     else:
                                         vector[token] //= 3
                             query = ""
                             for token, v in vector.items():
                                 query += (' ' + token) * v
                             batch_topics.append(query.strip())
+                        gpu_end.record()
+                        torch.cuda.synchronize()  # 等待GPU完成
+
+                        # CPU时间结束
+                        cpu_end = time.time()
+                        sparse_obtain_time.append(cpu_end - cpu_start)
                         # CPU时间开始
                         cpu_start = time.time()
                         # GPU事件开始
@@ -598,6 +639,13 @@ def main():
                         cpu_end = time.time()
                         sparse_search_time.append(cpu_end - cpu_start)
                     else:
+                        # CPU时间开始
+                        cpu_start = time.time()
+
+                        # GPU事件开始
+                        gpu_start = torch.cuda.Event(enable_timing=True)
+                        gpu_end = torch.cuda.Event(enable_timing=True)
+                        gpu_start.record()
                         for img_indice in range(len(batch_ids)):
                             id = batch_ids[img_indice]
                             if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
@@ -607,6 +655,8 @@ def main():
                                 length = 5
                             elif data_args.prompt_type == 'prompt_3':
                                 length = 3
+                            elif data_args.prompt_type == 'prompt_7':
+                                length = 7
                             else:
                                 length = 5
                             disassemble_logit = disassemble_logits[
@@ -641,12 +691,20 @@ def main():
                                 for token in vector.keys():
                                     if data_args.prompt_type == 'prompt_5':
                                         vector[token] //= 5
+                                    elif data_args.prompt_type == 'prompt_7':
+                                        vector[token] //= 7
                                     else:
                                         vector[token] //= 3
                             query = ""
                             for token, v in vector.items():
                                 query += (' ' + token) * v
                             batch_topics.append(query.strip())
+                        gpu_end.record()
+                        torch.cuda.synchronize()  # 等待GPU完成
+
+                        # CPU时间结束
+                        cpu_end = time.time()
+                        sparse_obtain_time.append(cpu_end - cpu_start)
                         # CPU时间开始
                         cpu_start = time.time()
                         # GPU事件开始
@@ -732,8 +790,9 @@ def main():
                 dense_rankings_list = []
                 # 在batch_sparse_run中，k是int型，v['docs']的键是字符串
                 for k, v in batch_sparse_run.items():
-                    sorted_by_value = sorted(v['docs'].items(), key=lambda x: x[1], reverse=True)
-                    sorted_by_value_dict = dict(sorted_by_value[:search_args.first_stage_search_sum])
+                    # sorted_by_value = sorted(v['docs'].items(), key=lambda x: x[1], reverse=True)
+                    # sorted_by_value_dict = dict(sorted_by_value[:search_args.first_stage_search_sum])
+                    sorted_by_value_dict = dict(list(v['docs'].items())[:search_args.first_stage_search_sum])
                     '''
                     if dist.get_rank() == 0:
                         print(len(sorted_by_value))
@@ -741,6 +800,13 @@ def main():
                         print(sorted_by_value_dict)
                     '''
                     if len(sorted_by_value_dict) != 0:
+                        # CPU时间开始
+                        cpu_start = time.time()
+
+                        # GPU事件开始
+                        gpu_start = torch.cuda.Event(enable_timing=True)
+                        gpu_end = torch.cuda.Event(enable_timing=True)
+                        gpu_start.record()
                         min_value = min(sorted_by_value_dict.values())
                         max_value = max(sorted_by_value_dict.values())
                         batch_sparse_run[k] = {'docs': sorted_by_value_dict, 'min_score': min_value,
@@ -758,11 +824,23 @@ def main():
                             chosen_lookup_to_reps.append(lookup_to_reps[p_lookup])
                             single_look_up += [p_lookup]
                         dense_retriever.add(np.array(chosen_lookup_to_reps))
+                        gpu_end.record()
+                        torch.cuda.synchronize()  # 等待GPU完成
+
+                        # CPU时间结束
+                        cpu_end = time.time()
+                        dense_obtain_time.append(cpu_end - cpu_start)
                         del chosen_lookup_to_reps
                         # 强制触发垃圾回收
                         gc.collect()
                         # 对于PyTorch，还可以尝试调用torch.cuda.empty_cache()
                         torch.cuda.empty_cache()
+                        # CPU时间开始
+                        cpu_start = time.time()
+                        # GPU事件开始
+                        gpu_start = torch.cuda.Event(enable_timing=True)
+                        gpu_end = torch.cuda.Event(enable_timing=True)
+                        gpu_start.record()
                         if search_args.use_gpu:
                             num_gpus = faiss.get_num_gpus()
                             if num_gpus == 0:
@@ -780,7 +858,12 @@ def main():
                                     co.useFloat16 = True
                                     dense_retriever.index = faiss.index_cpu_to_all_gpus(dense_retriever.index, co,
                                                                                         ngpu=num_gpus)
+                        gpu_end.record()
+                        torch.cuda.synchronize()  # 等待GPU完成
 
+                        # CPU时间结束
+                        cpu_end = time.time()
+                        dense_retriever_time.append(cpu_end - cpu_start)
                         # CPU时间开始
                         cpu_start = time.time()
                         # GPU事件开始
@@ -804,7 +887,7 @@ def main():
 
                         # CPU时间结束
                         cpu_end = time.time()
-                        sparse_search_time.append(cpu_end - cpu_start)
+                        dense_search_time.append(cpu_end - cpu_start)
                         dense_scores_list.append(dense_scores[0])
                         dense_rankings_list.append(dense_rankings[0])
                         '''
@@ -840,12 +923,30 @@ def main():
         mean_sparse_search_time = 0
     else:
         mean_sparse_search_time = sum(sparse_search_time) / len(sparse_search_time)
+    if len(sparse_obtain_time) == 0:
+        mean_sparse_obtain_time = 0
+    else:
+        mean_sparse_obtain_time = sum(sparse_obtain_time) / len(sparse_obtain_time)
+    if len(dense_obtain_time) == 0:
+        mean_dense_obtain_time = 0
+    else:
+        mean_dense_obtain_time = sum(dense_obtain_time) / len(dense_obtain_time)
+    if len(dense_retriever_time) == 0:
+        mean_dense_retriever_time = 0
+    else:
+        mean_dense_retriever_time = sum(dense_retriever_time) / len(dense_retriever_time)
 
     print(f'rank {rank}, sum of embedding_time: {sum(embedding_time)}, sum of dense search time: '
-          f'{sum(dense_search_time)}, sum of sparse search time: {sum(sparse_search_time)}'
+          f'{sum(dense_search_time)}, sum of sparse search time: {sum(sparse_search_time)}, '
+          f'sum of sparse obtain time: {sum(sparse_obtain_time)}, '
+          f'sum of dense obtain time: {sum(dense_obtain_time)}, '
+          f'sum of dense retriever time: {sum(dense_retriever_time)}'
           f', mean of embedding_time: {mean_embedding_time}, '
           f'mean of dense search time: {mean_dense_search_time}, '
-          f'mean of sparse search time: {mean_sparse_search_time}')
+          f'mean of sparse search time: {mean_sparse_search_time}, '
+          f'mean of sparse obtain time: {mean_sparse_obtain_time}, '
+          f'mean of dense obtain time: {mean_dense_obtain_time}, '
+          f'mean of dense retriever time: {mean_dense_retriever_time}')
 
     # 训练结束后添加同步屏障
     dist.barrier()

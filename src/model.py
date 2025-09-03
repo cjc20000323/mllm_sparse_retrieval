@@ -12,7 +12,7 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     llama3_template, task_text_prompts_copy, llama3_retrieval_disassemble_text_prompts, \
     llama3_template_text_prefix, llama3_template_content_element, text_prompt_for_concat, \
     retrieval_disassemble_text_prompts_3_for_concat, retrieval_disassemble_text_prompts_for_concat, \
-    retrieval_disassemble_image_prompts_for_concat
+    retrieval_disassemble_text_prompts_7_for_concat
 import torch.nn.functional as F
 
 
@@ -772,6 +772,12 @@ class MLLMRetrievalModel(nn.Module):
             for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_3_for_concat:
                 content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_image_prompt)
                 prompt_template += content_element
+        elif data_args.prompt_type == 'prompt_7':
+            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_7_for_concat:
+                content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_image_prompt)
+                prompt_template += content_element
         else:
             pass
         if input_type == 'text':
@@ -790,6 +796,9 @@ class MLLMRetrievalModel(nn.Module):
                     elif data_args.prompt_type == 'prompt_3':
                         if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 2) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
+                    elif data_args.prompt_type == 'prompt_7':
+                        if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
                         if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
@@ -799,6 +808,9 @@ class MLLMRetrievalModel(nn.Module):
                             begin_col_list.append(begin_of_text_indices[1][i].item())
                     elif data_args.prompt_type == 'prompt_3':
                         if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    elif data_args.prompt_type == 'prompt_7':
+                        if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
                         if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
@@ -864,7 +876,7 @@ class MLLMRetrievalModel(nn.Module):
                 logits = torch.log(1 + torch.relu(logits))
                 embs = output.hidden_states[-1][:, end_col_list, :].reshape(batch_size * len(end_col_list), -1)
             elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
-                logits = output.logits[:, end_of_text_indices[1][0], :]
+                logits = output.logits[:, end_col_list[0], :]
                 disassemble_logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
                 logits = torch.cat([logits, disassemble_logits], dim=0)
                 logits = torch.log(1 + torch.relu(logits))
@@ -898,6 +910,9 @@ class MLLMRetrievalModel(nn.Module):
                     elif data_args.prompt_type == 'prompt_3':
                         if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 2) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
+                    elif data_args.prompt_type == 'prompt_7':
+                        if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
                         if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
@@ -907,6 +922,9 @@ class MLLMRetrievalModel(nn.Module):
                             begin_col_list.append(begin_of_text_indices[1][i].item())
                     elif data_args.prompt_type == 'prompt_3':
                         if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    elif data_args.prompt_type == 'prompt_7':
+                        if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
                         if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
@@ -971,7 +989,7 @@ class MLLMRetrievalModel(nn.Module):
                 logits = torch.log(1 + torch.relu(logits))
                 embs = output.hidden_states[-1][:, end_col_list, :].reshape(batch_size * len(end_col_list), -1)
             elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
-                logits = output.logits[:, end_of_text_indices[1][0], :]
+                logits = output.logits[:, end_col_list[0], :]
                 disassemble_logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]),
                                                                                    -1)
                 logits = torch.cat([logits, disassemble_logits], dim=0)

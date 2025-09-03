@@ -32,7 +32,7 @@ from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qw
     img_prompt_intern_vl_v2_5, llama3_template, task_text_prompts_copy, task_image_prompts_copy, \
     llama3_retrieval_disassemble_image_prompts, llama3_retrieval_disassemble_text_prompts, \
     llama3_template_image_prefix, llama3_template_content_element, retrieval_disassemble_image_prompts_3_for_concat, \
-    retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat
+    retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, retrieval_disassemble_image_prompts_7_for_concat
 from utils import load_image
 
 
@@ -889,6 +889,14 @@ def main():
                             content_element = llama3_template_content_element.format(
                                 llama3_retrieval_disassemble_image_prompt)
                             prompt_template += content_element
+                    elif data_args.prompt_type == 'prompt_7':
+                        prompt_template = llama3_template_image_prefix
+                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                            prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                        for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
+                            content_element = llama3_template_content_element.format(
+                                llama3_retrieval_disassemble_image_prompt)
+                            prompt_template += content_element
                     else:
                         pass
                     if training_args.encode_type == 'text':
@@ -920,6 +928,8 @@ def main():
                             prompt_length = 5
                         elif data_args.prompt_type == 'prompt_3':
                             prompt_length = 3
+                        elif data_args.prompt_type == 'prompt_7':
+                            prompt_length = 7
                         else:
                             prompt_length = 5
                     else:
@@ -944,6 +954,8 @@ def main():
                                 length = 5
                             elif data_args.prompt_type == 'prompt_3':
                                 length = 3
+                            elif data_args.prompt_type == 'prompt_7':
+                                length = 7
                             else:
                                 length = 5
                             disassemble_logit = disassemble_logits[
@@ -979,8 +991,10 @@ def main():
                                 for token in vector.keys():
                                     if data_args.prompt_type == 'prompt_5':
                                         vector[token] //= 5
-                                    else:
+                                    elif data_args.prompt_type == 'prompt_3':
                                         vector[token] //= 3
+                                    else:
+                                        vector[token] //= 7
                             jsonl_data.append(
                                 dict(
                                     id=id,
@@ -998,6 +1012,8 @@ def main():
                                 length = 5
                             elif data_args.prompt_type == 'prompt_3':
                                 length = 3
+                            elif data_args.prompt_type == 'prompt_7':
+                                length = 7
                             else:
                                 length = 5
                             disassemble_logit = disassemble_logits[
@@ -1032,6 +1048,8 @@ def main():
                                 for token in vector.keys():
                                     if data_args.prompt_type == 'prompt_5':
                                         vector[token] //= 5
+                                    elif data_args.prompt_type == 'prompt_7':
+                                        vector[token] //= 7
                                     else:
                                         vector[token] //= 3
                             jsonl_data.append(
@@ -1234,6 +1252,7 @@ def main():
                         f.write(json.dumps(data) + "\n")
 
         else:
+            print(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}')
             os.makedirs(
                 f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
                 exist_ok=True)
