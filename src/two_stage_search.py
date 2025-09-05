@@ -257,9 +257,11 @@ def main():
         candidate_lookup = []
         look_up = []
         for p_reps, p_lookup in shards:
+            '''
             if dist.get_rank() == 0:
                 print(p_reps)
                 print(p_lookup)
+            '''
             candidate_reps.extend(p_reps)
             candidate_lookup.extend(p_lookup)
             look_up += p_lookup
