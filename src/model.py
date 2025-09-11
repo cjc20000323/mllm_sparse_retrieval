@@ -810,7 +810,7 @@ class MLLMRetrievalModel(nn.Module):
                         if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
                     elif data_args.prompt_type == 'prompt_7':
-                        if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
+                        if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
                         if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
@@ -924,7 +924,7 @@ class MLLMRetrievalModel(nn.Module):
                         if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
                     elif data_args.prompt_type == 'prompt_7':
-                        if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
+                        if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
                         if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:

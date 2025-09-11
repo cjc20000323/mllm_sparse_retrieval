@@ -291,11 +291,12 @@ def main():
                                                                          total=len(test_dataloader)):
                 # CPU时间开始
                 cpu_start = time.time()
-
+                '''
                 # GPU事件开始
                 gpu_start = torch.cuda.Event(enable_timing=True)
                 gpu_end = torch.cuda.Event(enable_timing=True)
                 gpu_start.record()
+                '''
                 if search_args.query_type == 'text':
                     lookup_indices.extend(text_ids)
                 else:
@@ -529,8 +530,10 @@ def main():
                         elif 'disassembleeol' in model_args.eol_type:
                             disassemble_logits = query_logits
 
+                '''
                 gpu_end.record()
                 torch.cuda.synchronize()  # 等待GPU完成
+                '''
 
                 # CPU时间结束
                 cpu_end = time.time()
@@ -558,11 +561,12 @@ def main():
                     if search_args.query_type == 'text':
                         # CPU时间开始
                         cpu_start = time.time()
-
+                        '''
                         # GPU事件开始
                         gpu_start = torch.cuda.Event(enable_timing=True)
                         gpu_end = torch.cuda.Event(enable_timing=True)
                         gpu_start.record()
+                        '''
                         for text_indice in range(len(batch_ids)):
                             id = batch_ids[text_indice]
                             if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
@@ -617,23 +621,29 @@ def main():
                             for token, v in vector.items():
                                 query += (' ' + token) * v
                             batch_topics.append(query.strip())
+                        '''
                         gpu_end.record()
                         torch.cuda.synchronize()  # 等待GPU完成
+                        '''
 
                         # CPU时间结束
                         cpu_end = time.time()
                         sparse_obtain_time.append(cpu_end - cpu_start)
                         # CPU时间开始
                         cpu_start = time.time()
+                        '''
                         # GPU事件开始
                         gpu_start = torch.cuda.Event(enable_timing=True)
                         gpu_end = torch.cuda.Event(enable_timing=True)
                         gpu_start.record()
+                        '''
                         sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                        batch_ids,
                                                                        search_args)
+                        '''
                         gpu_end.record()
                         torch.cuda.synchronize()  # 等待GPU完成
+                        '''
 
                         # CPU时间结束
                         cpu_end = time.time()
@@ -641,11 +651,12 @@ def main():
                     else:
                         # CPU时间开始
                         cpu_start = time.time()
-
+                        '''
                         # GPU事件开始
                         gpu_start = torch.cuda.Event(enable_timing=True)
                         gpu_end = torch.cuda.Event(enable_timing=True)
                         gpu_start.record()
+                        '''
                         for img_indice in range(len(batch_ids)):
                             id = batch_ids[img_indice]
                             if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
@@ -699,23 +710,29 @@ def main():
                             for token, v in vector.items():
                                 query += (' ' + token) * v
                             batch_topics.append(query.strip())
+                        '''
                         gpu_end.record()
                         torch.cuda.synchronize()  # 等待GPU完成
+                        '''
 
                         # CPU时间结束
                         cpu_end = time.time()
                         sparse_obtain_time.append(cpu_end - cpu_start)
                         # CPU时间开始
                         cpu_start = time.time()
+                        '''
                         # GPU事件开始
                         gpu_start = torch.cuda.Event(enable_timing=True)
                         gpu_end = torch.cuda.Event(enable_timing=True)
                         gpu_start.record()
+                        '''
                         sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                        batch_ids,
                                                                        search_args)
+                        '''
                         gpu_end.record()
                         torch.cuda.synchronize()  # 等待GPU完成
+                        '''
 
                         # CPU时间结束
                         cpu_end = time.time()
@@ -802,11 +819,12 @@ def main():
                     if len(sorted_by_value_dict) != 0:
                         # CPU时间开始
                         cpu_start = time.time()
-
+                        '''
                         # GPU事件开始
                         gpu_start = torch.cuda.Event(enable_timing=True)
                         gpu_end = torch.cuda.Event(enable_timing=True)
                         gpu_start.record()
+                        '''
                         min_value = min(sorted_by_value_dict.values())
                         max_value = max(sorted_by_value_dict.values())
                         batch_sparse_run[k] = {'docs': sorted_by_value_dict, 'min_score': min_value,
@@ -824,8 +842,10 @@ def main():
                             chosen_lookup_to_reps.append(lookup_to_reps[p_lookup])
                             single_look_up += [p_lookup]
                         dense_retriever.add(np.array(chosen_lookup_to_reps))
+                        '''
                         gpu_end.record()
                         torch.cuda.synchronize()  # 等待GPU完成
+                        '''
 
                         # CPU时间结束
                         cpu_end = time.time()
@@ -837,10 +857,12 @@ def main():
                         torch.cuda.empty_cache()
                         # CPU时间开始
                         cpu_start = time.time()
+                        '''
                         # GPU事件开始
                         gpu_start = torch.cuda.Event(enable_timing=True)
                         gpu_end = torch.cuda.Event(enable_timing=True)
                         gpu_start.record()
+                        '''
                         if search_args.use_gpu:
                             num_gpus = faiss.get_num_gpus()
                             if num_gpus == 0:
@@ -858,18 +880,22 @@ def main():
                                     co.useFloat16 = True
                                     dense_retriever.index = faiss.index_cpu_to_all_gpus(dense_retriever.index, co,
                                                                                         ngpu=num_gpus)
+                        '''
                         gpu_end.record()
                         torch.cuda.synchronize()  # 等待GPU完成
+                        '''
 
                         # CPU时间结束
                         cpu_end = time.time()
                         dense_retriever_time.append(cpu_end - cpu_start)
                         # CPU时间开始
                         cpu_start = time.time()
+                        '''
                         # GPU事件开始
                         gpu_start = torch.cuda.Event(enable_timing=True)
                         gpu_end = torch.cuda.Event(enable_timing=True)
                         gpu_start.record()
+                        '''
                         if search_args.use_candidate_sum:
                             dense_scores, dense_rankings = search_queries_two_stage(dense_retriever,
                                                                                     query_dense_rep.cpu().unsqueeze(
@@ -882,8 +908,10 @@ def main():
                                                                                     query_dense_rep.cpu().unsqueeze(
                                                                                         0).detach().float().numpy(),
                                                                                     single_look_up, search_args)
+                        '''
                         gpu_end.record()
                         torch.cuda.synchronize()  # 等待GPU完成
+                        '''
 
                         # CPU时间结束
                         cpu_end = time.time()

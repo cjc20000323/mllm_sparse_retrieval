@@ -316,10 +316,12 @@ def main():
                 # CPU时间开始
                 cpu_start = time.time()
 
+                '''
                 # GPU事件开始
                 gpu_start = torch.cuda.Event(enable_timing=True)
                 gpu_end = torch.cuda.Event(enable_timing=True)
                 gpu_start.record()
+                '''
                 if search_args.query_type == 'text':
                     lookup_indices.extend(text_ids)
                 else:
@@ -628,8 +630,10 @@ def main():
                         elif 'disassembleeol' in model_args.eol_type:
                             disassemble_logits = query_logits
 
+                '''
                 gpu_end.record()
                 torch.cuda.synchronize()  # 等待GPU完成
+                '''
 
                 # CPU时间结束
                 cpu_end = time.time()
@@ -677,14 +681,18 @@ def main():
                         query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
                         # CPU时间开始
                         cpu_start = time.time()
+                        '''
                         # GPU事件开始
                         gpu_start = torch.cuda.Event(enable_timing=True)
                         gpu_end = torch.cuda.Event(enable_timing=True)
                         gpu_start.record()
+                        '''
                         dense_scores, dense_rankings = search_queries(dense_retriever, query_dense_reps, look_up,
                                                                       search_args)
+                        '''
                         gpu_end.record()
                         torch.cuda.synchronize()  # 等待GPU完成
+                        '''
 
                         # CPU时间结束
                         cpu_end = time.time()
@@ -842,15 +850,19 @@ def main():
                                     batch_topics.append(query.strip())
                                 # CPU时间开始
                                 cpu_start = time.time()
+                                '''
                                 # GPU事件开始
                                 gpu_start = torch.cuda.Event(enable_timing=True)
                                 gpu_end = torch.cuda.Event(enable_timing=True)
                                 gpu_start.record()
+                                '''
                                 sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                                batch_ids,
                                                                                search_args)
+                                '''
                                 gpu_end.record()
                                 torch.cuda.synchronize()  # 等待GPU完成
+                                '''
 
                                 # CPU时间结束
                                 cpu_end = time.time()
@@ -913,15 +925,19 @@ def main():
                                     batch_topics.append(query.strip())
                                 # CPU时间开始
                                 cpu_start = time.time()
+                                '''
                                 # GPU事件开始
                                 gpu_start = torch.cuda.Event(enable_timing=True)
                                 gpu_end = torch.cuda.Event(enable_timing=True)
                                 gpu_start.record()
+                                '''
                                 sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                                batch_ids,
                                                                                search_args)
+                                '''
                                 gpu_end.record()
                                 torch.cuda.synchronize()  # 等待GPU完成
+                                '''
 
                                 # CPU时间结束
                                 cpu_end = time.time()
@@ -978,16 +994,19 @@ def main():
                                     batch_topics.append(query.strip())
                                 # CPU时间开始
                                 cpu_start = time.time()
+                                '''
                                 # GPU事件开始
                                 gpu_start = torch.cuda.Event(enable_timing=True)
                                 gpu_end = torch.cuda.Event(enable_timing=True)
                                 gpu_start.record()
+                                '''
                                 sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                                batch_ids,
                                                                                search_args)
+                                '''
                                 gpu_end.record()
                                 torch.cuda.synchronize()  # 等待GPU完成
-
+                                '''
                                 # CPU时间结束
                                 cpu_end = time.time()
                                 sparse_search_time.append(cpu_end - cpu_start)
@@ -1049,15 +1068,19 @@ def main():
                                     batch_topics.append(query.strip())
                                 # CPU时间开始
                                 cpu_start = time.time()
+                                '''
                                 # GPU事件开始
                                 gpu_start = torch.cuda.Event(enable_timing=True)
                                 gpu_end = torch.cuda.Event(enable_timing=True)
                                 gpu_start.record()
+                                '''
                                 sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                                batch_ids,
                                                                                search_args)
+                                '''
                                 gpu_end.record()
                                 torch.cuda.synchronize()  # 等待GPU完成
+                                '''
 
                                 # CPU时间结束
                                 cpu_end = time.time()
