@@ -94,7 +94,7 @@ class MLLMRetrievalModel(nn.Module):
                     disassemble_text_inputs = processor(
                         text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
                         return_tensors="pt",
-                        padding=True).to('cuda')
+                        padding=True).to(device)
                     disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
                                                       return_dict=True)
                     if data_args.reps_loc == 'after_pad':
@@ -114,7 +114,7 @@ class MLLMRetrievalModel(nn.Module):
                 if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                     text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                             return_tensors="pt",
-                                            padding=True).to('cuda')
+                                            padding=True).to(device)
                     output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
                     # print(text_inputs['input_ids'])
                     # print(output.logits.shape)
@@ -133,7 +133,7 @@ class MLLMRetrievalModel(nn.Module):
                     disassemble_text_inputs = processor(
                         text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
                         return_tensors="pt",
-                        padding=True).to('cuda')
+                        padding=True).to(device)
                     disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
                                                       return_dict=True)
 
@@ -159,15 +159,15 @@ class MLLMRetrievalModel(nn.Module):
                 if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
                     text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                             return_tensors="pt",
-                                            padding=True).to('cuda')
+                                            padding=True).to(device)
                 elif 'disassembleeol' in model_args.eol_type:
                     text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                             return_tensors="pt",
-                                            padding=True).to('cuda')
+                                            padding=True).to(device)
                     disassemble_text_inputs = processor(
                         text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
                         return_tensors="pt",
-                        padding=True).to('cuda')
+                        padding=True).to(device)
                     disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
                                                       return_dict=True)
                     if data_args.reps_loc == 'after_pad':
@@ -188,7 +188,7 @@ class MLLMRetrievalModel(nn.Module):
                         text=[task_text_prompt.replace('<sent>', text) for text in input for task_text_prompt in
                               prompts],
                         return_tensors="pt",
-                        padding=True).to('cuda')
+                        padding=True).to(device)
                 output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
                 # print(text_inputs['input_ids'])
                 # print(output.logits.shape)
@@ -283,7 +283,7 @@ class MLLMRetrievalModel(nn.Module):
             prompt = text_prompt
         if input_type == 'text':
             text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input], return_tensors="pt",
-                                    padding=True, ).to('cuda')
+                                    padding=True, ).to(device)
             output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
             # print(text_inputs['input_ids'])
             # print(output.logits.shape)
@@ -357,7 +357,7 @@ class MLLMRetrievalModel(nn.Module):
                 disassemble_text_inputs = processor(
                     text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
                     return_tensors="pt",
-                    padding=True).to('cuda')
+                    padding=True).to(device)
                 disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
                                                   return_dict=True)
                 if data_args.reps_loc == 'after_pad':
@@ -378,7 +378,7 @@ class MLLMRetrievalModel(nn.Module):
             if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                 text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                         return_tensors="pt",
-                                        padding=True).to('cuda')
+                                        padding=True).to(device)
                 output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
                 # print(text_inputs['input_ids'])
                 # print(output.logits.shape)
@@ -397,7 +397,7 @@ class MLLMRetrievalModel(nn.Module):
                 disassemble_text_inputs = processor(
                     text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
                     return_tensors="pt",
-                    padding=True).to('cuda')
+                    padding=True).to(device)
                 disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
                                                   return_dict=True)
 
@@ -425,15 +425,15 @@ class MLLMRetrievalModel(nn.Module):
             if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
                 text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                         return_tensors="pt",
-                                        padding=True).to('cuda')
+                                        padding=True).to(device)
             elif 'disassembleeol' in model_args.eol_type:
                 text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                         return_tensors="pt",
-                                        padding=True).to('cuda')
+                                        padding=True).to(device)
                 disassemble_text_inputs = processor(
                     text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
                     return_tensors="pt",
-                    padding=True).to('cuda')
+                    padding=True).to(device)
                 disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
                                                   return_dict=True)
                 if data_args.reps_loc == 'after_pad':
@@ -455,7 +455,7 @@ class MLLMRetrievalModel(nn.Module):
                     text=[task_text_prompt.replace('<sent>', text) for text in input for task_text_prompt in
                           prompts],
                     return_tensors="pt",
-                    padding=True).to('cuda')
+                    padding=True).to(device)
             output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
             # print(text_inputs['input_ids'])
             # print(output.logits.shape)
@@ -571,7 +571,7 @@ class MLLMRetrievalModel(nn.Module):
                 disassemble_text_inputs = processor(
                     text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
                     return_tensors="pt",
-                    padding=True).to('cuda')
+                    padding=True).to(device)
                 disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
                                                   return_dict=True)
                 if embedding_type == 'dense':
@@ -617,15 +617,15 @@ class MLLMRetrievalModel(nn.Module):
             if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
                 text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                         return_tensors="pt",
-                                        padding=True).to('cuda')
+                                        padding=True).to(device)
             elif 'disassembleeol' in model_args.eol_type:
                 text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                         return_tensors="pt",
-                                        padding=True).to('cuda')
+                                        padding=True).to(device)
                 disassemble_text_inputs = processor(
                     text=[prompt_text.replace('<sent>', text) for text in input for prompt_text in prompts],
                     return_tensors="pt",
-                    padding=True).to('cuda')
+                    padding=True).to(device)
                 disassemble_output = self.encoder(**disassemble_text_inputs, output_hidden_states=True,
                                                   return_dict=True)
 
@@ -651,7 +651,7 @@ class MLLMRetrievalModel(nn.Module):
                     text=[task_text_prompt.replace('<sent>', text) for text in input for task_text_prompt in
                           prompts],
                     return_tensors="pt",
-                    padding=True).to('cuda')
+                    padding=True).to(device)
             output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
             # print(text_inputs['input_ids'])
             # print(output.logits.shape)
@@ -782,7 +782,7 @@ class MLLMRetrievalModel(nn.Module):
             pass
         if input_type == 'text':
             text_inputs = processor(text=[prompt_template.replace('<sent>', text) for text in input],
-                                    return_tensors="pt", padding=True).to('cuda')
+                                    return_tensors="pt", padding=True).to(device)
             begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
             end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
             begin_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(begin_of_text_id))
@@ -863,7 +863,7 @@ class MLLMRetrievalModel(nn.Module):
                     f.write(str(mask.squeeze()))
             '''
             output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
-            end_col_list = (torch.tensor(end_col_list) - 1).to('cuda')
+            end_col_list = (torch.tensor(end_col_list) - 1).to(device)
             batch_size = text_inputs['input_ids'].shape[0]
             if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                 logits = output.logits[:, end_col_list[0], :]
@@ -975,7 +975,7 @@ class MLLMRetrievalModel(nn.Module):
 
             output = self.encoder(**input, output_hidden_states=True, return_dict=True, use_cache=True)
             # 这里对应原文的log+relu操作
-            end_col_list = (torch.tensor(end_col_list) - 1).to('cuda')
+            end_col_list = (torch.tensor(end_col_list) - 1).to(device)
             batch_size = input['input_ids'].shape[0]
             if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                 logits = output.logits[:, end_col_list[0], :]
