@@ -212,7 +212,7 @@ def main():
         dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
     else:
         dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
-    sampler = Data.DistributedSampler(dataset, num_replicas=world_size, shuffle=True, rank=rank)
+    sampler = Data.DistributedSampler(dataset, shuffle=True)
     test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, batch_size=data_args.per_device_batch_size,
                                       shuffle=False)
 
@@ -252,10 +252,9 @@ def main():
         # 另外，这里源代码里有multi_reps，暂时先不管，后面再加
         sparse_retriever_indices = [search_args.sparse_index]
 
-    if dist.get_rank() == 0:
-        print(max(len(dense_retriever_indices), len(sparse_retriever_indices)))
-        print(dense_retriever_indices)
-        print(sparse_retriever_indices)
+    print(max(len(dense_retriever_indices), len(sparse_retriever_indices)))
+    print(dense_retriever_indices)
+    print(sparse_retriever_indices)
     for i in range(max(len(dense_retriever_indices), len(sparse_retriever_indices))):
 
         dense_retriever = None
@@ -263,8 +262,7 @@ def main():
 
         if dense_retriever_indices and search_args.embedding_type != 'sparse':
             index_files = glob.glob(os.path.join(dense_retriever_indices[i], 'corpus*.pkl'))
-            if dist.get_rank() == 0:
-                print(f'Pattern match found {len(index_files)} files; loading them into dense index.')
+            print(f'Pattern match found {len(index_files)} files; loading them into dense index.')
 
             p_reps_0, p_lookup_0 = pickle_load(index_files[0])
             print(p_reps_0.shape)
@@ -285,8 +283,7 @@ def main():
             for p_reps, p_lookup in shards:
                 dense_retriever.add(p_reps)
                 look_up += p_lookup
-            if dist.get_rank() == 0:
-                print(len(look_up))
+            print(len(look_up))
             if search_args.use_gpu:
                 num_gpus = faiss.get_num_gpus()
                 if num_gpus == 0:
@@ -1104,21 +1101,11 @@ def main():
     else:
         mean_sparse_search_time = sum(sparse_search_time) / len(sparse_search_time)
 
-    print(f'rank {rank}, sum of embedding_time: {sum(embedding_time)}, sum of dense search time: '
+    print(f'sum of embedding_time: {sum(embedding_time)}, sum of dense search time: '
           f'{sum(dense_search_time)}, sum of sparse search time: {sum(sparse_search_time)}'
           f', mean of embedding_time: {mean_embedding_time}, '
           f'mean of dense search time: {mean_dense_search_time}, '
           f'mean of sparse search time: {mean_sparse_search_time}')
-
-    # 训练结束后添加同步屏障
-    dist.barrier()
-
-    # 确保所有进程同步退出
-    if dist.get_rank() == 0:
-        # 主进程最后退出
-        torch.distributed.destroy_process_group()
-    else:
-        torch.distributed.destroy_process_group()
 
 
 if __name__ == '__main__':

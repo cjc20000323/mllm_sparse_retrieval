@@ -196,7 +196,7 @@ def main():
         dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
     else:
         dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
-    sampler = Data.DistributedSampler(dataset, num_replicas=world_size, shuffle=True, rank=rank)
+    sampler = Data.DistributedSampler(dataset, shuffle=True)
     test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, batch_size=data_args.per_device_batch_size,
                                       shuffle=False)
 
@@ -252,8 +252,7 @@ def main():
         lookup_to_reps = {}
 
         index_files = glob.glob(os.path.join(dense_retriever_indices[i], 'corpus*.pkl'))
-        if dist.get_rank() == 0:
-            print(f'Pattern match found {len(index_files)} files; loading them into dense index.')
+        print(f'Pattern match found {len(index_files)} files; loading them into dense index.')
 
         p_reps_0, p_lookup_0 = pickle_load(index_files[0])
         if model_args.calculate_type == 'large':
@@ -283,8 +282,7 @@ def main():
                 lookup_to_reps[str(p_lookup)] = p_reps
             else:
                 lookup_to_reps[p_lookup] = p_reps
-        if dist.get_rank() == 0:
-            print(list(lookup_to_reps.keys())[:12800])
+        print(list(lookup_to_reps.keys())[:12800])
 
         with torch.no_grad():
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
@@ -947,7 +945,7 @@ def main():
     else:
         mean_dense_retriever_time = sum(dense_retriever_time) / len(dense_retriever_time)
 
-    print(f'rank {rank}, sum of embedding_time: {sum(embedding_time)}, sum of dense search time: '
+    print(f'sum of embedding_time: {sum(embedding_time)}, sum of dense search time: '
           f'{sum(dense_search_time)}, sum of sparse search time: {sum(sparse_search_time)}, '
           f'sum of sparse obtain time: {sum(sparse_obtain_time)}, '
           f'sum of dense obtain time: {sum(dense_obtain_time)}, '
@@ -958,16 +956,6 @@ def main():
           f'mean of sparse obtain time: {mean_sparse_obtain_time}, '
           f'mean of dense obtain time: {mean_dense_obtain_time}, '
           f'mean of dense retriever time: {mean_dense_retriever_time}')
-
-    # 训练结束后添加同步屏障
-    dist.barrier()
-
-    # 确保所有进程同步退出
-    if dist.get_rank() == 0:
-        # 主进程最后退出
-        torch.distributed.destroy_process_group()
-    else:
-        torch.distributed.destroy_process_group()
 
 
 if __name__ == '__main__':
