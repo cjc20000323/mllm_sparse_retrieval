@@ -95,18 +95,18 @@ def main():
     # 指定模型
     if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
         encoder = LlavaForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
-                                                                device_map=device_map,
+                                                                device_map="auto",
                                                                 torch_dtype=torch_type)
         processor = LlavaProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
         encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
-                                                                     device_map=device_map,
+                                                                     device_map="auto",
                                                                      torch_dtype=torch_type)
         processor = Qwen2_5_VLProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'InternVL2_5-8B' in model_args.model_name_or_path:
         # device_map = split_model('InternVL2_5-8B')
         encoder = AutoModel.from_pretrained(model_args.model_name_or_path,
-                                            device_map=device_map,
+                                            device_map="auto",
                                             torch_dtype=torch_type,
                                             trust_remote_code=True,
                                             use_flash_attn=True,
@@ -115,7 +115,7 @@ def main():
                                                   trust_remote_code=True, )
     else:
         encoder = LlavaNextForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
-                                                                    device_map=device_map,
+                                                                    device_map="auto",
                                                                     torch_dtype=torch_type)
         processor = LlavaNextProcessor.from_pretrained(model_args.model_name_or_path)
         if 'royokong-e5-v' in model_args.model_name_or_path:
