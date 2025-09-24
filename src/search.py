@@ -422,12 +422,14 @@ def main():
                                 img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
                                                        return_tensors="pt",
                                                        padding=True)
+                                '''
                                 if dist.get_rank() == 0:
                                     print([prompt] * len(imgs_path))
                                     print(img_inputs['input_ids'])
                                     print(img_inputs['input_ids'].shape)
                                     print(img_inputs['attention_mask'])
                                     print(img_inputs['attention_mask'].shape)
+                                '''
                                 imgs = img_inputs.to(device)
                                 query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
                                                                                    model_args,
