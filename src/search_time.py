@@ -83,6 +83,7 @@ def main():
     print(os.environ.get("WORLD_SIZE"))
     ddp = world_size != 1
     print(ddp)
+    print('Use gpu: ', search_args.use_gpu)
     # if ddp and False:
     if ddp:
         device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)}
@@ -268,7 +269,7 @@ def main():
 
             p_reps_0, p_lookup_0 = pickle_load(index_files[0])
             print(p_reps_0.shape)
-            if model_args.calculate_type == 'large':
+            if 'large' in dense_retriever_indices[i]:
                 p_reps_0 = p_reps_0.squeeze()
             dense_retriever = FaissFlatSearcher(p_reps_0)
             # 经DeepSeek老师讲解，他说FaissFlatSearcher初始化时仅分配了内存结构，未添加任何数据。所以这里再重新加一下，

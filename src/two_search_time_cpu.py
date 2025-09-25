@@ -196,7 +196,7 @@ def main():
         dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
     else:
         dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
-    sampler = Data.DistributedSampler(dataset, shuffle=True)
+    sampler = Data.DistributedSampler(dataset, num_replicas=world_size, shuffle=True)
     test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, batch_size=data_args.per_device_batch_size,
                                       shuffle=False)
 

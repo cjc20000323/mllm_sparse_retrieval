@@ -76,7 +76,8 @@ def main():
     search_args: PromptRepsLLMSearchArguments
     training_args: TrainingArguments
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
+    print(device)
 
     device_map = "cuda"
     world_size = int(os.environ.get("WORLD_SIZE", 1))
@@ -107,18 +108,18 @@ def main():
     # 指定模型
     if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
         encoder = LlavaForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
-                                                                device_map="auto",
+                                                                device_map="cpu",
                                                                 torch_dtype=torch_type)
         processor = LlavaProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
         encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
-                                                                     device_map="auto",
+                                                                     device_map="cpu",
                                                                      torch_dtype=torch_type)
         processor = Qwen2_5_VLProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'InternVL2_5-8B' in model_args.model_name_or_path:
         # device_map = split_model('InternVL2_5-8B')
         encoder = AutoModel.from_pretrained(model_args.model_name_or_path,
-                                            device_map="auto",
+                                            device_map="cpu",
                                             torch_dtype=torch_type,
                                             trust_remote_code=True,
                                             use_flash_attn=True,
@@ -127,7 +128,7 @@ def main():
                                                   trust_remote_code=True, )
     else:
         encoder = LlavaNextForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
-                                                                    device_map="auto",
+                                                                    device_map="cpu",
                                                                     torch_dtype=torch_type)
         processor = LlavaNextProcessor.from_pretrained(model_args.model_name_or_path)
         if 'royokong-e5-v' in model_args.model_name_or_path:
@@ -212,10 +213,12 @@ def main():
         dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
     else:
         dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
-    sampler = Data.DistributedSampler(dataset, shuffle=True)
-    test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, batch_size=data_args.per_device_batch_size,
+    # sampler = Data.DistributedSampler(dataset, num_replicas=world_size, shuffle=True)
+    test_dataloader = Data.DataLoader(dataset=dataset, batch_size=data_args.per_device_batch_size,
                                       shuffle=False)
 
+    # 查看第一个参数所在的设备
+    print(next(encoder.parameters()).device)
     model = MLLMRetrievalModel(encoder)
     model = model.eval()
     print(model.is_ddp)
@@ -308,17 +311,14 @@ def main():
             sparse_retriever.set_analyzer(analyzer)
 
         with torch.no_grad():
+            count = 0
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
+                if count > 30:
+                    break
+                count += 1
                 # CPU时间开始
                 cpu_start = time.time()
-
-                '''
-                # GPU事件开始
-                gpu_start = torch.cuda.Event(enable_timing=True)
-                gpu_end = torch.cuda.Event(enable_timing=True)
-                gpu_start.record()
-                '''
                 if search_args.query_type == 'text':
                     lookup_indices.extend(text_ids)
                 else:
@@ -627,11 +627,6 @@ def main():
                         elif 'disassembleeol' in model_args.eol_type:
                             disassemble_logits = query_logits
 
-                '''
-                gpu_end.record()
-                torch.cuda.synchronize()  # 等待GPU完成
-                '''
-
                 # CPU时间结束
                 cpu_end = time.time()
 
@@ -661,6 +656,8 @@ def main():
                                         get_run_dict([qid], [scores], [ranking], search_args.remove_query))
 
                     else:
+                        # CPU时间开始
+                        cpu_start = time.time()
                         if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
                             if model_args.calculate_type == 'concat':
                                 if data_args.prompt_type == 'prompt_5':
@@ -676,20 +673,9 @@ def main():
                             query_dense_reps = query_dense_reps.reshape(-1, prompt_length,
                                                                         query_dense_reps.shape[1]).mean(1)
                         query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
-                        # CPU时间开始
-                        cpu_start = time.time()
-                        '''
-                        # GPU事件开始
-                        gpu_start = torch.cuda.Event(enable_timing=True)
-                        gpu_end = torch.cuda.Event(enable_timing=True)
-                        gpu_start.record()
-                        '''
+
                         dense_scores, dense_rankings = search_queries(dense_retriever, query_dense_reps, look_up,
                                                                       search_args)
-                        '''
-                        gpu_end.record()
-                        torch.cuda.synchronize()  # 等待GPU完成
-                        '''
 
                         # CPU时间结束
                         cpu_end = time.time()
@@ -789,6 +775,8 @@ def main():
 
                     else:
                         batch_topics = []
+                        # CPU时间开始
+                        cpu_start = time.time()
                         if 'disassembleeol' in model_args.eol_type:
                             if search_args.query_type == 'text':
                                 for text_indice in range(len(batch_ids)):
@@ -845,22 +833,9 @@ def main():
                                     for token, v in vector.items():
                                         query += (' ' + token) * v
                                     batch_topics.append(query.strip())
-                                # CPU时间开始
-                                cpu_start = time.time()
-                                '''
-                                # GPU事件开始
-                                gpu_start = torch.cuda.Event(enable_timing=True)
-                                gpu_end = torch.cuda.Event(enable_timing=True)
-                                gpu_start.record()
-                                '''
                                 sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                                batch_ids,
                                                                                search_args)
-                                '''
-                                gpu_end.record()
-                                torch.cuda.synchronize()  # 等待GPU完成
-                                '''
-
                                 # CPU时间结束
                                 cpu_end = time.time()
                                 sparse_search_time.append(cpu_end - cpu_start)
@@ -989,21 +964,9 @@ def main():
                                     for token, v in vector.items():
                                         query += (' ' + token) * v
                                     batch_topics.append(query.strip())
-                                # CPU时间开始
-                                cpu_start = time.time()
-                                '''
-                                # GPU事件开始
-                                gpu_start = torch.cuda.Event(enable_timing=True)
-                                gpu_end = torch.cuda.Event(enable_timing=True)
-                                gpu_start.record()
-                                '''
                                 sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                                batch_ids,
                                                                                search_args)
-                                '''
-                                gpu_end.record()
-                                torch.cuda.synchronize()  # 等待GPU完成
-                                '''
                                 # CPU时间结束
                                 cpu_end = time.time()
                                 sparse_search_time.append(cpu_end - cpu_start)
@@ -1063,21 +1026,9 @@ def main():
                                     for token, v in vector.items():
                                         query += (' ' + token) * v
                                     batch_topics.append(query.strip())
-                                # CPU时间开始
-                                cpu_start = time.time()
-                                '''
-                                # GPU事件开始
-                                gpu_start = torch.cuda.Event(enable_timing=True)
-                                gpu_end = torch.cuda.Event(enable_timing=True)
-                                gpu_start.record()
-                                '''
                                 sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
                                                                                batch_ids,
                                                                                search_args)
-                                '''
-                                gpu_end.record()
-                                torch.cuda.synchronize()  # 等待GPU完成
-                                '''
 
                                 # CPU时间结束
                                 cpu_end = time.time()

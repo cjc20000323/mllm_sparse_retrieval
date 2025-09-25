@@ -279,7 +279,7 @@ def main():
         # print(f'candidate_reps shape: {candidate_reps.shape}')
         # print(f'candidate_lookup shape: {candidate_lookup.shape}')
         for p_reps, p_lookup in zip(candidate_reps, candidate_lookup):
-            if model_args.calculate_type == 'large':
+            if 'large' in dense_retriever_indices[i]:
                 lookup_to_reps[str(p_lookup)] = p_reps
             else:
                 lookup_to_reps[p_lookup] = p_reps
