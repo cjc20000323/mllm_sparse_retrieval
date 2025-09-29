@@ -256,7 +256,7 @@ def main():
             print(f'Pattern match found {len(index_files)} files; loading them into dense index.')
 
         p_reps_0, p_lookup_0 = pickle_load(index_files[0])
-        if model_args.calculate_type == 'large':
+        if 'large' in dense_retriever_indices[i]:
             p_reps_0 = p_reps_0.squeeze()
         shards = chain([(p_reps_0, p_lookup_0)], map(pickle_load, index_files[1:]))
         if len(index_files) > 1:
