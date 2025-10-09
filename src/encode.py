@@ -11,6 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data as Data
 import sys
+
 torch.set_printoptions(threshold=sys.maxsize)
 from PIL import Image
 from nltk import word_tokenize
@@ -32,7 +33,8 @@ from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qw
     img_prompt_intern_vl_v2_5, llama3_template, task_text_prompts_copy, task_image_prompts_copy, \
     llama3_retrieval_disassemble_image_prompts, llama3_retrieval_disassemble_text_prompts, \
     llama3_template_image_prefix, llama3_template_content_element, retrieval_disassemble_image_prompts_3_for_concat, \
-    retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, retrieval_disassemble_image_prompts_7_for_concat
+    retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, \
+    retrieval_disassemble_image_prompts_7_for_concat
 from utils import load_image
 
 
@@ -112,6 +114,7 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
         for i in token_ids_out_text[top_k_indices.cpu().detach().float().numpy()]:
             tokens.append(vocab_dict[i.item()].lower())
     return tokens, values
+
 
 def get_img_valid_tokens_values_with_cluster(tokenizer, logits, vocab_dict, origin_to_centroids_dict, data_args,
                                              filtered_ids):
@@ -574,7 +577,7 @@ def get_text_valid_disassemble_tokens_values(text, tokenizer, disassemble_logits
 
 
 def get_text_valid_disassemble_tokens_values_fusion(text, tokenizer, disassemble_logits, vocab_dict, data_args,
-                                             filtered_ids, sparse_type, logits=None, model_args=None):
+                                                    filtered_ids, sparse_type, logits=None, model_args=None):
     word_set = set()
     word_values = dict()
     if data_args.sparse_manual:
@@ -625,7 +628,7 @@ def get_text_valid_disassemble_tokens_values_fusion(text, tokenizer, disassemble
         return tokens, values
     else:
         words = [i for i in word_tokenize(text.lower()) if
-                i not in set(stopwords.words('english') + list(string.punctuation))]
+                 i not in set(stopwords.words('english') + list(string.punctuation))]
         token_ids = set()
         for word in words:
             token_ids.update(tokenizer.encode(word, add_special_tokens=False))
@@ -1132,19 +1135,23 @@ def main():
                                                     text_indice * length:(text_indice + 1) * length]
                                 vector = dict()
                                 if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                                    tokens, values = get_text_valid_disassemble_tokens_values_fusion(text, processor.tokenizer,
-                                                                                              disassemble_logit,
-                                                                                              vocab_dict,
-                                                                                              data_args,
-                                                                                              filtered_ids, 'guess', logit,
-                                                                                              model_args)
+                                    tokens, values = get_text_valid_disassemble_tokens_values_fusion(text,
+                                                                                                     processor.tokenizer,
+                                                                                                     disassemble_logit,
+                                                                                                     vocab_dict,
+                                                                                                     data_args,
+                                                                                                     filtered_ids,
+                                                                                                     'guess', logit,
+                                                                                                     model_args)
                                 else:
-                                    tokens, values = get_text_valid_disassemble_tokens_values_fusion(text, processor.tokenizer,
-                                                                                              disassemble_logit,
-                                                                                              vocab_dict,
-                                                                                              data_args,
-                                                                                              filtered_ids, 'guess', None,
-                                                                                              model_args)
+                                    tokens, values = get_text_valid_disassemble_tokens_values_fusion(text,
+                                                                                                     processor.tokenizer,
+                                                                                                     disassemble_logit,
+                                                                                                     vocab_dict,
+                                                                                                     data_args,
+                                                                                                     filtered_ids,
+                                                                                                     'guess', None,
+                                                                                                     model_args)
 
                                 for token, v in zip(tokens, values):
                                     if token in vector.keys():
@@ -1166,19 +1173,25 @@ def main():
                                         else:
                                             vector[token] //= 7
                                 if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                                    tokens, values = get_text_valid_disassemble_tokens_values_fusion(text, processor.tokenizer,
-                                                                                              disassemble_logit,
-                                                                                              vocab_dict,
-                                                                                              data_args,
-                                                                                              filtered_ids, 'origin_text', logit,
-                                                                                              model_args)
+                                    tokens, values = get_text_valid_disassemble_tokens_values_fusion(text,
+                                                                                                     processor.tokenizer,
+                                                                                                     disassemble_logit,
+                                                                                                     vocab_dict,
+                                                                                                     data_args,
+                                                                                                     filtered_ids,
+                                                                                                     'origin_text',
+                                                                                                     logit,
+                                                                                                     model_args)
                                 else:
-                                    tokens, values = get_text_valid_disassemble_tokens_values_fusion(text, processor.tokenizer,
-                                                                                              disassemble_logit,
-                                                                                              vocab_dict,
-                                                                                              data_args,
-                                                                                              filtered_ids, 'origin_text', None,
-                                                                                              model_args)
+                                    tokens, values = get_text_valid_disassemble_tokens_values_fusion(text,
+                                                                                                     processor.tokenizer,
+                                                                                                     disassemble_logit,
+                                                                                                     vocab_dict,
+                                                                                                     data_args,
+                                                                                                     filtered_ids,
+                                                                                                     'origin_text',
+                                                                                                     None,
+                                                                                                     model_args)
                                 for token, v in zip(tokens, values):
                                     if token in vector.keys():
                                         if data_args.sparse_value_type == 'replace':
@@ -1318,10 +1331,10 @@ def main():
                             for id, logit, text in zip(ids, logits, texts):
                                 vector = dict()
                                 tokens, values = get_text_valid_tokens_values_fusion(text, processor.tokenizer,
-                                                                                      logit,
-                                                                                      vocab_dict,
-                                                                                      data_args,
-                                                                                      filtered_ids, 'guess')
+                                                                                     logit,
+                                                                                     vocab_dict,
+                                                                                     data_args,
+                                                                                     filtered_ids, 'guess')
                                 for token, v in zip(tokens, values):
                                     if token in vector.keys():
                                         if data_args.sparse_value_type == 'replace':
