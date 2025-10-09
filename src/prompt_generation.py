@@ -1,49 +1,24 @@
-import gc
-import json
-import logging
 import os
-import pickle
-import string
-import sys
-import itertools
-from contextlib import nullcontext
 
-from nltk import word_tokenize
-from nltk.corpus import stopwords
-import numpy as np
+import torch
+import torch.distributed as dist
 from PIL import Image
-import faiss
-
-from tqdm import tqdm
 from transformers import (
     HfArgumentParser,
 )
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
     LlavaNextForConditionalGeneration, Qwen2_5_VLProcessor, Qwen2_5_VLForConditionalGeneration, AutoModel, \
-    AutoProcessor, LlamaForCausalLM
-from arguments import PromptRepsLLMDataArguments, ModelArguments
-import torch.distributed as dist
-import torch.nn as nn
-from arguments import TrainingArguments, LogitInformationAnalysisArguments, PromptGenerationArguments
-from dataset import CrossModalRetrievalDataset
-import torch
-import torch.utils.data as Data
-import torch.nn.functional as F
+    AutoProcessor
 
-from template import text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
-    img_prompt_no_special_llava_v1_5, text_prompt_no_special_llava_v1_5, text_prompt_qwen_v2_5, img_prompt_qwen_v2_5, \
-    img_prompt_intern_vl_v2_5, text_prompt_intern_vl_v2_5, task_image_prompts, llama3_template, task_text_prompts, \
-    task_text_prompts_copy, task_image_prompts_copy, \
-    llama3_retrieval_disassemble_image_prompts, llama3_retrieval_disassemble_text_prompts
+from arguments import PromptRepsLLMDataArguments, ModelArguments
+from arguments import TrainingArguments, PromptGenerationArguments
+from encode import get_filtered_ids
 from model import MLLMRetrievalModel
-from utils import split_model, load_image
-from peft import PeftModel, PeftConfig
-from encode import get_filtered_ids, get_img_valid_tokens_values, get_img_valid_disassemble_tokens_values, \
-    get_img_valid_tokens_values_with_cluster, get_text_valid_tokens_values, get_text_valid_disassemble_tokens_values, \
-    get_text_valid_tokens_values_with_cluster
 from template import prompt_generation_from_image_prompt, prompt_generation_from_text_prompt, \
     prompt_generation_from_text_prompt_2, prompt_generation_from_image_prompt_2, prompt_generation_text_prompt, \
-    prompt_generation_image_prompt, prompt_generation_image_from_text_prompt, prompt_generation_image_from_text_prompt_2
+    prompt_generation_image_prompt, prompt_generation_image_from_text_prompt, \
+    prompt_generation_image_from_text_prompt_2, \
+    prompt_generation_from_pair_prompt, prompt_generation_from_pair_prompt_1, prompt_generation_from_pair_prompt_2
 
 
 def main():
@@ -210,6 +185,43 @@ def main():
             if dist.get_rank() == 0:
                 print(processor.decode(output[0], skip_special_tokens=True))
 
+        else:
+            demonstration_sent_1 = 'The white and brown dog is running over the surface of the snow.'
+            demonstration_answer_1 = '1. Summary the people or objects in above sentence in one word.\n2. Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word.\n3. Summary the environment, weather or places in above sentence in one word.\n4. Summary the actions or movements of main people or objects in above sentence in one word.\n5. Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence in one word.'
+            demonstration_sent_2 = 'Girl in black jacket sifting powdered sugar over a chocolate cake.'
+            demonstration_answer_2 = '1. Summary the people or objects in above sentence in one word.\n2. Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word.\n3. Summary the environment, weather or places in above sentence in one word.\n4. Summary the actions or movements of main people or objects in above sentence in one word.\n5. Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence in one word.'
+            demonstration_image_path_1 = './data/flickr/flickr30k-images/101654506.jpg'
+            demonstration_image_path_2 = './data/flickr/flickr30k-images/100207720.jpg'
+            sent = prompt_generation_args.prompt_generation_text
+            image_path = prompt_generation_args.prompt_generation_image
+            if prompt_generation_args.demonstration_num == 0:
+                prompt = prompt_generation_from_pair_prompt
+                text_input = prompt.replace('<sent>', sent, 1)
+                image = Image.open(image_path).convert('RGB')
+                image_list = [image]
+            elif prompt_generation_args.demonstration_num == 1:
+                prompt = prompt_generation_from_pair_prompt_1
+                text_input = prompt.replace('<sent>', demonstration_sent_1, 1)
+                text_input = text_input.replace('<sent>', demonstration_answer_1, 1)
+                text_input = text_input.replace('<sent>', sent, 1)
+                demonstration_image = Image.open(demonstration_image_path_1).convert('RGB')
+                image = Image.open(image_path).convert('RGB')
+                image_list = [demonstration_image, image]
+            elif prompt_generation_args.demonstration_num == 2:
+                prompt = prompt_generation_from_pair_prompt_2
+                text_input = prompt.replace('<sent>', demonstration_sent_1, 1)
+                text_input = text_input.replace('<sent>', demonstration_answer_1, 1)
+                text_input = text_input.replace('<sent>', demonstration_sent_2, 1)
+                text_input = text_input.replace('<sent>', demonstration_answer_2, 1)
+                text_input = text_input.replace('<sent>', sent, 1)
+                demonstration_image_1 = Image.open(demonstration_image_path_1).convert('RGB')
+                demonstration_image_2 = Image.open(demonstration_image_path_2).convert('RGB')
+                image = Image.open(image_path).convert('RGB')
+                image_list = [demonstration_image_1, demonstration_image_2, image]
+            inputs = processor(images=image_list, text=text_input, return_tensors="pt").to(encoder.device)
+            output = model.encoder.generate(**inputs, max_new_tokens=500)
+            if dist.get_rank() == 0:
+                print(processor.decode(output[0], skip_special_tokens=True))
 
     # 训练结束后添加同步屏障
     dist.barrier()
