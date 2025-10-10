@@ -55,8 +55,12 @@ def get_filtered_ids(tokenizer):
 
 
 def filter_token(token):
+    if token[0] == 'Ġ' or token[0] == 'ġ':
+        token = token[1:]
+    '''
     if ord(token[0]) < ord('a') or ord(token[0]) > ord('z'):
         token = token[1:]
+    '''
     return token
 
 
