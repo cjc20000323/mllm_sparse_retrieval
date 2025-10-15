@@ -355,6 +355,7 @@ def main():
                             content_element = llama3_template_content_element.format(
                                 llama3_retrieval_disassemble_image_prompt)
                             prompt_template += content_element
+                        print(prompt_template)
                     elif data_args.prompt_type == 'prompt_3':
                         prompt_template = llama3_template_image_prefix
                         if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
