@@ -240,14 +240,14 @@ prompt_generation_image_from_text_prompt_2 = llama3_template.format(
 )
 
 prompt_generation_from_pair_prompt = llama3_template.format(
-    'Your mission is to generate proper summary tasks from 3 to 7 aspects or perspectives for the input image-sentence pair. You need to ensure that formats of all summary tasks like \'Summary the people or objects in above sentence in one word.\'.\n\n'
+    'Your mission is to generate proper summary tasks from 3 to 7 aspects or perspectives for the input image-sentence pair. You need to provide the results in list format and ensure all summary tasks like \'Summary xxx in above sentence in one word.\'.\n\n'
     'Sentence: <sent>\n'
     'Image: <image>\n'
     'Summary tasks:\n'
 )
 
 prompt_generation_from_pair_prompt_1 = llama3_template.format(
-    'Your mission is to generate proper summary tasks from 3 to 7 aspects or perspectives for the input image-sentence pair. You need to ensure that formats of all summary tasks like \'Summary the people or objects in above sentence in one word.\' and you do not need to answer these tasks. We will provide an image-sentence pair and some corresponding summary tasks that can describe the content of image-sentence pair from different perspectives as examples.\n\n'
+    'Your mission is to generate proper summary tasks from 3 to 7 aspects or perspectives for the input image-sentence pair. You need to provide the results in list format and ensure all summary tasks like \'Summary xxx in above sentence in one word.\' and you do not need to answer these tasks. We will provide an image-sentence pair and some corresponding summary tasks that can describe the content of image-sentence pair from different perspectives as examples.\n\n'
     'Sentence: <sent>\n'
     'Image: <image>\n'
     'Summary tasks:\n<sent>\n\n'
@@ -259,7 +259,7 @@ prompt_generation_from_pair_prompt_1 = llama3_template.format(
 five_prompt = '1. Summary the people or objects in above sentence in one word.\n2. Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word.\n3. Summary the environment, weather or places in above sentence in one word.\n4. Summary the actions or movements of main people or objects in above sentence in one word.\n5. Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence in one word.'
 
 prompt_generation_from_pair_prompt_2 = llama3_template.format(
-    'Your mission is to generate proper summary tasks from 3 to 7 aspects or perspectives for the input image-sentence pair. You need to ensure that formats of all summary tasks like \'Summary the people or objects in above sentence in one word.\' and you do not need to answer these tasks. We will provide two image-sentence pairs and some corresponding summary tasks that can describe the content of image-sentence pairs from different perspectives as examples.\n\n'
+    'Your mission is to generate proper summary tasks from 3 to 7 aspects or perspectives for the input image-sentence pair. You need to provide the results in list format and ensure all summary tasks like \'Summary xxx in above sentence in one word.\' and you do not need to answer these tasks. We will provide two image-sentence pairs and some corresponding summary tasks that can describe the content of image-sentence pairs from different perspectives as examples.\n\n'
     'Sentence: <sent>\n'
     'Image: <image>\n'
     'Summary tasks:\n<sent>\n\n'
@@ -271,15 +271,50 @@ prompt_generation_from_pair_prompt_2 = llama3_template.format(
     'Summary tasks:\n'
 )
 
+prompt_generation_from_pair_prompt_3 = llama3_template.format(
+    'Your mission is to generate proper summary tasks from 3 to 7 aspects or perspectives for the input image-sentence pair. You need to provide the results in list format and ensure all summary tasks like \'Summary xxx in above sentence in one word.\' and you do not need to answer these tasks. We will provide three image-sentence pairs and some corresponding summary tasks that can describe the content of image-sentence pairs from different perspectives as examples.\n\n'
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Summary tasks:\n<sent>\n\n'
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Summary tasks:\n<sent>\n\n'
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Summary tasks:\n<sent>\n\n'
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Summary tasks:\n'
+)
+
+prompt_generation_from_pair_prompt_4 = llama3_template.format(
+    'Your mission is to generate proper summary tasks from 3 to 7 aspects or perspectives for the input image-sentence pair. You need to provide the results in list format and ensure all summary tasks like \'Summary xxx in above sentence in one word.\' and you do not need to answer these tasks. We will provide four image-sentence pairs and some corresponding summary tasks that can describe the content of image-sentence pairs from different perspectives as examples.\n\n'                                                          
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Summary tasks:\n<sent>\n\n'
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Summary tasks:\n<sent>\n\n'
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Summary tasks:\n<sent>\n\n' 
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Summary tasks:\n<sent>\n\n' 
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Summary tasks:\n'
+)
+
 new_prompt_generation_from_pair_prompt = llama3_template.format(
-    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input image-sentence pair. You should predict 3 to 7 words in list format.\n\n'
+    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input image-sentence pair. You can be only permitted to predict 1 to 3 words for each aspects and output them in list format.\n\n'
     'Sentence: <sent>\n'
     'Image: <image>\n'
     'Proper aspects or perspectives:\n'
 )
 
 new_prompt_generation_from_pair_prompt_1 = llama3_template.format(
-    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input image-sentence pair. You should predict 3 to 7 words in list format. We will provide an image-sentence pair and some corresponding aspects that can summary the content information from different perspectives as examples.\n\n'
+    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input image-sentence pair. You can be only permitted to predict 1 to 3 words for each aspects and output them in list format. We will provide an image-sentence pair and some corresponding aspects that can summary the content information from different perspectives as examples.\n\n'
     'Sentence: <sent>\n'
     'Image: <image>\n'
     'Proper aspects or perspectives:\n<sent>\n\n'
@@ -289,7 +324,42 @@ new_prompt_generation_from_pair_prompt_1 = llama3_template.format(
 )
 
 new_prompt_generation_from_pair_prompt_2 = llama3_template.format(
-    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input image-sentence pair. You should predict 3 to 7 words in list format. We will provide two image-sentence pairs and some corresponding aspects that can summary the content information from different perspectives as examples.\n\n'
+    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input image-sentence pair. You can be only permitted to predict 1 to 3 words for each aspects and output them in list format. We will provide two image-sentence pairs and some corresponding aspects that can summary the content information from different perspectives as examples.\n\n'
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Proper aspects or perspectives:\n<sent>\n\n'
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Proper aspects or perspectives:\n<sent>\n\n'
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Proper aspects or perspectives:\n'
+)
+
+new_prompt_generation_from_pair_prompt_3 = llama3_template.format(
+    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input image-sentence pair. You can be only permitted to predict 1 to 3 words for each aspects and output them in list format. We will provide three image-sentence pairs and some corresponding aspects that can summary the content information from different perspectives as examples.\n\n'
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Proper aspects or perspectives:\n<sent>\n\n'
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Proper aspects or perspectives:\n<sent>\n\n'
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Proper aspects or perspectives:\n<sent>\n\n'
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Proper aspects or perspectives:\n'
+)
+
+new_prompt_generation_from_pair_prompt_4 = llama3_template.format(
+    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input image-sentence pair. You can be only permitted to predict 1 to 3 words for each aspects and output them in list format. We will provide four image-sentence pairs and some corresponding aspects that can summary the content information from different perspectives as examples.\n\n'
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Proper aspects or perspectives:\n<sent>\n\n'
+    'Sentence: <sent>\n'
+    'Image: <image>\n'
+    'Proper aspects or perspectives:\n<sent>\n\n'
     'Sentence: <sent>\n'
     'Image: <image>\n'
     'Proper aspects or perspectives:\n<sent>\n\n'

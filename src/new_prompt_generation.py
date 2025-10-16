@@ -15,7 +15,7 @@ from arguments import TrainingArguments, PromptGenerationArguments
 from encode import get_filtered_ids
 from model import MLLMRetrievalModel
 from template import new_prompt_generation_from_pair_prompt, new_prompt_generation_from_pair_prompt_1, \
-    new_prompt_generation_from_pair_prompt_2
+    new_prompt_generation_from_pair_prompt_2, new_prompt_generation_from_pair_prompt_4
 
 
 def main():
@@ -110,11 +110,17 @@ def main():
 
     with torch.no_grad():
         demonstration_sent_1 = 'The white and brown dog is running over the surface of the snow.'
-        demonstration_answer_1 = '1. people or objects\n2. relations\n3. environment\n4. actions\n5. appearance'
+        demonstration_answer_1 = '1. people or objects\n2. environment\n3. actions\n4. appearance'
         demonstration_sent_2 = 'Girl in black jacket sifting powdered sugar over a chocolate cake.'
-        demonstration_answer_2 = '1. people or objects\n2. relations\n3. environment\n4. actions\n5. appearance'
+        demonstration_answer_2 = '1. people or objects\n2. environment\n3. actions\n4. appearance'
+        demonstration_sent_3 = 'A group of people stand in the back of a truck filled with cotton.'
+        demonstration_answer_3 = '1. people or objects\n2. relations\n3. environment\n4. actions'
+        demonstration_sent_4 = 'Two guys sitting on the floor, with the guy in the green jacket reading a piece of paper.'
+        demonstration_answer_4 = '1. people or objects\n2. relations\n3. environment\n4. actions\n5. appearance'
         demonstration_image_path_1 = './data/flickr/flickr30k-images/101654506.jpg'
         demonstration_image_path_2 = './data/flickr/flickr30k-images/100207720.jpg'
+        demonstration_image_path_3 = './data/flickr/flickr30k-images/1018148011.jpg'
+        demonstration_image_path_4 = './data/flickr/flickr30k-images/1021439420.jpg'
         sent = prompt_generation_args.prompt_generation_text
         image_path = prompt_generation_args.prompt_generation_image
         if prompt_generation_args.demonstration_num == 0:
@@ -141,6 +147,24 @@ def main():
             demonstration_image_2 = Image.open(demonstration_image_path_2).convert('RGB')
             image = Image.open(image_path).convert('RGB')
             image_list = [demonstration_image_1, demonstration_image_2, image]
+        elif prompt_generation_args.demonstration_num == 4:
+            prompt = new_prompt_generation_from_pair_prompt_4
+            text_input = prompt.replace('<sent>', demonstration_sent_1, 1)
+            text_input = text_input.replace('<sent>', demonstration_answer_1, 1)
+            text_input = text_input.replace('<sent>', demonstration_sent_2, 1)
+            text_input = text_input.replace('<sent>', demonstration_answer_2, 1)
+            text_input = text_input.replace('<sent>', demonstration_sent_3, 1)
+            text_input = text_input.replace('<sent>', demonstration_answer_3, 1)
+            text_input = text_input.replace('<sent>', demonstration_sent_4, 1)
+            text_input = text_input.replace('<sent>', demonstration_answer_4, 1)
+            text_input = text_input.replace('<sent>', sent, 1)
+            demonstration_image_1 = Image.open(demonstration_image_path_1).convert('RGB')
+            demonstration_image_2 = Image.open(demonstration_image_path_2).convert('RGB')
+            demonstration_image_3 = Image.open(demonstration_image_path_3).convert('RGB')
+            demonstration_image_4 = Image.open(demonstration_image_path_4).convert('RGB')
+            image = Image.open(image_path).convert('RGB')
+            image_list = [demonstration_image_1, demonstration_image_2, demonstration_image_3, demonstration_image_4,
+                          image]
         inputs = processor(images=image_list, text=text_input, return_tensors="pt").to(encoder.device)
         output = model.encoder.generate(**inputs, max_new_tokens=500)
         if dist.get_rank() == 0:
