@@ -188,10 +188,10 @@ def main():
         else:
             demonstration_sent_1 = 'The white and brown dog is running over the surface of the snow.'
             demonstration_answer_1 = '1. Summary the people or objects in above sentence and image in one word.\n2. Summary the environment, weather or places in above sentence and image in one word.\n3. Summary the actions or movements of main people or objects in above sentence and image in one word.\n4. Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence and image in one word.'
-            demonstration_sent_2 = 'Girl in black jacket sifting powdered sugar over a chocolate cake.'
-            demonstration_answer_2 = '1. Summary the people or objects in above sentence and image in one word.\n2. Summary the environment, weather or places in above sentence and image in one word.\n3. Summary the actions or movements of main people or objects in above sentence and image in one word.\n4. Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence and image in one word.'
-            demonstration_sent_3 = 'A group of people stand in the back of a truck filled with cotton.'
-            demonstration_answer_3 = '1. Summary the people or objects in above sentence and image in one word.\n2. Summary the relations, such as belongings or spatial position, between main people or objects in above sentence and image in one word.\n3. Summary the environment, weather or places in above sentence and image in one word.\n4. Summary the actions or movements of main people or objects in above sentence and image in one word.'
+            demonstration_sent_3 = 'Girl in black jacket sifting powdered sugar over a chocolate cake.'
+            demonstration_answer_3 = '1. Summary the people or objects in above sentence and image in one word.\n2. Summary the environment, weather or places in above sentence and image in one word.\n3. Summary the actions or movements of main people or objects in above sentence and image in one word.\n4. Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence and image in one word.'
+            demonstration_sent_2 = 'A group of people stand in the back of a truck filled with cotton.'
+            demonstration_answer_2 = '1. Summary the people or objects in above sentence and image in one word.\n2. Summary the relations, such as belongings or spatial position, between main people or objects in above sentence and image in one word.\n3. Summary the environment, weather or places in above sentence and image in one word.\n4. Summary the actions or movements of main people or objects in above sentence and image in one word.'
             demonstration_sent_4 = 'Two guys sitting on the floor, with the guy in the green jacket reading a piece of paper.'
             demonstration_answer_4 = '1. Summary the people or objects in above sentence in one word.\n2. Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word.\n3. Summary the environment, weather or places in above sentence in one word.\n4. Summary the actions or movements of main people or objects in above sentence in one word.\n5. Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence in one word.'
             demonstration_image_path_1 = './data/flickr/flickr30k-images/101654506.jpg'
@@ -257,7 +257,10 @@ def main():
                 image_list = [demonstration_image_1, demonstration_image_2, demonstration_image_3,
                               demonstration_image_4, image]
             inputs = processor(images=image_list, text=text_input, return_tensors="pt").to(encoder.device)
-            output = model.encoder.generate(**inputs, max_new_tokens=300)
+            print(inputs['input_ids'].shape)
+            print(inputs['pixel_values'].shape)
+            print(inputs['image_sizes'])
+            output = model.encoder.generate(**inputs, do_sample=True, temperature=0.7, top_p=0.9, max_new_tokens=50)
             if dist.get_rank() == 0:
                 print(processor.decode(output[0], skip_special_tokens=True))
 

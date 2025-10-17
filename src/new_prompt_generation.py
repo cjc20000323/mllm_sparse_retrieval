@@ -166,7 +166,10 @@ def main():
             image_list = [demonstration_image_1, demonstration_image_2, demonstration_image_3, demonstration_image_4,
                           image]
         inputs = processor(images=image_list, text=text_input, return_tensors="pt").to(encoder.device)
-        output = model.encoder.generate(**inputs, max_new_tokens=500)
+        print(inputs['input_ids'].shape)
+        print(inputs['pixel_values'].shape)
+        print(inputs['image_sizes'])
+        output = model.encoder.generate(**inputs, do_sample=True, temperature=0.7, top_p=0.9, max_new_tokens=100)
         if dist.get_rank() == 0:
             print(processor.decode(output[0], skip_special_tokens=True))
 
