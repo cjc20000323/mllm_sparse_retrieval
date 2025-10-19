@@ -23,6 +23,7 @@ from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNex
 from encode import get_filtered_ids
 from dataset import CrossModalRetrievalDataset
 from metrices import RecallMetrics
+from reranker import Reranker
 
 import numpy as np
 import torch
@@ -209,8 +210,6 @@ def main():
     else:
         vocab_dict = processor.tokenizer.get_vocab()
         filtered_ids = get_filtered_ids(processor.tokenizer)
-    if dist.get_rank() == 0:
-        print(vocab_dict)
     vocab_dict = {v: k for k, v in vocab_dict.items()}
 
     if model_args.use_output_embedding_cluster:
@@ -1107,25 +1106,18 @@ def main():
 
     del model
 
-    '''
-    if search_args.passage_reps is not None and search_args.sparse_index is not None:
-        fusion_run.update(
-            fuse(
-                runs=[dense_run, sparse_run],
-                weights=[search_args.alpha, search_args.beta]
-            )
-        )
-
-    print(len(dense_run))
-    print(len(sparse_run))
-    print(len(fusion_run))
-    '''
     fusion_run_1.update(
         fuse(
             runs=[dense_run, sparse_run],
             weights=[0.5, 0.5]
         )
     )
+
+    if data_args.dataset_name == 'coco':
+        ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict, dataset.img2filepath, dataset.img_dict, processor.tokenizer.get_vocab())
+    else:
+        ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict,
+                          None, dataset.img_dict, processor.tokenizer.get_vocab())
 
     if data_args.is_filtered:
         filtered = "filter"
@@ -1148,14 +1140,16 @@ def main():
         use_sparse_value_mean = 'no_mean'
 
     os.makedirs(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
             exist_ok=True)
 
     output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
             f'0_5_0_5.xlsx')
 
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_1, look_up, lookup_indices, search_args)
+    rerank_fusion_run_1 = ranker.rerank(fusion_run_1, search_args.rerank_type, search_args.rerank_num, data_args)
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, rerank_fusion_run_1, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
 
@@ -1170,10 +1164,12 @@ def main():
     )
 
     output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
             f'0_6_0_4.xlsx')
 
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_2, look_up, lookup_indices, search_args)
+    rerank_fusion_run_2 = ranker.rerank(fusion_run_2, search_args.rerank_type, search_args.rerank_num, data_args)
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, rerank_fusion_run_2, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
 
@@ -1188,10 +1184,12 @@ def main():
     )
 
     output_path = os.path.join(
-        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
         f'0_7_0_3.xlsx')
 
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_3, look_up, lookup_indices, search_args)
+    rerank_fusion_run_3 = ranker.rerank(fusion_run_3, search_args.rerank_type, search_args.rerank_num, data_args)
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, rerank_fusion_run_3, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
 
@@ -1206,10 +1204,12 @@ def main():
     )
 
     output_path = os.path.join(
-        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
         f'0_8_0_2.xlsx')
 
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_4, look_up, lookup_indices, search_args)
+    rerank_fusion_run_4 = ranker.rerank(fusion_run_4, search_args.rerank_type, search_args.rerank_num, data_args)
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, rerank_fusion_run_4, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
 
@@ -1223,146 +1223,18 @@ def main():
         )
     )
 
-    if dist.get_rank() == 0:
-        print(fusion_run_5['69582'])
-
     output_path = os.path.join(
-        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
         f'0_9_0_1.xlsx')
 
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_5, look_up, lookup_indices, search_args)
+    rerank_fusion_run_5 = ranker.rerank(fusion_run_5, search_args.rerank_type, search_args.rerank_num, data_args)
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, rerank_fusion_run_5, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
 
     metric.all_gather_object()
     metric.print_recall(output_path)
-
-    '''
-    if not model_args.lora and not model_args.use_output_embedding_cluster:
-        sparse_correct_dict = {}
-        sparse_wrong_dict = {}
-        dense_correct_dict = {}
-        dense_wrong_dict = {}
-        hybrid_correct_dict = {}
-        hybrid_wrong_dict = {}
-
-        normalize_sparse_run = normalize(metric.sparse_run)
-        normalize_dense_run = normalize(metric.dense_run)
-        for k, v in tqdm(normalize_sparse_run.items()):
-            target = metric.dataset.get_target(k, metric.search_args.query_type)
-            if isinstance(target, list):
-                target = torch.tensor([int(i) for i in target]).cuda()
-            else:
-                target = int(target)
-            if len(v) == 0:
-                continue
-
-            search_results, search_scores = metric._sort_return_id_and_value(v)
-            if True in torch.isin(search_results[1], target):
-                sparse_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                          'r@1': True in torch.isin(search_results[1], target),
-                                          'r@5': True in torch.isin(search_results[5], target),
-                                          'r@10': True in torch.isin(search_results[10], target)}
-            else:
-                sparse_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                        'r@1': True in torch.isin(search_results[1], target),
-                                        'r@5': True in torch.isin(search_results[5], target),
-                                        'r@10': True in torch.isin(search_results[10], target)}
-
-        for k, v in tqdm(normalize_dense_run.items()):
-            target = metric.dataset.get_target(k, metric.search_args.query_type)
-            if isinstance(target, list):
-                target = torch.tensor([int(i) for i in target]).cuda()
-            else:
-                target = int(target)
-            if len(v) == 0:
-                continue
-
-            search_results, search_scores = metric._sort_return_id_and_value(v)
-            if True in torch.isin(search_results[1], target):
-                dense_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                         'r@1': True in torch.isin(search_results[1], target),
-                                         'r@5': True in torch.isin(search_results[5], target),
-                                         'r@10': True in torch.isin(search_results[10], target)}
-            else:
-                dense_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                       'r@1': True in torch.isin(search_results[1], target),
-                                       'r@5': True in torch.isin(search_results[5], target),
-                                       'r@10': True in torch.isin(search_results[10], target)}
-
-        for k, v in tqdm(metric.fusion_run.items()):
-            target = metric.dataset.get_target(k, metric.search_args.query_type)
-            if isinstance(target, list):
-                target = torch.tensor([int(i) for i in target]).cuda()
-            else:
-                target = int(target)
-            if len(v) == 0:
-                continue
-
-            search_results, search_scores = metric._sort_return_id_and_value(v)
-            if True in torch.isin(search_results[1], target):
-                hybrid_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                          'r@1': True in torch.isin(search_results[1], target),
-                                          'r@5': True in torch.isin(search_results[5], target),
-                                          'r@10': True in torch.isin(search_results[10], target)}
-            else:
-                hybrid_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                        'r@1': True in torch.isin(search_results[1], target),
-                                        'r@5': True in torch.isin(search_results[5], target),
-                                        'r@10': True in torch.isin(search_results[10], target)}
-
-        os.makedirs(f'./case_study', exist_ok=True)
-        if data_args.sparse_manual:
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_sparse_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_sparse_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_dense_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_dense_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_hybrid_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_hybrid_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_wrong_dict, f)
-        else:
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_wrong_dict, f)
-    '''
 
     # 训练结束后添加同步屏障
     dist.barrier()

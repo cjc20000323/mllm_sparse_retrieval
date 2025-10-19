@@ -5,6 +5,7 @@ llama3_template_content_element = '<|begin_of_text|>{}<|eot_id|><|start_header_i
 llava_v1_5_template = '<s>user\n\n{}</s><s>assistant\n\n \n'
 img_prompt = llama3_template.format('<image>\n<|begin_of_text|>Summary above image in one word: ')
 text_prompt = llama3_template.format('<sent>\n<|begin_of_text|>Summary above sentence in one word: ')
+relevant_prompt = llama3_template.format('For the following sentence and image, judge whether they are relevant. Output "Yes" or "No".\n\nSentence: <sent>\nImage: <image>\nOutput: ')
 img_prompt_for_concat = 'Summary above image in one word: '
 text_prompt_for_concat = 'Summary above sentence in one word: '
 img_prompt_no_one_word = llama3_template.format('<image>\n<|begin_of_text|>Summary above image: ')

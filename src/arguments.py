@@ -87,6 +87,8 @@ class PromptRepsLLMSearchArguments:
     embedding_type: str = field(default='dense')
     first_stage_search_sum: int = field(default=200)
     use_candidate_sum: bool = field(default=False)
+    rerank_num: int = field(default=20, metadata={"help": 'Number of candidates chosen for rerank'})
+    rerank_type: str = field(default='pointwise')
 
 
 @dataclass
