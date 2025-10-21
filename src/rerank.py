@@ -1,33 +1,30 @@
 import gc
 import glob
-import json
 import os
 import pickle
-import time
+from contextlib import nullcontext
+from itertools import chain
 
 import faiss
+import numpy as np
+import torch
+import torch.distributed as dist
+from PIL import Image
 from tqdm import tqdm
 from transformers import (
     HfArgumentParser,
 )
-from contextlib import nullcontext
-from PIL import Image
-from itertools import chain
-
-from model import MLLMRetrievalModel
-from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
-import torch.distributed as dist
-from arguments import TrainingArguments
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
     LlavaNextForConditionalGeneration, Qwen2_5_VLForConditionalGeneration, Qwen2_5_VLProcessor, AutoProcessor, \
-    AutoModelForCausalLM, AutoModel, LlamaForCausalLM
-from encode import get_filtered_ids
-from dataset import CrossModalRetrievalDataset
-from metrices import RecallMetrics
-from reranker import Reranker
+    AutoModel
 
-import numpy as np
-import torch
+from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
+from arguments import TrainingArguments
+from dataset import CrossModalRetrievalDataset
+from encode import get_filtered_ids
+from metrices import RecallMetrics
+from model import MLLMRetrievalModel
+from reranker import Reranker
 
 torch.set_printoptions(threshold=10000)  # 数字根据你的张量尺寸调整
 import torch.nn as nn
@@ -37,14 +34,13 @@ from nltk.corpus import stopwords
 import string
 from template import img_prompt, \
     img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, task_image_prompts, \
-    llama3_template, task_text_prompts, llama3_retrieval_disassemble_image_prompts, \
-    llama3_retrieval_disassemble_text_prompts
+    llama3_template, task_text_prompts, llama3_retrieval_disassemble_image_prompts
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
     get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, get_text_valid_tokens_values_fusion, get_text_valid_disassemble_tokens_values_fusion, \
     get_img_valid_disassemble_tokens_values, llama3_template_image_prefix, llama3_template_content_element, \
     retrieval_disassemble_image_prompts_3_for_concat, \
     retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, retrieval_disassemble_image_prompts_7_for_concat
-from hybrid import fuse, normalize
+from hybrid import fuse
 from utils import load_image
 from peft import PeftModel
 
@@ -308,6 +304,11 @@ def main():
     fusion_run_3 = {}
     fusion_run_4 = {}
     fusion_run_5 = {}
+    val_fusion_run_1 = {}
+    val_fusion_run_2 = {}
+    val_fusion_run_3 = {}
+    val_fusion_run_4 = {}
+    val_fusion_run_5 = {}
 
     dense_retriever_indices = []
     sparse_retriever_indices = []
@@ -1120,6 +1121,91 @@ def main():
             del val_dense_retriever
             gc.collect()
             torch.cuda.empty_cache()
+        if val_sparse_retriever:
+            del val_sparse_retriever
+            gc.collect()
+            torch.cuda.empty_cache()
+
+    val_fusion_run_1.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.5, 0.5]
+        )
+    )
+    val_fusion_run_2.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.6, 0.4]
+        )
+    )
+    val_fusion_run_3.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.7, 0.3]
+        )
+    )
+    val_fusion_run_4.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.8, 0.2]
+        )
+    )
+    val_fusion_run_5.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.9, 0.1]
+        )
+    )
+    max_val_fusion_metric = 0
+    best_weight = 0.5
+    val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_1, val_look_up,
+                               val_lookup_indices, search_args)
+    val_metric.sort_and_count()
+    val_metric.all_gather_object()
+
+    fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.5
+
+    val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_2, val_look_up,
+                               val_lookup_indices, search_args)
+    val_metric.sort_and_count()
+    val_metric.all_gather_object()
+
+    fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.6
+
+    val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_3, val_look_up,
+                               val_lookup_indices, search_args)
+    val_metric.sort_and_count()
+    val_metric.all_gather_object()
+
+    fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.7
+
+    val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_4, val_look_up,
+                               val_lookup_indices, search_args)
+    val_metric.sort_and_count()
+    val_metric.all_gather_object()
+
+    fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.8
+
+    val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_5, val_look_up,
+                               val_lookup_indices, search_args)
+    val_metric.sort_and_count()
+    val_metric.all_gather_object()
+
+    fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        best_weight = 0.9
 
     if search_args.passage_reps is not None:
         # 目前尚不清楚这里是怎么工作的
@@ -1993,9 +2079,9 @@ def main():
             f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
             f'0_5_0_5.xlsx')
 
-    rerank_fusion_run_1 = ranker.rerank(fusion_run_1, search_args.rerank_type, search_args.rerank_num, data_args, training_args)
+    # rerank_fusion_run_1 = ranker.rerank(fusion_run_1, search_args.rerank_type, search_args.rerank_num, data_args, training_args)
 
-    metric = RecallMetrics(dataset, dense_run, sparse_run, rerank_fusion_run_1, look_up, lookup_indices, search_args)
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_1, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
 
@@ -2013,9 +2099,9 @@ def main():
             f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
             f'0_6_0_4.xlsx')
 
-    rerank_fusion_run_2 = ranker.rerank(fusion_run_2, search_args.rerank_type, search_args.rerank_num, data_args, training_args)
+    # rerank_fusion_run_2 = ranker.rerank(fusion_run_2, search_args.rerank_type, search_args.rerank_num, data_args, training_args)
 
-    metric = RecallMetrics(dataset, dense_run, sparse_run, rerank_fusion_run_2, look_up, lookup_indices, search_args)
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_2, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
 
@@ -2033,9 +2119,9 @@ def main():
         f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
         f'0_7_0_3.xlsx')
 
-    rerank_fusion_run_3 = ranker.rerank(fusion_run_3, search_args.rerank_type, search_args.rerank_num, data_args, training_args)
+    # rerank_fusion_run_3 = ranker.rerank(fusion_run_3, search_args.rerank_type, search_args.rerank_num, data_args, training_args)
 
-    metric = RecallMetrics(dataset, dense_run, sparse_run, rerank_fusion_run_3, look_up, lookup_indices, search_args)
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_3, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
 
@@ -2053,9 +2139,9 @@ def main():
         f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
         f'0_8_0_2.xlsx')
 
-    rerank_fusion_run_4 = ranker.rerank(fusion_run_4, search_args.rerank_type, search_args.rerank_num, data_args, training_args)
+    # rerank_fusion_run_4 = ranker.rerank(fusion_run_4, search_args.rerank_type, search_args.rerank_num, data_args, training_args)
 
-    metric = RecallMetrics(dataset, dense_run, sparse_run, rerank_fusion_run_4, look_up, lookup_indices, search_args)
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_4, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
 
@@ -2073,9 +2159,31 @@ def main():
         f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
         f'0_9_0_1.xlsx')
 
-    rerank_fusion_run_5 = ranker.rerank(fusion_run_5, search_args.rerank_type, search_args.rerank_num, data_args, training_args)
+    # rerank_fusion_run_5 = ranker.rerank(fusion_run_5, search_args.rerank_type, search_args.rerank_num, data_args, training_args)
 
-    metric = RecallMetrics(dataset, dense_run, sparse_run, rerank_fusion_run_5, look_up, lookup_indices, search_args)
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_5, look_up, lookup_indices, search_args)
+
+    metric.sort_and_count()
+
+    metric.all_gather_object()
+    metric.print_recall(output_path)
+
+    best_test_fusion_run = {}
+    best_test_fusion_run.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[best_weight, 1 - best_weight]
+        )
+    )
+
+    rerank_best_test_fusion_run = ranker.rerank(fusion_run_5, search_args.rerank_type, search_args.rerank_num, data_args,
+                                        training_args)
+
+    output_path = os.path.join(
+        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+        f'best.xlsx')
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, rerank_best_test_fusion_run, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
 

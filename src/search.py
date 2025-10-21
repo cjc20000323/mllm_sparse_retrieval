@@ -308,6 +308,11 @@ def main():
     fusion_run_3 = {}
     fusion_run_4 = {}
     fusion_run_5 = {}
+    val_fusion_run_1 = {}
+    val_fusion_run_2 = {}
+    val_fusion_run_3 = {}
+    val_fusion_run_4 = {}
+    val_fusion_run_5 = {}
 
     dense_retriever_indices = []
     sparse_retriever_indices = []
@@ -1113,6 +1118,92 @@ def main():
             del val_dense_retriever
             gc.collect()
             torch.cuda.empty_cache()
+        if val_sparse_retriever:
+            del val_sparse_retriever
+            gc.collect()
+            torch.cuda.empty_cache()
+
+    val_fusion_run_1.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.5, 0.5]
+        )
+    )
+    val_fusion_run_2.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.6, 0.4]
+        )
+    )
+    val_fusion_run_3.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.7, 0.3]
+        )
+    )
+    val_fusion_run_4.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.8, 0.2]
+        )
+    )
+    val_fusion_run_5.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[0.9, 0.1]
+        )
+    )
+    max_val_fusion_metric = 0
+    best_weight = 0.5
+    val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_1, val_look_up,
+                               val_lookup_indices, search_args)
+    val_metric.sort_and_count()
+    val_metric.all_gather_object()
+
+    fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.5
+
+    val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_2, val_look_up,
+                               val_lookup_indices, search_args)
+    val_metric.sort_and_count()
+    val_metric.all_gather_object()
+
+    fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.6
+
+    val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_3, val_look_up,
+                               val_lookup_indices, search_args)
+    val_metric.sort_and_count()
+    val_metric.all_gather_object()
+
+    fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.7
+
+    val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_4, val_look_up,
+                               val_lookup_indices, search_args)
+    val_metric.sort_and_count()
+    val_metric.all_gather_object()
+
+    fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.8
+
+    val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_5, val_look_up,
+                               val_lookup_indices, search_args)
+    val_metric.sort_and_count()
+    val_metric.all_gather_object()
+
+    fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        best_weight = 0.9
+
 
     if search_args.passage_reps is not None:
         # 目前尚不清楚这里是怎么工作的
@@ -2035,14 +2126,30 @@ def main():
         )
     )
 
-    if dist.get_rank() == 0:
-        print(fusion_run_5['69582'])
-
     output_path = os.path.join(
         f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
         f'0_9_0_1.xlsx')
 
     metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_5, look_up, lookup_indices, search_args)
+
+    metric.sort_and_count()
+
+    metric.all_gather_object()
+    metric.print_recall(output_path)
+
+    best_test_fusion_run = {}
+    best_test_fusion_run.update(
+        fuse(
+            runs=[dense_run, sparse_run],
+            weights=[best_weight, 1 - best_weight]
+        )
+    )
+
+    output_path = os.path.join(
+        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+        f'best.xlsx')
+
+    metric = RecallMetrics(dataset, dense_run, sparse_run, best_test_fusion_run, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
 
