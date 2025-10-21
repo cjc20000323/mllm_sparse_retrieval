@@ -74,6 +74,8 @@ class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
 class PromptRepsLLMSearchArguments:
     passage_reps: str = field(default=None, metadata={"help": "Path to passage dense representations"})
     sparse_index: str = field(default=None, metadata={"help": "Path to passage sparse representations"})
+    val_passage_reps: str = field(default=None, metadata={"help": "Path to passage dense representations"})
+    val_sparse_index: str = field(default=None, metadata={"help": "Path to val passage sparse representations"})
     depth: int = field(default=1000)
     save_dir: str = field(default=None, metadata={"help": "Where to save the run files"})
     quiet: bool = field(default=True, metadata={"help": "Whether to print the progress"})
@@ -88,7 +90,9 @@ class PromptRepsLLMSearchArguments:
     first_stage_search_sum: int = field(default=200)
     use_candidate_sum: bool = field(default=False)
     rerank_num: int = field(default=20, metadata={"help": 'Number of candidates chosen for rerank'})
-    rerank_type: str = field(default='pointwise')
+    rerank_type: str = field(default='pointwise', metadata={"help": 'How to rerank'})
+    rerank_batch_size: int = field(default=1, metadata={"help": 'batch size for LLM input when rerank'})
+    rerank_template: str = field(default='relevant')
 
 
 @dataclass

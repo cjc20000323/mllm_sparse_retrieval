@@ -3,7 +3,7 @@ import csv
 
 from tqdm import tqdm
 
-with open('karpathy/dataset_flickr30k.json') as file:
+with open('D:\数据集\图文检索/dataset_flickr30k.json') as file:
     coco_dataset = json.load(file)
 
     print(coco_dataset.keys())
