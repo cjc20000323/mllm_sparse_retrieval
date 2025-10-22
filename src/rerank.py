@@ -315,6 +315,8 @@ def main():
     val_dense_retriever_indices = []
     val_sparse_retriever_indices = []
 
+    '''
+
     if search_args.val_passage_reps is not None:
         val_dense_retriever_indices = [search_args.val_passage_reps]
 
@@ -433,14 +435,6 @@ def main():
                                 img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
                                                        return_tensors="pt",
                                                        padding=True)
-                                '''
-                                if dist.get_rank() == 0:
-                                    print([prompt] * len(imgs_path))
-                                    print(img_inputs['input_ids'])
-                                    print(img_inputs['input_ids'].shape)
-                                    print(img_inputs['attention_mask'])
-                                    print(img_inputs['attention_mask'].shape)
-                                '''
                                 imgs = img_inputs.to(device)
                                 query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
                                                                                    model_args,
@@ -462,12 +456,6 @@ def main():
 
                                 disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
                                                           range(len(prompts) // 5)]
-                                '''
-                                disassemble_img_inputs = processor(images=disassemble_raw_images,
-                                                                   text=prompts * len(imgs_path),
-                                                                   return_tensors="pt",
-                                                                   padding=True)
-                                '''
                                 disassemble_logits = [[] for _ in range(len(imgs_path))]
                                 for i in range(5):
                                     # 这个i是为了控制当前轮次使用哪些prompt编码
@@ -493,11 +481,6 @@ def main():
                                 disassemble_logits = [item for disassemble_logit in disassemble_logits for item in
                                                       disassemble_logit]
                                 disassemble_logits = torch.cat(disassemble_logits, dim=0)
-                                '''
-                                disassemble_imgs = disassemble_img_inputs.to(device)
-                                disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
-                                                                          model_args, data_args)
-                                '''
 
                             elif model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                 # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
@@ -552,12 +535,6 @@ def main():
                                 raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                                 disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
                                                           range(len(prompts) // 5)]
-                                '''
-                                disassemble_img_inputs = processor(images=disassemble_raw_images,
-                                                                   text=prompts * len(imgs_path),
-                                                                   return_tensors="pt",
-                                                                   padding=True)
-                                '''
                                 disassemble_logits = [[] for _ in range(len(imgs_path))]
                                 disassemble_reps = [[] for _ in range(len(imgs_path))]
                                 for i in range(5):
@@ -591,11 +568,6 @@ def main():
                                 disassemble_logits = torch.cat(disassemble_logits, dim=0)
                                 disassemble_reps = torch.cat(disassemble_reps, dim=0)
                                 query_dense_reps = disassemble_reps
-                                '''
-                                disassemble_imgs = disassemble_img_inputs.to(device)
-                                disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
-                                                                          model_args, data_args)
-                                '''
                             else:
                                 # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
                                 # 也就是说，对于批次中的每个图像，按照下面每次循环使用的prompt个数，加入到raw_images中
@@ -1206,6 +1178,8 @@ def main():
     fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
     if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
         best_weight = 0.9
+        
+    '''
 
     if search_args.passage_reps is not None:
         # 目前尚不清楚这里是怎么工作的
@@ -2045,6 +2019,9 @@ def main():
         )
     )
 
+    max_val_fusion_metric = 0
+    best_weight = 0.5
+
     if data_args.dataset_name == 'coco':
         ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict, dataset.img2filepath, dataset.img_dict, processor.tokenizer.get_vocab())
     else:
@@ -2086,6 +2063,10 @@ def main():
     metric.sort_and_count()
 
     metric.all_gather_object()
+    fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.5
     metric.print_recall(output_path)
 
     fusion_run_2.update(
@@ -2106,6 +2087,10 @@ def main():
     metric.sort_and_count()
 
     metric.all_gather_object()
+    fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.5
     metric.print_recall(output_path)
 
     fusion_run_3.update(
@@ -2126,6 +2111,10 @@ def main():
     metric.sort_and_count()
 
     metric.all_gather_object()
+    fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.5
     metric.print_recall(output_path)
 
     fusion_run_4.update(
@@ -2146,6 +2135,10 @@ def main():
     metric.sort_and_count()
 
     metric.all_gather_object()
+    fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.5
     metric.print_recall(output_path)
 
     fusion_run_5.update(
@@ -2166,6 +2159,10 @@ def main():
     metric.sort_and_count()
 
     metric.all_gather_object()
+    fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.5
     metric.print_recall(output_path)
 
     best_test_fusion_run = {}

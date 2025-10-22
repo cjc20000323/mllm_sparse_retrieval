@@ -210,8 +210,6 @@ def main():
     else:
         vocab_dict = processor.tokenizer.get_vocab()
         filtered_ids = get_filtered_ids(processor.tokenizer)
-    if dist.get_rank() == 0:
-        print(vocab_dict)
     vocab_dict = {v: k for k, v in vocab_dict.items()}
 
     if model_args.use_output_embedding_cluster:
@@ -319,6 +317,8 @@ def main():
     val_dense_retriever_indices = []
     val_sparse_retriever_indices = []
 
+    '''
+    
     if search_args.val_passage_reps is not None:
         val_dense_retriever_indices = [search_args.val_passage_reps]
 
@@ -376,10 +376,10 @@ def main():
                         val_dense_retriever.index = faiss.index_cpu_to_all_gpus(val_dense_retriever.index, co,
                                                                             ngpu=num_gpus)
 
-        if sparse_retriever_indices:
+        if val_sparse_retriever_indices:
             val_sparse_retriever = LuceneImpactSearcher(os.path.join(val_sparse_retriever_indices[i], 'index'), None)
-            analyzer = JWhiteSpaceAnalyzer()
-            val_sparse_retriever.set_analyzer(analyzer)
+            val_analyzer = JWhiteSpaceAnalyzer()
+            val_sparse_retriever.set_analyzer(val_analyzer)
 
         with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(val_dataloader),
@@ -437,14 +437,6 @@ def main():
                                 img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
                                                        return_tensors="pt",
                                                        padding=True)
-                                '''
-                                if dist.get_rank() == 0:
-                                    print([prompt] * len(imgs_path))
-                                    print(img_inputs['input_ids'])
-                                    print(img_inputs['input_ids'].shape)
-                                    print(img_inputs['attention_mask'])
-                                    print(img_inputs['attention_mask'].shape)
-                                '''
                                 imgs = img_inputs.to(device)
                                 query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
                                                                                    model_args,
@@ -466,12 +458,6 @@ def main():
 
                                 disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
                                                           range(len(prompts) // 5)]
-                                '''
-                                disassemble_img_inputs = processor(images=disassemble_raw_images,
-                                                                   text=prompts * len(imgs_path),
-                                                                   return_tensors="pt",
-                                                                   padding=True)
-                                '''
                                 disassemble_logits = [[] for _ in range(len(imgs_path))]
                                 for i in range(5):
                                     # 这个i是为了控制当前轮次使用哪些prompt编码
@@ -497,11 +483,6 @@ def main():
                                 disassemble_logits = [item for disassemble_logit in disassemble_logits for item in
                                                       disassemble_logit]
                                 disassemble_logits = torch.cat(disassemble_logits, dim=0)
-                                '''
-                                disassemble_imgs = disassemble_img_inputs.to(device)
-                                disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
-                                                                          model_args, data_args)
-                                '''
 
                             elif model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                 # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
@@ -556,12 +537,6 @@ def main():
                                 raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                                 disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
                                                           range(len(prompts) // 5)]
-                                '''
-                                disassemble_img_inputs = processor(images=disassemble_raw_images,
-                                                                   text=prompts * len(imgs_path),
-                                                                   return_tensors="pt",
-                                                                   padding=True)
-                                '''
                                 disassemble_logits = [[] for _ in range(len(imgs_path))]
                                 disassemble_reps = [[] for _ in range(len(imgs_path))]
                                 for i in range(5):
@@ -595,11 +570,6 @@ def main():
                                 disassemble_logits = torch.cat(disassemble_logits, dim=0)
                                 disassemble_reps = torch.cat(disassemble_reps, dim=0)
                                 query_dense_reps = disassemble_reps
-                                '''
-                                disassemble_imgs = disassemble_img_inputs.to(device)
-                                disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor, device,
-                                                                          model_args, data_args)
-                                '''
                             else:
                                 # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
                                 # 也就是说，对于批次中的每个图像，按照下面每次循环使用的prompt个数，加入到raw_images中
@@ -1118,49 +1088,54 @@ def main():
             del val_dense_retriever
             gc.collect()
             torch.cuda.empty_cache()
+
         if val_sparse_retriever:
             del val_sparse_retriever
+            del val_analyzer
             gc.collect()
             torch.cuda.empty_cache()
 
     val_fusion_run_1.update(
         fuse(
-            runs=[dense_run, sparse_run],
+            runs=[val_dense_run, val_sparse_run],
             weights=[0.5, 0.5]
         )
     )
     val_fusion_run_2.update(
         fuse(
-            runs=[dense_run, sparse_run],
+            runs=[val_dense_run, val_sparse_run],
             weights=[0.6, 0.4]
         )
     )
     val_fusion_run_3.update(
         fuse(
-            runs=[dense_run, sparse_run],
+            runs=[val_dense_run, val_sparse_run],
             weights=[0.7, 0.3]
         )
     )
     val_fusion_run_4.update(
         fuse(
-            runs=[dense_run, sparse_run],
+            runs=[val_dense_run, val_sparse_run],
             weights=[0.8, 0.2]
         )
     )
     val_fusion_run_5.update(
         fuse(
-            runs=[dense_run, sparse_run],
+            runs=[val_dense_run, val_sparse_run],
             weights=[0.9, 0.1]
         )
     )
     max_val_fusion_metric = 0
     best_weight = 0.5
+
     val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_1, val_look_up,
                                val_lookup_indices, search_args)
     val_metric.sort_and_count()
     val_metric.all_gather_object()
 
     fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if dist.get_rank() == 0:
+        print((fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3)
     if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
         max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
         best_weight = 0.5
@@ -1204,6 +1179,20 @@ def main():
     if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
         best_weight = 0.9
 
+    del val_metric
+    del fusion_recalls
+    del val_dense_run
+    del val_sparse_run
+    del val_fusion_run_1
+    del val_fusion_run_2
+    del val_fusion_run_3
+    del val_fusion_run_4
+    del val_fusion_run_5
+    del val_dataset
+    del val_dataloader
+    gc.collect()
+    
+    '''
 
     if search_args.passage_reps is not None:
         # 目前尚不清楚这里是怎么工作的
@@ -2010,25 +1999,15 @@ def main():
 
     del model
 
-    '''
-    if search_args.passage_reps is not None and search_args.sparse_index is not None:
-        fusion_run.update(
-            fuse(
-                runs=[dense_run, sparse_run],
-                weights=[search_args.alpha, search_args.beta]
-            )
-        )
-
-    print(len(dense_run))
-    print(len(sparse_run))
-    print(len(fusion_run))
-    '''
     fusion_run_1.update(
         fuse(
             runs=[dense_run, sparse_run],
             weights=[0.5, 0.5]
         )
     )
+
+    max_val_fusion_metric = 0
+    best_weight = 0.5
 
     if data_args.is_filtered:
         filtered = "filter"
@@ -2063,6 +2042,10 @@ def main():
     metric.sort_and_count()
 
     metric.all_gather_object()
+    fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.5
     metric.print_recall(output_path)
 
     fusion_run_2.update(
@@ -2081,6 +2064,10 @@ def main():
     metric.sort_and_count()
 
     metric.all_gather_object()
+    fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.6
     metric.print_recall(output_path)
 
     fusion_run_3.update(
@@ -2099,6 +2086,10 @@ def main():
     metric.sort_and_count()
 
     metric.all_gather_object()
+    fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.7
     metric.print_recall(output_path)
 
     fusion_run_4.update(
@@ -2117,6 +2108,10 @@ def main():
     metric.sort_and_count()
 
     metric.all_gather_object()
+    fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.8
     metric.print_recall(output_path)
 
     fusion_run_5.update(
@@ -2135,6 +2130,9 @@ def main():
     metric.sort_and_count()
 
     metric.all_gather_object()
+    fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        best_weight = 0.9
     metric.print_recall(output_path)
 
     best_test_fusion_run = {}
