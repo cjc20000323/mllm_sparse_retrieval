@@ -2049,11 +2049,11 @@ def main():
         use_sparse_value_mean = 'no_mean'
 
     os.makedirs(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
+            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
             exist_ok=True)
 
     output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
+            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
             f'0_5_0_5.xlsx')
 
     # rerank_fusion_run_1 = ranker.rerank(fusion_run_1, search_args.rerank_type, search_args.rerank_num, data_args, training_args)
@@ -2077,7 +2077,7 @@ def main():
     )
 
     output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
+            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
             f'0_6_0_4.xlsx')
 
     # rerank_fusion_run_2 = ranker.rerank(fusion_run_2, search_args.rerank_type, search_args.rerank_num, data_args, training_args)
@@ -2090,7 +2090,7 @@ def main():
     fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
     if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
         max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
-        best_weight = 0.5
+        best_weight = 0.6
     metric.print_recall(output_path)
 
     fusion_run_3.update(
@@ -2101,7 +2101,7 @@ def main():
     )
 
     output_path = os.path.join(
-        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
+        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
         f'0_7_0_3.xlsx')
 
     # rerank_fusion_run_3 = ranker.rerank(fusion_run_3, search_args.rerank_type, search_args.rerank_num, data_args, training_args)
@@ -2114,7 +2114,7 @@ def main():
     fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
     if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
         max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
-        best_weight = 0.5
+        best_weight = 0.7
     metric.print_recall(output_path)
 
     fusion_run_4.update(
@@ -2125,7 +2125,7 @@ def main():
     )
 
     output_path = os.path.join(
-        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
+        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
         f'0_8_0_2.xlsx')
 
     # rerank_fusion_run_4 = ranker.rerank(fusion_run_4, search_args.rerank_type, search_args.rerank_num, data_args, training_args)
@@ -2138,7 +2138,7 @@ def main():
     fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
     if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
         max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
-        best_weight = 0.5
+        best_weight = 0.8
     metric.print_recall(output_path)
 
     fusion_run_5.update(
@@ -2149,7 +2149,7 @@ def main():
     )
 
     output_path = os.path.join(
-        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}',
+        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
         f'0_9_0_1.xlsx')
 
     # rerank_fusion_run_5 = ranker.rerank(fusion_run_5, search_args.rerank_type, search_args.rerank_num, data_args, training_args)
@@ -2161,8 +2161,7 @@ def main():
     metric.all_gather_object()
     fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
     if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
-        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
-        best_weight = 0.5
+        best_weight = 0.9
     metric.print_recall(output_path)
 
     best_test_fusion_run = {}
@@ -2173,11 +2172,11 @@ def main():
         )
     )
 
-    rerank_best_test_fusion_run = ranker.rerank(fusion_run_5, search_args.rerank_type, search_args.rerank_num, data_args,
-                                        training_args)
+    rerank_best_test_fusion_run = ranker.rerank(best_test_fusion_run, search_args.rerank_type, search_args.rerank_num, data_args,
+                                        training_args, rerank_prompt_type=search_args.rerank_template)
 
     output_path = os.path.join(
-        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
         f'best.xlsx')
 
     metric = RecallMetrics(dataset, dense_run, sparse_run, rerank_best_test_fusion_run, look_up, lookup_indices, search_args)

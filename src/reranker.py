@@ -2,7 +2,11 @@ import torch.distributed as dist
 import torch
 from tqdm import tqdm
 import pandas as pd
-from template import relevant_prompt
+from template import relevant_prompt, in_one_word_relevant_prompt, text_query_relevant_prompt, \
+    image_query_relevant_prompt, precise_caption_prompt, please_relevant_prompt, old_text_query_relevant_prompt, \
+    old_image_query_relevant_prompt, origin_old_text_query_relevant_prompt, origin_old_image_query_relevant_prompt, \
+    role_relevant_prompt, role_precise_caption_prompt, role_old_image_query_relevant_prompt, \
+    role_old_text_query_relevant_prompt, first_precise_caption_prompt
 from PIL import Image
 import torch.nn.functional as F
 from contextlib import nullcontext
@@ -20,9 +24,45 @@ class Reranker:
         self.processor = processor
         self.vocab_dict = vocab_dict
 
-    def rerank(self, fusion_run, rerank_type, rerank_num, data_args, training_args, rerank_batch_size=1):
+    def rerank(self, fusion_run, rerank_type, rerank_num, data_args, training_args, rerank_batch_size=1, rerank_prompt_type='relevant', log_likelihood=False):
         with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             rerank_fusion_run = {}
+            if rerank_prompt_type == 'relevant':
+                rerank_prompt_template = relevant_prompt
+            elif rerank_prompt_type == 'old_relevant':
+                if self.query_type == 'image':
+                    rerank_prompt_template = old_image_query_relevant_prompt
+                else:
+                    rerank_prompt_template = old_text_query_relevant_prompt
+            elif rerank_prompt_type == 'please_relevant':
+                rerank_prompt_template = please_relevant_prompt
+            elif rerank_prompt_type == 'in_one_word_relevant':
+                rerank_prompt_template = in_one_word_relevant_prompt
+            elif rerank_prompt_type == 'precise_caption':
+                rerank_prompt_template = precise_caption_prompt
+            elif rerank_prompt_type == 'query_relevant':
+                if self.query_type == 'image':
+                    rerank_prompt_template = image_query_relevant_prompt
+                else:
+                    rerank_prompt_template = text_query_relevant_prompt
+            elif rerank_prompt_type == 'origin_old_relevant':
+                if self.query_type == 'image':
+                    rerank_prompt_template = origin_old_image_query_relevant_prompt
+                else:
+                    rerank_prompt_template = origin_old_text_query_relevant_prompt
+            elif rerank_prompt_type == 'role_relevant':
+                rerank_prompt_template = role_relevant_prompt
+            elif rerank_prompt_type == 'role_precise_caption':
+                rerank_prompt_template = role_precise_caption_prompt
+            elif rerank_prompt_type == 'role_old_relevant':
+                if self.query_type == 'image':
+                    rerank_prompt_template = role_old_image_query_relevant_prompt
+                else:
+                    rerank_prompt_template = role_old_text_query_relevant_prompt
+            elif rerank_prompt_type == 'first_precise_caption':
+                rerank_prompt_template = first_precise_caption_prompt
+            else:
+                rerank_prompt_template = relevant_prompt
             conversation = [
                 {
 
@@ -34,9 +74,6 @@ class Reranker:
                 },
             ]
             prompt = self.processor.apply_chat_template(conversation, add_generation_prompt=True)
-            if dist.get_rank() == 0:
-                print(prompt)
-                print(relevant_prompt)
             if rerank_type == 'pointwise':
                 for k, v in tqdm(fusion_run.items()):
                     # k是查询的id，v是一个字典，key是候选的id，value是查询和候选的相似度
@@ -67,7 +104,7 @@ class Reranker:
                                 text_list.append(relevant_prompt.replace('<sent>', text))
                             '''
                             text = self.text_map[text_id]
-                            text_input = relevant_prompt.replace('<sent>', text)
+                            text_input = rerank_prompt_template.replace('<sent>', text)
                             inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
                                 self.model.device)
                             output = self.model(**inputs, output_hidden_states=True, return_dict=True)
@@ -83,7 +120,8 @@ class Reranker:
                                     batch_ids, sequence_lengths]
                             yes_id = self.vocab_dict['Yes']
                             no_id = self.vocab_dict['No']
-                            # logits = torch.log_softmax(logits, dim=-1)
+                            if log_likelihood:
+                                logits = torch.log_softmax(logits, dim=-1)
                             logit_tensor = torch.cat([logits[:, yes_id].unsqueeze(0), logits[:, no_id].unsqueeze(0)],
                                                      dim=-1)
                             output_probs = F.softmax(logit_tensor, dim=1)  # 同样指定dim=1
@@ -101,7 +139,7 @@ class Reranker:
                                 img_path = self.img_path_map[img_id]
                                 image_path = f'./data/{self.data_name}/flickr30k-images/{img_path}'
                                 raw_image = Image.open(image_path).convert('RGB')
-                            text_input = relevant_prompt.replace('<sent>', text)
+                            text_input = rerank_prompt_template.replace('<sent>', text)
                             inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
                                 self.model.device)
                             output = self.model(**inputs, output_hidden_states=True, return_dict=True)
@@ -117,7 +155,8 @@ class Reranker:
                                     batch_ids, sequence_lengths]
                             yes_id = self.vocab_dict['Yes']
                             no_id = self.vocab_dict['No']
-                            # logits = torch.log_softmax(logits, dim=-1)
+                            if log_likelihood:
+                                logits = torch.log_softmax(logits, dim=-1)
                             logit_tensor = torch.cat([logits[:, yes_id].unsqueeze(0), logits[:, no_id].unsqueeze(0)], dim=-1)
                             output_probs = F.softmax(logit_tensor, dim=1)  # 同样指定dim=1
                             yes_prob = output_probs.squeeze()[0]
