@@ -217,11 +217,7 @@ def main():
 
     dense_run = {}
     sparse_run = {}
-    fusion_run_1 = {}
-    fusion_run_2 = {}
-    fusion_run_3 = {}
-    fusion_run_4 = {}
-    fusion_run_5 = {}
+    fusion_run = [{}] * 9
 
     dense_retriever_indices = []
     sparse_retriever_indices = []
@@ -979,12 +975,8 @@ def main():
                 dense_run.update(
                     get_run_dict(batch_ids, dense_scores_list, dense_rankings_list, search_args.remove_query))
 
-    fusion_run_1.update(
-        fuse(
-            runs=[dense_run, sparse_run],
-            weights=[0.5, 0.5]
-        )
-    )
+    max_val_fusion_metric = 0
+    best_weight = 0.5
 
     if data_args.is_filtered:
         filtered = "filter"
@@ -1006,6 +998,32 @@ def main():
     else:
         use_sparse_value_mean = 'no_mean'
 
+    for i in range(9):
+        fusion_run[i].update(
+            fuse(
+                runs=[dense_run, sparse_run],
+                weights=[float((i+1)/10), 1-float((i+1)/10)]
+            )
+        )
+        os.makedirs(
+            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            exist_ok=True)
+
+        output_path = os.path.join(
+            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'0_{i+1}_0_{10-i-1}.xlsx')
+
+        metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run[i], look_up, lookup_indices, search_args)
+        metric.sort_and_count()
+
+        metric.all_gather_object()
+        fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
+        if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+            max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+            best_weight = float(i / 10)
+        metric.print_recall(output_path)
+
+    '''
     os.makedirs(
         f'two_stage_search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{search_args.first_stage_search_sum}_{data_args.sparse_type}',
         exist_ok=True)
@@ -1092,6 +1110,7 @@ def main():
 
     metric.all_gather_object()
     metric.print_recall(output_path)
+    '''
 
     # 训练结束后添加同步屏障
     dist.barrier()
