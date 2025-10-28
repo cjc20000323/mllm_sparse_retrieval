@@ -15,7 +15,9 @@ from arguments import TrainingArguments, PromptGenerationArguments
 from encode import get_filtered_ids
 from model import MLLMRetrievalModel
 from template import new_prompt_generation_from_pair_prompt, new_prompt_generation_from_pair_prompt_1, \
-    new_prompt_generation_from_pair_prompt_2, new_prompt_generation_from_pair_prompt_4
+    new_prompt_generation_from_pair_prompt_2, new_prompt_generation_from_pair_prompt_4, \
+    mistral_new_prompt_generation_from_pair_prompt, mistral_new_prompt_generation_from_pair_prompt_1, \
+    mistral_new_prompt_generation_from_pair_prompt_2
 
 
 def main():
@@ -124,12 +126,18 @@ def main():
         sent = prompt_generation_args.prompt_generation_text
         image_path = prompt_generation_args.prompt_generation_image
         if prompt_generation_args.demonstration_num == 0:
-            prompt = new_prompt_generation_from_pair_prompt
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                prompt = mistral_new_prompt_generation_from_pair_prompt
+            else:
+                prompt = new_prompt_generation_from_pair_prompt
             text_input = prompt.replace('<sent>', sent, 1)
             image = Image.open(image_path).convert('RGB')
             image_list = [image]
         elif prompt_generation_args.demonstration_num == 1:
-            prompt = new_prompt_generation_from_pair_prompt_1
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                prompt = mistral_new_prompt_generation_from_pair_prompt_1
+            else:
+                prompt = new_prompt_generation_from_pair_prompt_1
             text_input = prompt.replace('<sent>', demonstration_sent_1, 1)
             text_input = text_input.replace('<sent>', demonstration_answer_1, 1)
             text_input = text_input.replace('<sent>', sent, 1)
@@ -137,7 +145,10 @@ def main():
             image = Image.open(image_path).convert('RGB')
             image_list = [demonstration_image, image]
         elif prompt_generation_args.demonstration_num == 2:
-            prompt = new_prompt_generation_from_pair_prompt_2
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                prompt = mistral_new_prompt_generation_from_pair_prompt_2
+            else:
+                prompt = new_prompt_generation_from_pair_prompt_2
             text_input = prompt.replace('<sent>', demonstration_sent_1, 1)
             text_input = text_input.replace('<sent>', demonstration_answer_1, 1)
             text_input = text_input.replace('<sent>', demonstration_sent_2, 1)

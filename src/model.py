@@ -12,7 +12,7 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     llama3_template, task_text_prompts_copy, llama3_retrieval_disassemble_text_prompts, \
     llama3_template_text_prefix, llama3_template_content_element, text_prompt_for_concat, \
     retrieval_disassemble_text_prompts_3_for_concat, retrieval_disassemble_text_prompts_for_concat, \
-    retrieval_disassemble_text_prompts_7_for_concat, mistral_text_prompt
+    retrieval_disassemble_text_prompts_7_for_concat, mistral_text_prompt, llava_mistral_template_text_prefix, llava_mistral_template_content_element
 import torch.nn.functional as F
 
 
@@ -768,32 +768,59 @@ class MLLMRetrievalModel(nn.Module):
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
 
     def encode_data_concat(self, input, input_type, processor, device, model_args, data_args):
-        prompt_template = llama3_template_text_prefix
-        if data_args.prompt_type == 'prompt_5':
-            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
-            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_for_concat:
-                content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_image_prompt)
-                prompt_template += content_element
-        elif data_args.prompt_type == 'prompt_3':
-            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
-            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_3_for_concat:
-                content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_image_prompt)
-                prompt_template += content_element
-        elif data_args.prompt_type == 'prompt_7':
-            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
-            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_7_for_concat:
-                content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_image_prompt)
-                prompt_template += content_element
+        if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+            prompt_template = llava_mistral_template_text_prefix
+            if data_args.prompt_type == 'prompt_5':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
+                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
+                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_3':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
+                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_3_for_concat:
+                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_7':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
+                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
+                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            else:
+                pass
         else:
-            pass
+            prompt_template = llama3_template_text_prefix
+            if data_args.prompt_type == 'prompt_5':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
+                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_3':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_3_for_concat:
+                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_7':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
+                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            else:
+                pass
         if input_type == 'text':
             text_inputs = processor(text=[prompt_template.replace('<sent>', text) for text in input],
                                     return_tensors="pt", padding=True).to(device)
-            begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
-            end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            else:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
             begin_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(begin_of_text_id))
             end_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(end_of_text_id))
             begin_col_list = []
@@ -906,8 +933,12 @@ class MLLMRetrievalModel(nn.Module):
                     input[key] = input[key].unsqueeze(0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
                     # print(input[key].shape)
 
-            begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
-            end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            else:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
             begin_of_text_indices = torch.where(input['input_ids'] == torch.tensor(begin_of_text_id))
             end_of_text_indices = torch.where(input['input_ids'] == torch.tensor(end_of_text_id))
             begin_col_list = []

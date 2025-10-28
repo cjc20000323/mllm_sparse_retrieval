@@ -24,45 +24,83 @@ class Reranker:
         self.processor = processor
         self.vocab_dict = vocab_dict
 
-    def rerank(self, fusion_run, rerank_type, rerank_num, data_args, training_args, rerank_batch_size=1, rerank_prompt_type='relevant', log_likelihood=False):
+    def rerank(self, fusion_run, rerank_type, rerank_num, data_args, training_args, model_args, rerank_batch_size=1, rerank_prompt_type='relevant', log_likelihood=False):
         with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             rerank_fusion_run = {}
-            if rerank_prompt_type == 'relevant':
-                rerank_prompt_template = relevant_prompt
-            elif rerank_prompt_type == 'old_relevant':
-                if self.query_type == 'image':
-                    rerank_prompt_template = old_image_query_relevant_prompt
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                if rerank_prompt_type == 'relevant':
+                    rerank_prompt_template = relevant_prompt
+                elif rerank_prompt_type == 'old_relevant':
+                    if self.query_type == 'image':
+                        rerank_prompt_template = old_image_query_relevant_prompt
+                    else:
+                        rerank_prompt_template = old_text_query_relevant_prompt
+                elif rerank_prompt_type == 'please_relevant':
+                    rerank_prompt_template = please_relevant_prompt
+                elif rerank_prompt_type == 'in_one_word_relevant':
+                    rerank_prompt_template = in_one_word_relevant_prompt
+                elif rerank_prompt_type == 'precise_caption':
+                    rerank_prompt_template = precise_caption_prompt
+                elif rerank_prompt_type == 'query_relevant':
+                    if self.query_type == 'image':
+                        rerank_prompt_template = image_query_relevant_prompt
+                    else:
+                        rerank_prompt_template = text_query_relevant_prompt
+                elif rerank_prompt_type == 'origin_old_relevant':
+                    if self.query_type == 'image':
+                        rerank_prompt_template = origin_old_image_query_relevant_prompt
+                    else:
+                        rerank_prompt_template = origin_old_text_query_relevant_prompt
+                elif rerank_prompt_type == 'role_relevant':
+                    rerank_prompt_template = role_relevant_prompt
+                elif rerank_prompt_type == 'role_precise_caption':
+                    rerank_prompt_template = role_precise_caption_prompt
+                elif rerank_prompt_type == 'role_old_relevant':
+                    if self.query_type == 'image':
+                        rerank_prompt_template = role_old_image_query_relevant_prompt
+                    else:
+                        rerank_prompt_template = role_old_text_query_relevant_prompt
+                elif rerank_prompt_type == 'first_precise_caption':
+                    rerank_prompt_template = first_precise_caption_prompt
                 else:
-                    rerank_prompt_template = old_text_query_relevant_prompt
-            elif rerank_prompt_type == 'please_relevant':
-                rerank_prompt_template = please_relevant_prompt
-            elif rerank_prompt_type == 'in_one_word_relevant':
-                rerank_prompt_template = in_one_word_relevant_prompt
-            elif rerank_prompt_type == 'precise_caption':
-                rerank_prompt_template = precise_caption_prompt
-            elif rerank_prompt_type == 'query_relevant':
-                if self.query_type == 'image':
-                    rerank_prompt_template = image_query_relevant_prompt
-                else:
-                    rerank_prompt_template = text_query_relevant_prompt
-            elif rerank_prompt_type == 'origin_old_relevant':
-                if self.query_type == 'image':
-                    rerank_prompt_template = origin_old_image_query_relevant_prompt
-                else:
-                    rerank_prompt_template = origin_old_text_query_relevant_prompt
-            elif rerank_prompt_type == 'role_relevant':
-                rerank_prompt_template = role_relevant_prompt
-            elif rerank_prompt_type == 'role_precise_caption':
-                rerank_prompt_template = role_precise_caption_prompt
-            elif rerank_prompt_type == 'role_old_relevant':
-                if self.query_type == 'image':
-                    rerank_prompt_template = role_old_image_query_relevant_prompt
-                else:
-                    rerank_prompt_template = role_old_text_query_relevant_prompt
-            elif rerank_prompt_type == 'first_precise_caption':
-                rerank_prompt_template = first_precise_caption_prompt
+                    rerank_prompt_template = relevant_prompt
             else:
-                rerank_prompt_template = relevant_prompt
+                if rerank_prompt_type == 'relevant':
+                    rerank_prompt_template = relevant_prompt
+                elif rerank_prompt_type == 'old_relevant':
+                    if self.query_type == 'image':
+                        rerank_prompt_template = old_image_query_relevant_prompt
+                    else:
+                        rerank_prompt_template = old_text_query_relevant_prompt
+                elif rerank_prompt_type == 'please_relevant':
+                    rerank_prompt_template = please_relevant_prompt
+                elif rerank_prompt_type == 'in_one_word_relevant':
+                    rerank_prompt_template = in_one_word_relevant_prompt
+                elif rerank_prompt_type == 'precise_caption':
+                    rerank_prompt_template = precise_caption_prompt
+                elif rerank_prompt_type == 'query_relevant':
+                    if self.query_type == 'image':
+                        rerank_prompt_template = image_query_relevant_prompt
+                    else:
+                        rerank_prompt_template = text_query_relevant_prompt
+                elif rerank_prompt_type == 'origin_old_relevant':
+                    if self.query_type == 'image':
+                        rerank_prompt_template = origin_old_image_query_relevant_prompt
+                    else:
+                        rerank_prompt_template = origin_old_text_query_relevant_prompt
+                elif rerank_prompt_type == 'role_relevant':
+                    rerank_prompt_template = role_relevant_prompt
+                elif rerank_prompt_type == 'role_precise_caption':
+                    rerank_prompt_template = role_precise_caption_prompt
+                elif rerank_prompt_type == 'role_old_relevant':
+                    if self.query_type == 'image':
+                        rerank_prompt_template = role_old_image_query_relevant_prompt
+                    else:
+                        rerank_prompt_template = role_old_text_query_relevant_prompt
+                elif rerank_prompt_type == 'first_precise_caption':
+                    rerank_prompt_template = first_precise_caption_prompt
+                else:
+                    rerank_prompt_template = relevant_prompt
             conversation = [
                 {
 
