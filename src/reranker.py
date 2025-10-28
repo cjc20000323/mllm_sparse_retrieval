@@ -6,7 +6,13 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     image_query_relevant_prompt, precise_caption_prompt, please_relevant_prompt, old_text_query_relevant_prompt, \
     old_image_query_relevant_prompt, origin_old_text_query_relevant_prompt, origin_old_image_query_relevant_prompt, \
     role_relevant_prompt, role_precise_caption_prompt, role_old_image_query_relevant_prompt, \
-    role_old_text_query_relevant_prompt, first_precise_caption_prompt
+    role_old_text_query_relevant_prompt, first_precise_caption_prompt, mistral_relevant_prompt, \
+    mistral_in_one_word_relevant_prompt, mistral_text_query_relevant_prompt, mistral_image_query_relevant_prompt, \
+    mistral_precise_caption_prompt, mistral_please_relevant_prompt, mistral_old_text_query_relevant_prompt, \
+    mistral_old_image_query_relevant_prompt, mistral_origin_old_text_query_relevant_prompt, \
+    mistral_origin_old_image_query_relevant_prompt, mistral_role_relevant_prompt, mistral_role_precise_caption_prompt, \
+    mistral_role_old_text_query_relevant_prompt, mistral_role_old_image_query_relevant_prompt, \
+    mistral_first_precise_caption_prompt
 from PIL import Image
 import torch.nn.functional as F
 from contextlib import nullcontext
@@ -29,41 +35,41 @@ class Reranker:
             rerank_fusion_run = {}
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                 if rerank_prompt_type == 'relevant':
-                    rerank_prompt_template = relevant_prompt
+                    rerank_prompt_template = mistral_relevant_prompt
                 elif rerank_prompt_type == 'old_relevant':
                     if self.query_type == 'image':
-                        rerank_prompt_template = old_image_query_relevant_prompt
+                        rerank_prompt_template = mistral_old_image_query_relevant_prompt
                     else:
-                        rerank_prompt_template = old_text_query_relevant_prompt
+                        rerank_prompt_template = mistral_old_text_query_relevant_prompt
                 elif rerank_prompt_type == 'please_relevant':
-                    rerank_prompt_template = please_relevant_prompt
+                    rerank_prompt_template = mistral_please_relevant_prompt
                 elif rerank_prompt_type == 'in_one_word_relevant':
-                    rerank_prompt_template = in_one_word_relevant_prompt
+                    rerank_prompt_template = mistral_in_one_word_relevant_prompt
                 elif rerank_prompt_type == 'precise_caption':
-                    rerank_prompt_template = precise_caption_prompt
+                    rerank_prompt_template = mistral_precise_caption_prompt
                 elif rerank_prompt_type == 'query_relevant':
                     if self.query_type == 'image':
-                        rerank_prompt_template = image_query_relevant_prompt
+                        rerank_prompt_template = mistral_image_query_relevant_prompt
                     else:
-                        rerank_prompt_template = text_query_relevant_prompt
+                        rerank_prompt_template = mistral_text_query_relevant_prompt
                 elif rerank_prompt_type == 'origin_old_relevant':
                     if self.query_type == 'image':
-                        rerank_prompt_template = origin_old_image_query_relevant_prompt
+                        rerank_prompt_template = mistral_origin_old_image_query_relevant_prompt
                     else:
-                        rerank_prompt_template = origin_old_text_query_relevant_prompt
+                        rerank_prompt_template = mistral_origin_old_text_query_relevant_prompt
                 elif rerank_prompt_type == 'role_relevant':
-                    rerank_prompt_template = role_relevant_prompt
+                    rerank_prompt_template = mistral_role_relevant_prompt
                 elif rerank_prompt_type == 'role_precise_caption':
-                    rerank_prompt_template = role_precise_caption_prompt
+                    rerank_prompt_template = mistral_role_precise_caption_prompt
                 elif rerank_prompt_type == 'role_old_relevant':
                     if self.query_type == 'image':
-                        rerank_prompt_template = role_old_image_query_relevant_prompt
+                        rerank_prompt_template = mistral_role_old_image_query_relevant_prompt
                     else:
-                        rerank_prompt_template = role_old_text_query_relevant_prompt
+                        rerank_prompt_template = mistral_role_old_text_query_relevant_prompt
                 elif rerank_prompt_type == 'first_precise_caption':
-                    rerank_prompt_template = first_precise_caption_prompt
+                    rerank_prompt_template = mistral_first_precise_caption_prompt
                 else:
-                    rerank_prompt_template = relevant_prompt
+                    rerank_prompt_template = mistral_relevant_prompt
             else:
                 if rerank_prompt_type == 'relevant':
                     rerank_prompt_template = relevant_prompt
