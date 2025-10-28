@@ -34,7 +34,8 @@ from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qw
     llama3_retrieval_disassemble_image_prompts, llama3_retrieval_disassemble_text_prompts, \
     llama3_template_image_prefix, llama3_template_content_element, retrieval_disassemble_image_prompts_3_for_concat, \
     retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, \
-    retrieval_disassemble_image_prompts_7_for_concat
+    retrieval_disassemble_image_prompts_7_for_concat, mistral_img_prompt, llava_mistral_template_image_prefix, \
+    llava_mistral_template_text_prefix, llava_mistral_template_content_element
 from utils import load_image
 
 
@@ -772,6 +773,18 @@ def main():
         processor = LlavaNextProcessor.from_pretrained(model_args.model_name_or_path)
         if 'royokong-e5-v' in model_args.model_name_or_path:
             setattr(processor, "patch_size", 14)  # hack for pass
+        conversation = [
+            {
+
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "<image><|begin_of_text|>Summary above image in one word: "},
+                ],
+            },
+        ]
+        prompt = processor.apply_chat_template(conversation, add_generation_prompt=True)
+        if dist.get_rank() == 0:
+            print(prompt)
 
     if data_args.reps_loc == 'after_pad':
         processor.tokenizer.padding_side = "left"
@@ -925,13 +938,24 @@ def main():
             prompt = img_prompt_intern_vl_v2_5
             if dist.get_rank() == 0:
                 print(prompt)
+        elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+            prompt = mistral_img_prompt
         else:
             prompt = img_prompt
 
+        if dist.get_rank() == 0:
+            print(prompt)
+
         if 'disassembleeol' in model_args.eol_type:
-            prompts = llama3_retrieval_disassemble_image_prompts
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                pass
+            else:
+                prompts = llama3_retrieval_disassemble_image_prompts
         else:
-            prompts = llama3_retrieval_disassemble_image_prompts
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                pass
+            else:
+                prompts = llama3_retrieval_disassemble_image_prompts
         for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                      total=len(test_dataloader)):
             with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
@@ -1049,32 +1073,60 @@ def main():
                                 reps = reps.reshape(-1, len(task_image_prompts_copy), reps.shape[1]).mean(1)
 
                 else:
-                    if data_args.prompt_type == 'prompt_5':
-                        prompt_template = llama3_template_image_prefix
-                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                            prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                        for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
-                            content_element = llama3_template_content_element.format(
-                                llama3_retrieval_disassemble_image_prompt)
-                            prompt_template += content_element
-                    elif data_args.prompt_type == 'prompt_3':
-                        prompt_template = llama3_template_image_prefix
-                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                            prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                        for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
-                            content_element = llama3_template_content_element.format(
-                                llama3_retrieval_disassemble_image_prompt)
-                            prompt_template += content_element
-                    elif data_args.prompt_type == 'prompt_7':
-                        prompt_template = llama3_template_image_prefix
-                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                            prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                        for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
-                            content_element = llama3_template_content_element.format(
-                                llama3_retrieval_disassemble_image_prompt)
-                            prompt_template += content_element
+                    if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                        if data_args.prompt_type == 'prompt_5':
+                            prompt_template = llava_mistral_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += llava_mistral_template_content_element.format(img_prompt_for_concat)
+                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
+                                content_element = llava_mistral_template_content_element.format(
+                                    llava_mistral_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        elif data_args.prompt_type == 'prompt_3':
+                            prompt_template = llava_mistral_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += llava_mistral_template_content_element.format(img_prompt_for_concat)
+                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
+                                content_element = llava_mistral_template_content_element.format(
+                                    llava_mistral_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        elif data_args.prompt_type == 'prompt_7':
+                            prompt_template = llava_mistral_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += llava_mistral_template_content_element.format(img_prompt_for_concat)
+                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
+                                content_element = llava_mistral_template_content_element.format(
+                                    llava_mistral_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        else:
+                            pass
                     else:
-                        pass
+                        if data_args.prompt_type == 'prompt_5':
+                            prompt_template = llama3_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
+                                content_element = llama3_template_content_element.format(
+                                    llama3_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        elif data_args.prompt_type == 'prompt_3':
+                            prompt_template = llama3_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
+                                content_element = llama3_template_content_element.format(
+                                    llama3_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        elif data_args.prompt_type == 'prompt_7':
+                            prompt_template = llama3_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
+                                content_element = llama3_template_content_element.format(
+                                    llama3_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        else:
+                            pass
                     if training_args.encode_type == 'text':
                         logits, reps = model.encode_data_concat(texts, 'text', processor, device, model_args, data_args)
                         if 'disassembleeol_concrete' in model_args.eol_type:

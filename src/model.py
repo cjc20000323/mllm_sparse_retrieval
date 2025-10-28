@@ -12,7 +12,7 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     llama3_template, task_text_prompts_copy, llama3_retrieval_disassemble_text_prompts, \
     llama3_template_text_prefix, llama3_template_content_element, text_prompt_for_concat, \
     retrieval_disassemble_text_prompts_3_for_concat, retrieval_disassemble_text_prompts_for_concat, \
-    retrieval_disassemble_text_prompts_7_for_concat
+    retrieval_disassemble_text_prompts_7_for_concat, mistral_text_prompt
 import torch.nn.functional as F
 
 
@@ -59,16 +59,25 @@ class MLLMRetrievalModel(nn.Module):
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
+        elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+            prompt = mistral_text_prompt
         else:
             prompt = text_prompt
 
         if 'disassembleeol' in model_args.eol_type:
             if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
                 prompts = llama3_retrieval_disassemble_text_prompts
+            elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                prompts = llama3_retrieval_disassemble_text_prompts
             else:
                 prompts = llama3_retrieval_disassemble_text_prompts
         else:
-            prompts = llama3_retrieval_disassemble_text_prompts
+            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
+                prompts = llama3_retrieval_disassemble_text_prompts
+            elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                prompts = llama3_retrieval_disassemble_text_prompts
+            else:
+                prompts = llama3_retrieval_disassemble_text_prompts
         if input_type == 'text':
             if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
                 text_inputs = processor([prompt.replace('<sent>', text) for text in input], return_tensors='pt',
