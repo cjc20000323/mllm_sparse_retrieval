@@ -21,7 +21,8 @@ from template import prompt_generation_from_image_prompt, prompt_generation_from
     prompt_generation_from_pair_prompt, prompt_generation_from_pair_prompt_1, prompt_generation_from_pair_prompt_2, \
     prompt_generation_from_pair_prompt_4, prompt_generation_from_pair_prompt_3, \
     mistral_prompt_generation_from_pair_prompt, mistral_prompt_generation_from_pair_prompt_1, \
-    mistral_prompt_generation_from_pair_prompt_2
+    mistral_prompt_generation_from_pair_prompt_2, mistral_prompt_generation_from_pair_prompt_3, \
+    mistral_prompt_generation_from_pair_prompt_4
 
 
 def main():
@@ -222,7 +223,7 @@ def main():
                 image_list = [image]
             elif prompt_generation_args.demonstration_num == 1:
                 if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-                    prompt = mistral_prompt_generation_from_pair_prompt
+                    prompt = mistral_prompt_generation_from_pair_prompt_1
                 else:
                     prompt = prompt_generation_from_pair_prompt_1
                 text_input = prompt.replace('<sent>', demonstration_sent_1, 1)
@@ -233,20 +234,23 @@ def main():
                 image_list = [demonstration_image, image]
             elif prompt_generation_args.demonstration_num == 2:
                 if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-                    prompt = mistral_prompt_generation_from_pair_prompt
+                    prompt = mistral_prompt_generation_from_pair_prompt_2
                 else:
                     prompt = prompt_generation_from_pair_prompt_2
                 text_input = prompt.replace('<sent>', demonstration_sent_1, 1)
                 text_input = text_input.replace('<sent>', demonstration_answer_1, 1)
-                text_input = text_input.replace('<sent>', demonstration_sent_2, 1)
-                text_input = text_input.replace('<sent>', demonstration_answer_2, 1)
+                text_input = text_input.replace('<sent>', demonstration_sent_4, 1)
+                text_input = text_input.replace('<sent>', demonstration_answer_4, 1)
                 text_input = text_input.replace('<sent>', sent, 1)
                 demonstration_image_1 = Image.open(demonstration_image_path_1).convert('RGB')
                 demonstration_image_2 = Image.open(demonstration_image_path_2).convert('RGB')
                 image = Image.open(image_path).convert('RGB')
                 image_list = [demonstration_image_1, demonstration_image_2, image]
             elif prompt_generation_args.demonstration_num == 3:
-                prompt = prompt_generation_from_pair_prompt_3
+                if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    prompt = mistral_prompt_generation_from_pair_prompt_3
+                else:
+                    prompt = prompt_generation_from_pair_prompt_3
                 text_input = prompt.replace('<sent>', demonstration_sent_1, 1)
                 text_input = text_input.replace('<sent>', demonstration_answer_1, 1)
                 text_input = text_input.replace('<sent>', demonstration_sent_2, 1)
@@ -260,7 +264,10 @@ def main():
                 image = Image.open(image_path).convert('RGB')
                 image_list = [demonstration_image_1, demonstration_image_2, demonstration_image_3, image]
             elif prompt_generation_args.demonstration_num == 4:
-                prompt = prompt_generation_from_pair_prompt_4
+                if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    prompt = mistral_prompt_generation_from_pair_prompt_4
+                else:
+                    prompt = prompt_generation_from_pair_prompt_4
                 text_input = prompt.replace('<sent>', demonstration_sent_1, 1)
                 text_input = text_input.replace('<sent>', demonstration_answer_1, 1)
                 text_input = text_input.replace('<sent>', demonstration_sent_2, 1)
@@ -281,7 +288,7 @@ def main():
             print(inputs['input_ids'].shape)
             print(inputs['pixel_values'].shape)
             print(inputs['image_sizes'])
-            output = model.encoder.generate(**inputs, do_sample=True, temperature=0.7, top_p=0.9, max_new_tokens=50)
+            output = model.encoder.generate(**inputs, max_new_tokens=500)
             if dist.get_rank() == 0:
                 print(processor.decode(output[0], skip_special_tokens=True))
 

@@ -17,7 +17,7 @@ from model import MLLMRetrievalModel
 from template import new_prompt_generation_from_pair_prompt, new_prompt_generation_from_pair_prompt_1, \
     new_prompt_generation_from_pair_prompt_2, new_prompt_generation_from_pair_prompt_4, \
     mistral_new_prompt_generation_from_pair_prompt, mistral_new_prompt_generation_from_pair_prompt_1, \
-    mistral_new_prompt_generation_from_pair_prompt_2
+    mistral_new_prompt_generation_from_pair_prompt_2, mistral_new_prompt_generation_from_pair_prompt_4
 
 
 def main():
@@ -151,15 +151,18 @@ def main():
                 prompt = new_prompt_generation_from_pair_prompt_2
             text_input = prompt.replace('<sent>', demonstration_sent_1, 1)
             text_input = text_input.replace('<sent>', demonstration_answer_1, 1)
-            text_input = text_input.replace('<sent>', demonstration_sent_2, 1)
-            text_input = text_input.replace('<sent>', demonstration_answer_2, 1)
+            text_input = text_input.replace('<sent>', demonstration_sent_4, 1)
+            text_input = text_input.replace('<sent>', demonstration_answer_4, 1)
             text_input = text_input.replace('<sent>', sent, 1)
             demonstration_image_1 = Image.open(demonstration_image_path_1).convert('RGB')
-            demonstration_image_2 = Image.open(demonstration_image_path_2).convert('RGB')
+            demonstration_image_2 = Image.open(demonstration_image_path_4).convert('RGB')
             image = Image.open(image_path).convert('RGB')
             image_list = [demonstration_image_1, demonstration_image_2, image]
         elif prompt_generation_args.demonstration_num == 4:
-            prompt = new_prompt_generation_from_pair_prompt_4
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                prompt = mistral_new_prompt_generation_from_pair_prompt_4
+            else:
+                prompt = new_prompt_generation_from_pair_prompt_4
             text_input = prompt.replace('<sent>', demonstration_sent_1, 1)
             text_input = text_input.replace('<sent>', demonstration_answer_1, 1)
             text_input = text_input.replace('<sent>', demonstration_sent_2, 1)
@@ -180,7 +183,7 @@ def main():
         print(inputs['input_ids'].shape)
         print(inputs['pixel_values'].shape)
         print(inputs['image_sizes'])
-        output = model.encoder.generate(**inputs, do_sample=True, temperature=0.7, top_p=0.9, max_new_tokens=100)
+        output = model.encoder.generate(**inputs, max_new_tokens=200)
         if dist.get_rank() == 0:
             print(processor.decode(output[0], skip_special_tokens=True))
 
