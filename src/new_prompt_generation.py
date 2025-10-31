@@ -87,6 +87,23 @@ def main():
         processor = LlavaNextProcessor.from_pretrained(model_args.model_name_or_path)
         if 'royokong-e5-v' in model_args.model_name_or_path:
             setattr(processor, "patch_size", 14)  # hack for pass
+        conversation = [
+            {
+
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "<image><|begin_of_text|>Summary above image in one word: "},
+                ],
+            },
+        ]
+        prompt = processor.apply_chat_template(conversation, add_generation_prompt=True)
+        if dist.get_rank() == 0:
+            print(prompt)
+        input_id = processor(text=prompt,
+                             return_tensors="pt",
+                             padding=True).input_ids
+        if dist.get_rank() == 0:
+            print(input_id)
 
     if data_args.reps_loc == 'after_pad':
         processor.tokenizer.padding_side = "left"

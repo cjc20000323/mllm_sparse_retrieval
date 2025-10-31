@@ -23,7 +23,7 @@ from transformers import (
 )
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
     LlavaNextForConditionalGeneration, Qwen2_5_VLProcessor, Qwen2_5_VLForConditionalGeneration, AutoModel, \
-    AutoProcessor, LlamaForCausalLM
+    AutoProcessor, LlamaForCausalLM, GPTJForCausalLM
 
 from arguments import PromptRepsLLMDataArguments, ModelArguments
 from arguments import TrainingArguments
@@ -785,6 +785,11 @@ def main():
         prompt = processor.apply_chat_template(conversation, add_generation_prompt=True)
         if dist.get_rank() == 0:
             print(prompt)
+        input_id = processor(text=prompt,
+                  return_tensors="pt",
+                  padding=True).input_ids
+        if dist.get_rank() == 0:
+            print(input_id)
 
     if data_args.reps_loc == 'after_pad':
         processor.tokenizer.padding_side = "left"

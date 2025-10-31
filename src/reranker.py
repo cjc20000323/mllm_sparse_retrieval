@@ -12,7 +12,7 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     mistral_old_image_query_relevant_prompt, mistral_origin_old_text_query_relevant_prompt, \
     mistral_origin_old_image_query_relevant_prompt, mistral_role_relevant_prompt, mistral_role_precise_caption_prompt, \
     mistral_role_old_text_query_relevant_prompt, mistral_role_old_image_query_relevant_prompt, \
-    mistral_first_precise_caption_prompt
+    mistral_first_precise_caption_prompt, mistral_query_generation_paradigm_prompt, query_generation_paradigm_prompt
 from PIL import Image
 import torch.nn.functional as F
 from contextlib import nullcontext
@@ -217,3 +217,119 @@ class Reranker:
                 pass
 
             return rerank_fusion_run
+
+    def caption_generation_rerank(self, fusion_run, rerank_type, rerank_num, data_args, training_args, model_args, rerank_batch_size=1, rerank_prompt_type='caption_generation'):
+        rerank_fusion_run = {}
+        with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                if rerank_prompt_type == 'caption_generation':
+                    rerank_prompt_template = mistral_query_generation_paradigm_prompt
+                else:
+                    rerank_prompt_template = mistral_query_generation_paradigm_prompt
+            else:
+                if rerank_prompt_type == 'caption_generation':
+                    rerank_prompt_template = query_generation_paradigm_prompt
+                else:
+                    rerank_prompt_template = query_generation_paradigm_prompt
+            for k, v in tqdm(fusion_run.items()):
+                # k是查询的id，v是一个字典，key是候选的id，value是查询和候选的相似度
+                sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
+                candidate_pool = dict(sorted_by_value[:rerank_num])
+                rerank_run = {}
+                if dist.get_rank() == 0:
+                    print(k)
+                    print(candidate_pool)
+                if self.query_type == 'image':
+                    if self.img_filepath_map is not None:
+                        img_file_path = self.img_filepath_map[k]
+                        img_path = self.img_path_map[k]
+                        image_path = f'./data/{self.data_name}/{img_file_path}/{img_path}'
+                        raw_image = Image.open(image_path).convert('RGB')
+                    else:
+                        img_path = self.img_path_map[k]
+                        image_path = f'./data/{self.data_name}/flickr30k-images/{img_path}'
+                        raw_image = Image.open(image_path).convert('RGB')
+                    # image_list = []
+                    text_id_list = []
+                    sim_score_list = []
+                    label_list = []
+                    text_list = []
+
+                    for text_id, sim_score in candidate_pool.items():
+                        text_id_list.append(text_id)
+                        text_list.append(self.text_map[text_id])
+                        sim_score_list.append(sim_score_list)
+
+                    sharded_nll_list = []
+
+                    for indice in range(0, len(text_id_list), rerank_batch_size):
+                        text_shard = text_list[indice: indice + rerank_batch_size]
+                        text_input = [rerank_prompt_template + text for text in text_shard]
+                        image_shard = [raw_image] * len(text_shard)
+                        inputs = self.processor(images=image_shard, text=text_input, return_tensors="pt").to(
+                            self.model.device)
+                        max_inputs_sum = inputs['input_ids'].shape[1]
+                        labels = [self.processor(text=text, return_tensors="pt").to(self.model.device) for text in text_shard]
+                        labels = [[-100] * (max_inputs_sum - len(label)) + label for label in labels]
+                        labels_view = torch.tensor(labels).to(self.model.device)
+                        output = self.model(**inputs, output_hidden_states=True, return_dict=True)
+                        logits = output.logits
+                        shift_logits = logits[..., :-1, :].contiguous()
+                        shift_labels = labels_view[..., 1:].contiguous()
+                        loss_func = torch.nn.CrossEntropyLoss(reduction='none')
+                        nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                        nll = nll.view(shift_labels.size())
+                        avg_nll = torch.sum(nll, dim=1)
+                        sharded_nll_list.append(avg_nll)
+
+                    for text_id, nll in text_id_list, sharded_nll_list:
+                        rerank_run[text_id] = float(nll)
+
+                else:
+                    text = self.text_map[k]
+                    img_id_list = []
+                    image_list = []
+                    sim_score_list = []
+                    for img_id, sim_score in candidate_pool.items():
+                        if self.img_filepath_map is not None:
+                            img_file_path = self.img_filepath_map[img_id]
+                            img_path = self.img_path_map[img_id]
+                            image_path = f'./data/{self.data_name}/{img_file_path}/{img_path}'
+                            raw_image = Image.open(image_path).convert('RGB')
+                        else:
+                            img_path = self.img_path_map[img_id]
+                            image_path = f'./data/{self.data_name}/flickr30k-images/{img_path}'
+                            raw_image = Image.open(image_path).convert('RGB')
+                        img_id_list.append(img_id_list)
+                        image_list.append(raw_image)
+                        sim_score_list.append(sim_score)
+
+                    sharded_nll_list = []
+
+                    for indice in range(0, len(img_id_list), rerank_batch_size):
+                        image_shard = image_path[indice: indice + rerank_batch_size]
+                        text_input = [rerank_prompt_template + text] * len(image_shard)
+                        inputs = self.processor(images=image_shard, text=text_input, return_tensors="pt").to(
+                            self.model.device)
+                        max_inputs_sum = inputs['input_ids'].shape[1]
+                        labels = [self.processor(text=text, return_tensors="pt").to(self.model.device)] * len(image_shard)
+                        labels = [[-100] * (max_inputs_sum - len(label)) + label for label in labels]
+                        labels_view = torch.tensor(labels).to(self.model.device)
+                        output = self.model(**inputs, output_hidden_states=True, return_dict=True)
+                        logits = output.logits
+                        shift_logits = logits[..., :-1, :].contiguous()
+                        shift_labels = labels_view[..., 1:].contiguous()
+                        loss_func = torch.nn.CrossEntropyLoss(reduction='none')
+                        nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                        nll = nll.view(shift_labels.size())
+                        # 这个为啥是sum呢？根据原论文，是要把各个token上预测结果概率的对数似然加和取平均，但这里似乎只是求了和
+                        avg_nll = torch.sum(nll, dim=1)
+                        sharded_nll_list.append(avg_nll)
+
+                    for img_id, nll in img_id_list, sharded_nll_list:
+                        rerank_run[img_id] = float(nll)
+                sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
+                if dist.get_rank() == 0:
+                    print(sorted_by_value_rerank_run)
+                rerank_fusion_run[k] = sorted_by_value_rerank_run
+

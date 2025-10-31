@@ -41,6 +41,10 @@ mistral_role_relevant_prompt = llava_mistral_template.format("You are RankGPT, a
 mistral_role_precise_caption_prompt = llava_mistral_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \n For the following sentence and image, judge whether the sentence is the precise caption of the image. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
 mistral_role_old_text_query_relevant_prompt = llava_mistral_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nQuery: <sent>\nCandidate: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
 mistral_role_old_image_query_relevant_prompt = llava_mistral_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nQuery: <image>\nCandidate: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+
+mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image: <image>\nPlease write a caption based on this image.")
+query_generation_paradigm_prompt = llama3_template.format("Image: <image>\nPlease write a caption based on this image.")
+
 img_prompt_for_concat = 'Summary above image in one word: '
 text_prompt_for_concat = 'Summary above sentence in one word: '
 img_prompt_no_one_word = llama3_template.format('<image>\n<|begin_of_text|>Summary above image: ')
