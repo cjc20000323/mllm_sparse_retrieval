@@ -108,3 +108,5 @@ class PromptGenerationArguments:
     prompt_generation_image: str = field(default='None')
     prompt_generation_type: str = field(default='t2t')
     demonstration_num: int = field(default=1)
+    prompt_generation_model: str = field(default=None)
+    case_type: str = field(default='caption')

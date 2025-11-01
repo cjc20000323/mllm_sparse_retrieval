@@ -581,4 +581,109 @@ mistral_new_prompt_generation_from_pair_prompt_4 = llava_mistral_template.format
     'Proper aspects or perspectives:\n'
 )
 
+llava_llama_caption_generation_prompt_1 = llama3_template.format('<image>\nPlease write a caption based on this image.')
+llava_llama_caption_generation_prompt_2 = llama3_template.format('<image>\nWhat is the caption of the above image?')
+llava_mistral_caption_generation_prompt_1 = llava_mistral_template.format('<image>\nPlease write a caption based on this image.')
+llava_mistral_caption_generation_prompt_2 = llava_mistral_template.format('<image>\nWhat is the caption of the above image?')
+
+llama_prompt_generation_text_modal_only_prompt = llama3_template.format(
+    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input sentence. You can be only permitted to predict 1 to 3 words for each aspects and output them in list format.\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+)
+
+llama_prompt_generation_text_modal_only_prompt_1 = llama3_template.format(
+    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input sentence. You can be only permitted to predict 1 to 3 words for each aspects and output them in list format. Please be advised, you must not give answers for these aspects. We will provide a sentence and some corresponding aspects that can summary the content information from different perspectives as examples.\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n<sent>\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+)
+
+llama_prompt_generation_text_modal_only_prompt_2 = llama3_template.format(
+    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input sentence. You can be only permitted to predict 1 to 3 words for each aspects and output them in list format. Please be advised, you must not give answers for these aspects. We will provide two sentences and some corresponding aspects that can summary the content information from different perspectives as examples.\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n<sent>\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+)
+
+llama_prompt_generation_text_modal_only_prompt_3 = llama3_template.format(
+    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input sentence. You can be only permitted to predict 1 to 3 words for each aspects and output them in list format. Please be advised, you must not give answers for these aspects. We will provide three sentences and some corresponding aspects that can summary the content information from different perspectives as examples.\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n<sent>\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n' 
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+)
+
+llama_prompt_generation_text_modal_only_prompt_4 = llama3_template.format(
+    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input sentence. You can be only permitted to predict 1 to 3 words for each aspects and output them in list format. Please be advised, you must not give answers for these aspects. We will provide four sentences and some corresponding aspects that can summary the content information from different perspectives as examples.\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n<sent>\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n' 
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+)
+
+mistral_prompt_generation_text_modal_only_prompt = llama3_template.format(
+    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input sentence. You can be only permitted to predict 1 to 3 words for each aspects and output them in list format.\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+)
+
+mistral_prompt_generation_text_modal_only_prompt_1 = llama3_template.format(
+    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input sentence. You can be only permitted to predict 1 to 3 words for each aspects and output them in list format. Please be advised, you must not give answers for these aspects. We will provide a sentence and some corresponding aspects that can summary the content information from different perspectives as examples.\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n<sent>\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+)
+
+mistral_prompt_generation_text_modal_only_prompt_2 = llama3_template.format(
+    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input sentence. You can be only permitted to predict 1 to 3 words for each aspects and output them in list format. Please be advised, you must not give answers for these aspects. We will provide two sentences and some corresponding aspects that can summary the content information from different perspectives as examples.\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n<sent>\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+)
+
+mistral_prompt_generation_text_modal_only_prompt_3 = llama3_template.format(
+    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input sentence. You can be only permitted to predict 1 to 3 words for each aspects and output them in list format. Please be advised, you must not give answers for these aspects. We will provide three sentences and some corresponding aspects that can summary the content information from different perspectives as examples.\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n<sent>\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n' 
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+)
+
+mistral_prompt_generation_text_modal_only_prompt_4 = llama3_template.format(
+    'Your mission is to generate 3 to 7 proper aspects or perspectives that can basically contain all information for the input sentence. You can be only permitted to predict 1 to 3 words for each aspects and output them in list format. Please be advised, you must not give answers for these aspects. We will provide four sentences and some corresponding aspects that can summary the content information from different perspectives as examples.\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n<sent>\n\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n' 
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+    'Input sentence: <sent>\n'
+    'Proper aspects or perspectives:\n'
+)
+
 five_aspects = '1. people or objects\n2. relations\n3. environment\n4. actions\n5. appearance\n'
