@@ -124,16 +124,18 @@ def main():
             demonstration_image = Image.open(demonstration_image_path).convert('RGB')
             demonstration_input = processor(images=demonstration_image, text=prompt, return_tensors="pt").to(encoder.device)
             demonstration_output = model.encoder.generate(**demonstration_input, max_new_tokens=200)
-            demonstrations_caption_list.append(processor.decode(demonstration_output[0], skip_special_tokens=True))
+            demonstrations_caption_list.append(processor.decode(demonstration_output[0][demonstration_input['input_ids'].shape[1]:], skip_special_tokens=True))
 
         image_path = prompt_generation_args.prompt_generation_image
         image = Image.open(image_path).convert('RGB')
         image_list = [image]
         inputs = processor(images=image_list, text=prompt, return_tensors="pt").to(encoder.device)
         output = model.encoder.generate(**inputs, max_new_tokens=200)
-        caption = processor.decode(output[0], skip_special_tokens=True)
+        # generated_tokens = outputs[0][inputs['input_ids'].shape[1]:]  # 这一行是关键！
+        caption = processor.decode(output[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
         if dist.get_rank() == 0:
-            print(processor.decode(output[0], skip_special_tokens=True))
+            print(caption)
+            print(demonstrations_caption_list)
 
     del model
     del encoder
@@ -142,19 +144,21 @@ def main():
     gc.collect()
     torch.cuda.empty_cache()
 
+    print('Now loading prompt generation model.')
+
     if 'llama' in prompt_generation_args.prompt_generation_model:
-        model = LlamaForCausalLM.from_pretrained(model_args.model_name_or_path, device_map=device_map,
+        model = LlamaForCausalLM.from_pretrained(prompt_generation_args.prompt_generation_model, device_map=device_map,
                                                                 torch_dtype=torch_type)
-        tokenizer = LlamaTokenizer.from_pretrained(model_args.model_name_or_path)
+        tokenizer = LlamaTokenizer.from_pretrained(prompt_generation_args.prompt_generation_model)
     else:
-        model = MistralForCausalLM.from_pretrained(model_args.model_name_or_path, device_map=device_map,
+        model = MistralForCausalLM.from_pretrained(prompt_generation_args.prompt_generation_model, device_map=device_map,
                                                    torch_dtype=torch_type)
-        tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path)
+        tokenizer = AutoTokenizer.from_pretrained(prompt_generation_args.prompt_generation_model)
 
     with torch.no_grad():
         sent = prompt_generation_args.prompt_generation_text
         if prompt_generation_args.demonstration_num == 0:
-            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+            if 'mistral' in prompt_generation_args.prompt_generation_model:
                 prompt = mistral_prompt_generation_text_modal_only_prompt
             else:
                 prompt = llama_prompt_generation_text_modal_only_prompt
@@ -163,7 +167,7 @@ def main():
             else:
                 text_input = prompt.replace('<sent>', sent, 1)
         elif prompt_generation_args.demonstration_num == 1:
-            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+            if 'mistral' in prompt_generation_args.prompt_generation_model:
                 prompt = mistral_prompt_generation_text_modal_only_prompt_1
             else:
                 prompt = llama_prompt_generation_text_modal_only_prompt_1
@@ -176,7 +180,7 @@ def main():
                 text_input = text_input.replace('<sent>', demonstrations_answer_list[0], 1)
                 text_input = text_input.replace('<sent>', sent, 1)
         elif prompt_generation_args.demonstration_num == 2:
-            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+            if 'mistral' in prompt_generation_args.prompt_generation_model:
                 prompt = mistral_prompt_generation_text_modal_only_prompt_2
             else:
                 prompt = llama_prompt_generation_text_modal_only_prompt_2
@@ -193,7 +197,7 @@ def main():
                 text_input = text_input.replace('<sent>', demonstrations_answer_list[3], 1)
                 text_input = text_input.replace('<sent>', sent, 1)
         elif prompt_generation_args.demonstration_num == 3:
-            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+            if 'mistral' in prompt_generation_args.prompt_generation_model:
                 prompt = mistral_prompt_generation_text_modal_only_prompt_3
             else:
                 prompt = llama_prompt_generation_text_modal_only_prompt_3
@@ -214,7 +218,7 @@ def main():
                 text_input = text_input.replace('<sent>', demonstrations_answer_list[2], 1)
                 text_input = text_input.replace('<sent>', sent, 1)
         elif prompt_generation_args.demonstration_num == 4:
-            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+            if 'mistral' in prompt_generation_args.prompt_generation_model:
                 prompt = mistral_prompt_generation_text_modal_only_prompt_4
             else:
                 prompt = llama_prompt_generation_text_modal_only_prompt_4
@@ -241,7 +245,7 @@ def main():
         inputs = tokenizer(text_input, return_tensors="pt").to(model.device)
         output = model.generate(**inputs, max_new_tokens=200)
         if dist.get_rank() == 0:
-            print(tokenizer.decode(output[0], skip_special_tokens=True))
+            print(tokenizer.decode(output[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True))
 
 
     # 训练结束后添加同步屏障
