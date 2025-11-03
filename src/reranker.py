@@ -280,10 +280,12 @@ class Reranker:
                         nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
                         nll = nll.view(shift_labels.size())
                         avg_nll = torch.sum(nll, dim=1)
-                        sharded_nll_list.append(avg_nll)
+                        valid_tokens = (labels_view != -100).sum(dim=1).float()
+                        avg_nll /= valid_tokens
+                        sharded_nll_list.extend(avg_nll.tolist())
 
                     for text_id, nll in text_id_list, sharded_nll_list:
-                        rerank_run[text_id] = float(nll)
+                        rerank_run[text_id] = -float(nll)
 
                 else:
                     text = self.text_map[k]
@@ -323,11 +325,15 @@ class Reranker:
                         nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
                         nll = nll.view(shift_labels.size())
                         # 这个为啥是sum呢？根据原论文，是要把各个token上预测结果概率的对数似然加和取平均，但这里似乎只是求了和
+                        # upr的代码中，指定了每个batch_size是1，也就是每次只针对1个查询计算
                         avg_nll = torch.sum(nll, dim=1)
-                        sharded_nll_list.append(avg_nll)
+                        valid_tokens = (labels_view != -100).sum(dim=1).float()
+                        avg_nll /= valid_tokens
+                        # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
+                        sharded_nll_list.extend(avg_nll.tolist())
 
                     for img_id, nll in img_id_list, sharded_nll_list:
-                        rerank_run[img_id] = float(nll)
+                        rerank_run[img_id] = -float(nll)
                 sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
                 if dist.get_rank() == 0:
                     print(sorted_by_value_rerank_run)
