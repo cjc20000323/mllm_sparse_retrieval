@@ -158,7 +158,7 @@ def main():
     with torch.no_grad():
         sent = prompt_generation_args.prompt_generation_text
         if prompt_generation_args.demonstration_num == 0:
-            if 'mistral' in prompt_generation_args.prompt_generation_model:
+            if 'Mistral' in prompt_generation_args.prompt_generation_model:
                 prompt = mistral_prompt_generation_text_modal_only_prompt
             else:
                 prompt = llama_prompt_generation_text_modal_only_prompt
@@ -167,7 +167,7 @@ def main():
             else:
                 text_input = prompt.replace('<sent>', sent, 1)
         elif prompt_generation_args.demonstration_num == 1:
-            if 'mistral' in prompt_generation_args.prompt_generation_model:
+            if 'Mistral' in prompt_generation_args.prompt_generation_model:
                 prompt = mistral_prompt_generation_text_modal_only_prompt_1
             else:
                 prompt = llama_prompt_generation_text_modal_only_prompt_1
@@ -180,7 +180,7 @@ def main():
                 text_input = text_input.replace('<sent>', demonstrations_answer_list[0], 1)
                 text_input = text_input.replace('<sent>', sent, 1)
         elif prompt_generation_args.demonstration_num == 2:
-            if 'mistral' in prompt_generation_args.prompt_generation_model:
+            if 'Mistral' in prompt_generation_args.prompt_generation_model:
                 prompt = mistral_prompt_generation_text_modal_only_prompt_2
             else:
                 prompt = llama_prompt_generation_text_modal_only_prompt_2
@@ -197,7 +197,7 @@ def main():
                 text_input = text_input.replace('<sent>', demonstrations_answer_list[3], 1)
                 text_input = text_input.replace('<sent>', sent, 1)
         elif prompt_generation_args.demonstration_num == 3:
-            if 'mistral' in prompt_generation_args.prompt_generation_model:
+            if 'Mistral' in prompt_generation_args.prompt_generation_model:
                 prompt = mistral_prompt_generation_text_modal_only_prompt_3
             else:
                 prompt = llama_prompt_generation_text_modal_only_prompt_3
@@ -218,7 +218,7 @@ def main():
                 text_input = text_input.replace('<sent>', demonstrations_answer_list[2], 1)
                 text_input = text_input.replace('<sent>', sent, 1)
         elif prompt_generation_args.demonstration_num == 4:
-            if 'mistral' in prompt_generation_args.prompt_generation_model:
+            if 'Mistral' in prompt_generation_args.prompt_generation_model:
                 prompt = mistral_prompt_generation_text_modal_only_prompt_4
             else:
                 prompt = llama_prompt_generation_text_modal_only_prompt_4
@@ -241,10 +241,14 @@ def main():
                 text_input = text_input.replace('<sent>', demonstrations_answer_list[2], 1)
                 text_input = text_input.replace('<sent>', demonstrations_caption_list[3], 1)
                 text_input = text_input.replace('<sent>', demonstrations_answer_list[3], 1)
-                text_input = text_input.replace('<sent>', caption, 1)
+                text_input = text_input.replace('<sent>', sent, 1)
+        print(text_input)
         inputs = tokenizer(text_input, return_tensors="pt").to(model.device)
-        output = model.generate(**inputs, max_new_tokens=200)
+        output = model.generate(**inputs, max_new_tokens=500)
         if dist.get_rank() == 0:
+            print('Here is the original output')
+            print(tokenizer.decode(output[0], skip_special_tokens=True))
+            print('Here is the filtered output')
             print(tokenizer.decode(output[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True))
 
 
