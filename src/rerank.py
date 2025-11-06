@@ -2102,7 +2102,13 @@ def main():
         )
     )
 
-    rerank_best_test_fusion_run = ranker.rerank(best_test_fusion_run, search_args.rerank_type, search_args.rerank_num, data_args,
+    if 'caption_generation' in search_args.rerank_template:
+        rerank_best_test_fusion_run = ranker.caption_generation_rerank(best_test_fusion_run, search_args.rerank_type,
+                                                    search_args.rerank_num, data_args,
+                                                    training_args, model_args,
+                                                    rerank_prompt_type=search_args.rerank_template)
+    else:
+        rerank_best_test_fusion_run = ranker.rerank(best_test_fusion_run, search_args.rerank_type, search_args.rerank_num, data_args,
                                         training_args, model_args, rerank_prompt_type=search_args.rerank_template)
 
     output_path = os.path.join(

@@ -44,6 +44,8 @@ mistral_role_old_image_query_relevant_prompt = llava_mistral_template.format("Yo
 
 mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image: <image>\nPlease write a caption based on this image.")
 query_generation_paradigm_prompt = llama3_template.format("Image: <image>\nPlease write a caption based on this image.")
+mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Image: <image>\nWhat is the caption of the above image?")
+query_generation_paradigm_prompt_1 = llama3_template.format("Image: <image>\nWhat is the caption of the above image?")
 
 img_prompt_for_concat = 'Summary above image in one word: '
 text_prompt_for_concat = 'Summary above sentence in one word: '
