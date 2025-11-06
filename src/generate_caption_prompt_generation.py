@@ -146,7 +146,7 @@ def main():
 
     print('Now loading prompt generation model.')
 
-    if 'llama' in prompt_generation_args.prompt_generation_model:
+    if 'llama' in prompt_generation_args.prompt_generation_model or 'Llama':
         model = LlamaForCausalLM.from_pretrained(prompt_generation_args.prompt_generation_model, device_map=device_map,
                                                                 torch_dtype=torch_type)
         tokenizer = LlamaTokenizer.from_pretrained(prompt_generation_args.prompt_generation_model)
