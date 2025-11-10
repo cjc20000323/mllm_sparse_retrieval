@@ -346,20 +346,21 @@ class Reranker:
                             img_path = self.img_path_map[img_id]
                             image_path = f'./data/{self.data_name}/flickr30k-images/{img_path}'
                             raw_image = Image.open(image_path).convert('RGB')
-                        img_id_list.append(img_id_list)
+                        img_id_list.append(img_id)
                         image_list.append(raw_image)
                         sim_score_list.append(sim_score)
 
                     sharded_nll_list = []
 
                     for indice in tqdm(range(0, len(img_id_list), rerank_batch_size)):
-                        image_shard = image_path[indice: indice + rerank_batch_size]
+                        image_shard = image_list[indice: indice + rerank_batch_size]
                         text_input = [rerank_prompt_template + text] * len(image_shard)
                         inputs = self.processor(images=image_shard, text=text_input, return_tensors="pt").to(
                             self.model.device)
                         max_inputs_sum = inputs['input_ids'].shape[1]
-                        labels = [self.processor(text=text, return_tensors="pt").to(self.model.device)] * len(image_shard)
-                        labels = [[-100] * (max_inputs_sum - len(label)) + label for label in labels]
+                        labels = [self.processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist()] * len(image_shard)
+                        # 去掉label的第一个起始符
+                        labels = [[-100] * (max_inputs_sum - len(label[1:])) + label[1:] for label in labels]
                         labels_view = torch.tensor(labels).to(self.model.device)
                         output = self.model(**inputs, output_hidden_states=True, return_dict=True)
                         logits = output.logits
@@ -381,7 +382,7 @@ class Reranker:
                         # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
                         sharded_nll_list.extend(avg_nll.tolist())
 
-                    for img_id, nll in img_id_list, sharded_nll_list:
+                    for img_id, nll in zip(img_id_list, sharded_nll_list):
                         rerank_run[img_id] = -float(nll)
                 sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
                 if dist.get_rank() == 0:
