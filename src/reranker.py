@@ -13,7 +13,12 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     mistral_origin_old_image_query_relevant_prompt, mistral_role_relevant_prompt, mistral_role_precise_caption_prompt, \
     mistral_role_old_text_query_relevant_prompt, mistral_role_old_image_query_relevant_prompt, \
     mistral_first_precise_caption_prompt, mistral_query_generation_paradigm_prompt, query_generation_paradigm_prompt, \
-    mistral_query_generation_paradigm_prompt_1, query_generation_paradigm_prompt_1
+    mistral_query_generation_paradigm_prompt_1, query_generation_paradigm_prompt_1, \
+    detailed_mistral_query_generation_paradigm_prompt, detailed_query_generation_paradigm_prompt, \
+    detailed_query_generation_paradigm_prompt_1, detailed_mistral_query_generation_paradigm_prompt_1, \
+    mistral_query_generation_paradigm_prompt_5, mistral_query_generation_paradigm_prompt_4, \
+    query_generation_paradigm_prompt_4, query_generation_paradigm_prompt_5
+
 from PIL import Image
 import torch.nn.functional as F
 from contextlib import nullcontext
@@ -227,6 +232,14 @@ class Reranker:
                     rerank_prompt_template = mistral_query_generation_paradigm_prompt
                 elif rerank_prompt_type == 'what_caption_generation':
                     rerank_prompt_template = mistral_query_generation_paradigm_prompt_1
+                elif rerank_prompt_type == 'detailed_caption_generation':
+                    rerank_prompt_template = detailed_mistral_query_generation_paradigm_prompt
+                elif rerank_prompt_type == 'detailed_caption_generation_1':
+                    rerank_prompt_template = detailed_mistral_query_generation_paradigm_prompt_1
+                elif rerank_prompt_type == 'caption_generation_4':
+                    rerank_prompt_template = mistral_query_generation_paradigm_prompt_4
+                elif rerank_prompt_type == 'caption_generation_5':
+                    rerank_prompt_template = mistral_query_generation_paradigm_prompt_5
                 else:
                     rerank_prompt_template = mistral_query_generation_paradigm_prompt
             else:
@@ -234,6 +247,14 @@ class Reranker:
                     rerank_prompt_template = query_generation_paradigm_prompt
                 elif rerank_prompt_type == 'what_caption_generation':
                     rerank_prompt_template = query_generation_paradigm_prompt_1
+                elif rerank_prompt_type == 'detailed_caption_generation':
+                    rerank_prompt_template = detailed_query_generation_paradigm_prompt
+                elif rerank_prompt_type == 'detailed_caption_generation_1':
+                    rerank_prompt_template = detailed_query_generation_paradigm_prompt_1
+                elif rerank_prompt_type == 'caption_generation_4':
+                    rerank_prompt_template = query_generation_paradigm_prompt_4
+                elif rerank_prompt_type == 'caption_generation_5':
+                    rerank_prompt_template = query_generation_paradigm_prompt_5
                 else:
                     rerank_prompt_template = query_generation_paradigm_prompt
             for k, v in tqdm(fusion_run.items()):
