@@ -309,7 +309,7 @@ class Reranker:
                             print(labels)
                         '''
                         # 去掉label的第一个起始符
-                        labels = [([-100] * (max_inputs_sum - len(label[1:]))) + label[1:] for label in labels]
+                        labels = [[-100] * (max_inputs_sum - len(label[1:])) + label[1:] for label in labels]
                         '''
                         if dist.get_rank() == 0:
                             print(labels)
