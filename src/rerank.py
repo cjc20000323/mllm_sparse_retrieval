@@ -4,6 +4,7 @@ import os
 import pickle
 from contextlib import nullcontext
 from itertools import chain
+import random
 
 import faiss
 import numpy as np
@@ -2043,8 +2044,11 @@ def main():
     max_val_fusion_metric = 0
     best_weight = 0.5
 
+    choice_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
+
     if data_args.dataset_name == 'coco':
-        ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict, dataset.img2filepath, dataset.img_dict, processor.tokenizer.get_vocab())
+        ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict,
+                          dataset.img2filepath, dataset.img_dict, processor.tokenizer.get_vocab(), choice_dataset)
     else:
         ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict,
                           None, dataset.img_dict, processor.tokenizer.get_vocab())
@@ -2105,7 +2109,7 @@ def main():
     if 'caption_generation' in search_args.rerank_template:
         rerank_best_test_fusion_run = ranker.caption_generation_rerank(best_test_fusion_run, search_args.rerank_type,
                                                     search_args.rerank_num, data_args,
-                                                    training_args, model_args,
+                                                    training_args, model_args, search_args,
                                                     rerank_prompt_type=search_args.rerank_template)
     else:
         rerank_best_test_fusion_run = ranker.rerank(best_test_fusion_run, search_args.rerank_type, search_args.rerank_num, data_args,

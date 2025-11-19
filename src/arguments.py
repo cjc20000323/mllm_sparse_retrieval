@@ -94,6 +94,7 @@ class PromptRepsLLMSearchArguments:
     rerank_batch_size: int = field(default=1, metadata={"help": 'batch size for LLM input when rerank'})
     rerank_template: str = field(default='relevant')
     tuple_sum: int = field(default=20)
+    modify_type: str = field(default='no')
 
 
 @dataclass

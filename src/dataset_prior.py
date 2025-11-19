@@ -145,11 +145,6 @@ def main():
     test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, batch_size=data_args.per_device_batch_size,
                                       shuffle=False)
     # 在执行的时候，我们只申请一个GPU运行，因此也就相当于是在一个进程中处理这个问题，避免进程间需要通信字典的内容
-
-    model = MLLMRetrievalModel(encoder)
-    model = model.eval()
-    print(model.is_ddp)
-
     lookup_indices = []
 
     length_count_dict = {} # 统计每个长度有多少句
@@ -166,7 +161,7 @@ def main():
         filtered_ids = get_filtered_ids(processor.tokenizer)
     vocab_dict = {v: k for k, v in vocab_dict.items()}
 
-    model.eval()
+    encoder.eval()
 
     flickr_length_dict = {3: 3, 4: 5, 5: 26, 6: 83, 7: 196, 8: 316, 9: 376, 10: 447, 11: 446, 12: 455, 13: 399, 14: 403,
                           15: 343, 16: 287, 17: 213, 18: 179, 19: 134, 20: 127, 21: 82, 22: 78, 23: 83, 24: 45, 25: 40,
@@ -179,16 +174,23 @@ def main():
                         28: 3, 29: 10, 30: 4, 31: 6, 32: 6, 33: 1, 34: 4, 36: 2, 37: 3, 39: 1, 42: 3, 45: 1, 47: 1,
                         49: 1, 50: 3, 54: 1}
 
-    flickr_length_list_20 = [(3, 4, 5), (6), (7), (8), (9), (10), (11), (12), (13), (14), (15), (16), (17), (18), (19),
-                          (20), (21), (22), (23), (24), (25), (26), (27), (28), (29),
-                          (30), (31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 52, 54, 56, 57, 58, 64, 85)]
+    flickr_length_list_20 = [(3, 4, 5), (6,), (7,), (8,), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (19,),
+                          (20,), (21,), (22,), (23,), (24,), (25,), (26,), (27,), (28,), (29,),
+                          (30,), (31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 52, 54, 56, 57, 58, 64, 85)]
 
-    flickr_length_list_30 = [(3, 4, 5), (6), (7), (8), (9), (10), (11), (12), (13), (14), (15), (16), (17), (18), (19),
-                             (20), (21), (22), (23), (24), (25), (26), (27, 28, 29),
+    flickr_length_list_30 = [(3, 4, 5), (6,), (7,), (8,), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (19,),
+                             (20,), (21,), (22,), (23,), (24,), (25,), (26,), (27, 28, 29),
                              (
                              30, 31), (32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 52, 54, 56, 57,
                              58, 64, 85)]
 
+    coco_length_list_20 = [(7, 8), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (19,), (20,),
+                           (21,), (22,), (23,), (24,), (25,), (26,),
+                           (27, 28, 29, 30, 31, 32, 33, 34, 36, 37, 39, 42, 45, 47, 49, 50, 54)]
+
+    coco_length_list_30 = [(7, 8), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (19,), (20,),
+                           (21,), (22,), (23,), (24,),
+                           (25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 36, 37, 39, 42, 45, 47, 49, 50, 54)]
     rerank_prompt_type = search_args.rerank_template
     if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
         if rerank_prompt_type == 'caption_generation':
@@ -243,11 +245,16 @@ def main():
         print(length_count_dict)
 
         if search_args.tuple_sum == 20:
-            for length_tuple in flickr_length_list_20:
+            if data_args.dataset_name == 'coco':
+                length_list = coco_length_list_20
+            else:
+                length_list = flickr_length_list_20
+            for length_tuple in tqdm(length_list):
                 content_sub_set = set()
                 for length in length_tuple:
                     content_sub_set.update(length_content_dict[length])
                 selected_items = random.sample(content_sub_set, 20)
+                print(selected_items)
                 with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
                     nll_sum = 0
                     for item in selected_items:
@@ -255,13 +262,13 @@ def main():
                         image_path = item[1]
                         raw_image = Image.open(image_path).convert('RGB')
                         text_input = rerank_prompt_template + text
-                        inputs = processor(images=raw_image, text=text_input, return_tensors="pt").to(model.device)
+                        inputs = processor(images=raw_image, text=text_input, return_tensors="pt").to(encoder.device)
                         labels = processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist()
                         max_inputs_sum = inputs['input_ids'].shape[1]
                         # 去掉label的第一个起始符
-                        labels = [-100] * (max_inputs_sum - len(labels[1:])) + labels[1:]
-                        labels_view = torch.tensor(labels).to(model.device)
-                        output = model(**inputs, output_hidden_states=True, return_dict=True)
+                        labels = [[-100] * (max_inputs_sum - len(labels[1:])) + labels[1:]]
+                        labels_view = torch.tensor(labels).to(encoder.device)
+                        output = encoder(**inputs, output_hidden_states=True, return_dict=True)
                         logits = output.logits
                         shift_logits = logits[..., :-1, :].contiguous()
                         shift_labels = labels_view[..., 1:].contiguous()
@@ -274,11 +281,17 @@ def main():
                         valid_tokens = (labels_view != -100).sum(dim=1).float()
                         avg_nll /= valid_tokens
                         # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
+                        print(item)
+                        print(avg_nll)
                         nll_sum += avg_nll
                     nll_sum /= 20
-                    nll_sum_dict[length_tuple] = nll_sum
+                    nll_sum_dict[length_tuple] = float(nll_sum)
         elif search_args.tuple_sum == 30:
-            for length_tuple in flickr_length_list_30:
+            if data_args.dataset_name == 'coco':
+                length_list = coco_length_list_30
+            else:
+                length_list = flickr_length_list_30
+            for length_tuple in tqdm(length_list):
                 content_sub_set = set()
                 for length in length_tuple:
                     content_sub_set.update(length_content_dict[length])
@@ -290,13 +303,13 @@ def main():
                         image_path = item[1]
                         raw_image = Image.open(image_path).convert('RGB')
                         text_input = rerank_prompt_template + text
-                        inputs = processor(images=raw_image, text=text_input, return_tensors="pt").to(model.device)
+                        inputs = processor(images=raw_image, text=text_input, return_tensors="pt").to(encoder.device)
                         labels = processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist()
                         max_inputs_sum = inputs['input_ids'].shape[1]
                         # 去掉label的第一个起始符
-                        labels = [-100] * (max_inputs_sum - len(labels[1:])) + labels[1:]
-                        labels_view = torch.tensor(labels).to(model.device)
-                        output = model(**inputs, output_hidden_states=True, return_dict=True)
+                        labels = [[-100] * (max_inputs_sum - len(labels[1:])) + labels[1:]]
+                        labels_view = torch.tensor(labels).to(encoder.device)
+                        output = encoder(**inputs, output_hidden_states=True, return_dict=True)
                         logits = output.logits
                         shift_logits = logits[..., :-1, :].contiguous()
                         shift_labels = labels_view[..., 1:].contiguous()
@@ -311,9 +324,13 @@ def main():
                         # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
                         nll_sum += avg_nll
                     nll_sum /= 30
-                    nll_sum_dict[length_tuple] = nll_sum
+                    nll_sum_dict[length_tuple] = float(nll_sum)
         else:
-            for length_tuple in flickr_length_list_20:
+            if data_args.dataset_name == 'coco':
+                length_list = coco_length_list_20
+            else:
+                length_list = flickr_length_list_20
+            for length_tuple in tqdm(length_list):
                 content_sub_set = set()
                 for length in length_tuple:
                     content_sub_set.update(length_content_dict[length])
@@ -325,13 +342,13 @@ def main():
                         image_path = item[1]
                         raw_image = Image.open(image_path).convert('RGB')
                         text_input = rerank_prompt_template + text
-                        inputs = processor(images=raw_image, text=text_input, return_tensors="pt").to(model.device)
+                        inputs = processor(images=raw_image, text=text_input, return_tensors="pt").to(encoder.device)
                         labels = processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist()
                         max_inputs_sum = inputs['input_ids'].shape[1]
                         # 去掉label的第一个起始符
-                        labels = [-100] * (max_inputs_sum - len(labels[1:])) + labels[1:]
-                        labels_view = torch.tensor(labels).to(model.device)
-                        output = model(**inputs, output_hidden_states=True, return_dict=True)
+                        labels = [[-100] * (max_inputs_sum - len(labels[1:])) + labels[1:]]
+                        labels_view = torch.tensor(labels).to(encoder.device)
+                        output = encoder(**inputs, output_hidden_states=True, return_dict=True)
                         logits = output.logits
                         shift_logits = logits[..., :-1, :].contiguous()
                         shift_labels = labels_view[..., 1:].contiguous()
@@ -346,7 +363,7 @@ def main():
                         # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
                         nll_sum += avg_nll
                     nll_sum /= 20
-                    nll_sum_dict[length_tuple] = nll_sum
+                    nll_sum_dict[length_tuple] = float(nll_sum)
 
         # 提取键和值
         length_of_input_id = list(length_count_dict.keys())
