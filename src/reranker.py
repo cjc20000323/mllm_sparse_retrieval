@@ -504,6 +504,16 @@ class Reranker:
 
                     for text_id, nll in zip(text_id_list, sharded_nll_list):
                         rerank_run[text_id] = -float(nll)
+                        text_token_length = len(self.processor(text=text_list[text_id], return_tensors="pt")['input_ids'].squeeze().tolist()[1:])
+                        if search_args.modify_type != 'no':
+                            for key in nll_sum_dict.keys():
+                                if text_token_length in key:
+                                    if search_args.modify_type == 'division':
+                                        rerank_run[text_id] /= nll_sum_dict[key]
+                                    elif search_args.modify_type == 'sub':
+                                        abs_value = abs(rerank_run[text_id]) - abs(nll_sum_dict[key])
+                                        rerank_run[text_id] = abs(abs_value)
+
 
                 else:
                     text = self.text_map[k]
