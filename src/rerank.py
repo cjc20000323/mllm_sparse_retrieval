@@ -2044,14 +2044,14 @@ def main():
     max_val_fusion_metric = 0
     best_weight = 0.5
 
-    choice_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
+    choice_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'train', 'full')
 
     if data_args.dataset_name == 'coco':
         ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict,
                           dataset.img2filepath, dataset.img_dict, processor.tokenizer.get_vocab(), choice_dataset)
     else:
         ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict,
-                          None, dataset.img_dict, processor.tokenizer.get_vocab())
+                          None, dataset.img_dict, processor.tokenizer.get_vocab(), choice_dataset)
 
     if data_args.is_filtered:
         filtered = "filter"

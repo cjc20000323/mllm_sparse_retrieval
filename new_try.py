@@ -2,43 +2,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # 创建数据
-x = np.array([9, 16, 48, 80, 128])  # 生成从0到10的100个等间距点
-y1 = np.array([0.9378, 0.9515, 0.9668, 0.9714, 0.9765])
-y2 = np.array([0.9745, 0.9825, 0.9875, 0.9895, 0.9905])
-
-y3 = np.array([0.7754, 0.778, 0.777333333, 0.774866667, 0.776133333])
-y4 = np.array([0.846, 0.846333333, 0.846333333, 0.843666667, 0.843333333])
-plt.figure()
-plt.plot(x, y1, label='t2i', color='blue', linestyle='-', linewidth=2)   # 自定义样式
-plt.plot(x, y2, label='i2t', color='red', linestyle='--', linewidth=2)  # 自定义样式
-plt.title('Sparse Retrieval (R@100+R@200)/2')
-plt.xlabel('sparse length')
-plt.ylabel('r@k')
-plt.legend()  # 显示图例
-plt.grid(True)
-plt.show()
+x = np.array([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+                          20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+                          30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 52, 54, 56, 57, 58, 64, 85])  # 生成从0到10的100个等间距点
+y = np.array([4.3891401290893555, 4.3891401290893555, 4.3891401290893555, 3.9352684020996094, 3.4175496101379395, 3.582592725753784, 3.326552629470825, 3.3562588691711426, 3.1930155754089355, 2.728715419769287, 2.492246627807617, 2.7172672748565674, 2.4127273559570312, 2.5402238368988037, 2.6698522567749023, 2.3231770992279053, 2.4895763397216797, 2.5188522338867188, 2.4355647563934326, 2.4849393367767334, 2.42704701423645, 2.234067678451538, 2.6730713844299316, 2.4409852027893066, 2.3974978923797607, 2.58841609954834, 2.406619071960449, 2.4538626670837402] + [2.4547042846679688] * 25)
 
 plt.figure()
-plt.plot(x, y3, label='t2i', color='blue', linestyle='-', linewidth=2)   # 自定义样式
-plt.plot(x, y4, label='i2t', color='red', linestyle='--', linewidth=2)  # 自定义样式
-plt.title('Hybrid Retrieval (R@1+R@5+R@10)/3')
-plt.xlabel('sparse length')
-plt.ylabel('r@k')
-plt.legend()  # 显示图例
-plt.grid(True)
-plt.show()
-
-x = np.array([20, 30, 40])  # 生成从0到10的100个等间距点
-y1 = np.array([0.809, 0.810533333, 0.811333333])
-y2 = np.array([0.872333333, 0.873333333, 0.867666667])
-y3 = np.array([0.840666667, 0.841933333, 0.8395])
-plt.figure()
-plt.plot(x, y1, label='t2i', color='blue', linestyle='-', linewidth=2)   # 自定义样式
-plt.plot(x, y2, label='i2t', color='red', linestyle='--', linewidth=2)  # 自定义样式
-plt.plot(x, y3, label='mean', color='green', linestyle='--', linewidth=2)  # 自定义样式
-plt.title('Hybrid Retrieval (R@1+R@5+R@10)/3')
-plt.xlabel('sparse length')
-plt.ylabel('r@k')
-plt.legend()  # 显示图例
-plt.grid(True)
-plt.show()
+plt.plot(x, y, marker='o', linestyle='-', color='b', label='示例数据') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.xlabel('token') # X轴标签
+plt.ylabel('log-likelihood') # Y轴标签
+plt.grid(True) # 显示网格
+plt.show() # 显示图表

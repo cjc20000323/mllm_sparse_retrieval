@@ -25,6 +25,7 @@ import torch.nn.functional as F
 from contextlib import nullcontext
 
 from torch.utils.data import DataLoader
+import torch.utils.data as Data
 
 flickr_length_dict = {3: 3, 4: 5, 5: 26, 6: 83, 7: 196, 8: 316, 9: 376, 10: 447, 11: 446, 12: 455, 13: 399, 14: 403,
                           15: 343, 16: 287, 17: 213, 18: 179, 19: 134, 20: 127, 21: 82, 22: 78, 23: 83, 24: 45, 25: 40,
@@ -52,6 +53,12 @@ flickr_length_list_30 = [(3, 4, 5), (6,), (7,), (8,), (9,), (10,), (11,), (12,),
                              (32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 52, 54, 56, 57,
                               58, 64, 85)]
 
+flickr_length_list_100 = [(2, 3, 4), (5,), (6,), (7,), (8,), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (19,),
+                          (20,), (21,), (22,), (23,), (24,), (25,), (26,), (27,), (28,), (29,),
+                          (30,), (31,), (32,), (33,), (34,), (35,), (36,), (37,), (38,), (39, 40), (41, 42, 43),
+                              (44, 45, 46, 47),
+                              (48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 67, 68, 70, 71, 72, 73, 74, 77, 79, 85)]
+
 coco_length_list_20 = [(7, 8), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (19,), (20,),
                            (21,), (22,), (23,), (24,), (25,), (26,),
                            (27, 28, 29, 30, 31, 32, 33, 34, 36, 37, 39, 42, 45, 47, 49, 50, 54)]
@@ -59,6 +66,12 @@ coco_length_list_20 = [(7, 8), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (
 coco_length_list_30 = [(7, 8), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (19,), (20,),
                            (21,), (22,), (23,), (24,),
                            (25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 36, 37, 39, 42, 45, 47, 49, 50, 54)]
+
+coco_length_list_100 = [(2, 3, 4), (5,), (6,), (7,), (8,), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (19,),
+                          (20,), (21,), (22,), (23,), (24,), (25,), (26,), (27,), (28,), (29,),
+                          (30,), (31,), (32,), (33,), (34,), (35,), (36,), (37,), (38,), (39, 40), (41, 42, 43),
+                              (44, 45, 46, 47),
+                              (48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 67, 68, 70, 71, 72, 73, 74, 77, 79, 85)]
 
 class Reranker:
 
@@ -264,9 +277,6 @@ class Reranker:
 
     def caption_generation_rerank(self, fusion_run, rerank_type, rerank_num, data_args, training_args, model_args, search_args, rerank_batch_size=1, rerank_prompt_type='caption_generation'):
         rerank_fusion_run = {}
-
-        nll_sum_dict = {}
-
         if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
             if rerank_prompt_type == 'caption_generation':
                 rerank_prompt_template = mistral_query_generation_paradigm_prompt
@@ -298,6 +308,8 @@ class Reranker:
             else:
                 rerank_prompt_template = query_generation_paradigm_prompt
 
+        sampler = Data.DistributedSampler(self.dataset, num_replicas=dist.get_world_size(), shuffle=True, rank=0)
+
         choice_dataloader = DataLoader(
                 self.dataset,
                 batch_size=4,  # 批量大小
@@ -305,145 +317,190 @@ class Reranker:
                 pin_memory=True  # 加速GPU数据传输（如果使用GPU）
             )
 
-        if dist.get_rank() == 0:
-            length_count_dict = {}  # 统计每个长度有多少句
-            length_content_dict = {}  # 统计每个长度有哪些图文
-            sharded_nll_dict = {}  # 统计每个长度的平均对数似然
-            with torch.no_grad():
-                for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(choice_dataloader),
-                                                                             total=len(choice_dataloader)):
-                    with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-                        for text, img_path, text_id, img_id in zip(texts, imgs_path, text_ids, img_ids):
-                            input_id = self.processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist()[
-                                       1:]
-                            if len(input_id) not in length_count_dict.keys():
-                                length_count_dict[len(input_id)] = 1
-                            else:
-                                length_count_dict[len(input_id)] += 1
+        if search_args.modify_type != 'no':
+            if dist.get_rank() == 0:
+                length_count_dict = {}  # 统计每个长度有多少句
+                length_content_dict = {}  # 统计每个长度有哪些图文
+                nll_sum_dict = {}
+                with torch.no_grad():
+                    for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(choice_dataloader),
+                                                                                 total=len(choice_dataloader)):
+                        with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+                            for text, img_path, text_id, img_id in zip(texts, imgs_path, text_ids, img_ids):
+                                input_id = self.processor(text=text, return_tensors="pt")[
+                                               'input_ids'].squeeze().tolist()[
+                                           1:]
+                                if len(input_id) not in length_count_dict.keys():
+                                    length_count_dict[len(input_id)] = 1
+                                else:
+                                    length_count_dict[len(input_id)] += 1
 
-                            if len(input_id) not in length_content_dict.keys():
-                                length_content_dict[len(input_id)] = [(text, img_path, text_id, img_id)]
-                            else:
-                                length_content_dict[len(input_id)].append((text, img_path, text_id, img_id))
-                print(length_content_dict)
-                length_count_dict = dict(sorted(length_count_dict.items(), key=lambda item: item[0]))
-                print(length_count_dict)
-                if search_args.tuple_sum == 20:
-                    for length_tuple in tqdm(flickr_length_list_20):
-                        content_sub_set = set()
-                        for length in length_tuple:
-                            content_sub_set.update(length_content_dict[length])
-                        selected_items = random.sample(content_sub_set, 20)
-                        print(selected_items)
-                        with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-                            nll_sum = 0
-                            for item in selected_items:
-                                text = item[0]
-                                image_path = item[1]
-                                raw_image = Image.open(image_path).convert('RGB')
-                                text_input = rerank_prompt_template + text
-                                inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
-                                    self.model.device)
-                                labels = self.processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist()
-                                max_inputs_sum = inputs['input_ids'].shape[1]
-                                # 去掉label的第一个起始符
-                                labels = [[-100] * (max_inputs_sum - len(labels[1:])) + labels[1:]]
-                                labels_view = torch.tensor(labels).to(self.model.device)
-                                output = self.model(**inputs, output_hidden_states=True, return_dict=True)
-                                logits = output.logits
-                                shift_logits = logits[..., :-1, :].contiguous()
-                                shift_labels = labels_view[..., 1:].contiguous()
-                                loss_func = torch.nn.CrossEntropyLoss(reduction='none')
-                                nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-                                nll = nll.view(shift_labels.size())
-                                # 这个为啥是sum呢？根据原论文，是要把各个token上预测结果概率的对数似然加和取平均，但这里似乎只是求了和
-                                # upr的代码中，指定了每个batch_size是1，也就是每次只针对1个查询计算
-                                avg_nll = torch.sum(nll, dim=1)
-                                valid_tokens = (labels_view != -100).sum(dim=1).float()
-                                avg_nll /= valid_tokens
-                                # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
-                                print(item)
-                                print(avg_nll)
-                                nll_sum += avg_nll
-                            nll_sum /= 20
-                            nll_sum_dict[length_tuple] = float(nll_sum)
-                elif search_args.tuple_sum == 30:
-                    for length_tuple in tqdm(flickr_length_list_30):
-                        content_sub_set = set()
-                        for length in length_tuple:
-                            content_sub_set.update(length_content_dict[length])
-                        selected_items = random.sample(content_sub_set, 30)
-                        with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-                            nll_sum = 0
-                            for item in selected_items:
-                                text = item[0]
-                                image_path = item[1]
-                                raw_image = Image.open(image_path).convert('RGB')
-                                text_input = rerank_prompt_template + text
-                                inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
-                                    self.model.device)
-                                labels = self.processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist()
-                                max_inputs_sum = inputs['input_ids'].shape[1]
-                                # 去掉label的第一个起始符
-                                labels = [[-100] * (max_inputs_sum - len(labels[1:])) + labels[1:]]
-                                labels_view = torch.tensor(labels).to(self.model.device)
-                                output = self.model(**inputs, output_hidden_states=True, return_dict=True)
-                                logits = output.logits
-                                shift_logits = logits[..., :-1, :].contiguous()
-                                shift_labels = labels_view[..., 1:].contiguous()
-                                loss_func = torch.nn.CrossEntropyLoss(reduction='none')
-                                nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-                                nll = nll.view(shift_labels.size())
-                                # 这个为啥是sum呢？根据原论文，是要把各个token上预测结果概率的对数似然加和取平均，但这里似乎只是求了和
-                                # upr的代码中，指定了每个batch_size是1，也就是每次只针对1个查询计算
-                                avg_nll = torch.sum(nll, dim=1)
-                                valid_tokens = (labels_view != -100).sum(dim=1).float()
-                                avg_nll /= valid_tokens
-                                # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
-                                nll_sum += avg_nll
-                            nll_sum /= 30
-                            nll_sum_dict[length_tuple] = float(nll_sum)
-                else:
-                    for length_tuple in tqdm(flickr_length_list_20):
-                        content_sub_set = set()
-                        for length in length_tuple:
-                            content_sub_set.update(length_content_dict[length])
-                        selected_items = random.sample(content_sub_set, 20)
-                        with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-                            nll_sum = 0
-                            for item in selected_items:
-                                text = item[0]
-                                image_path = item[1]
-                                raw_image = Image.open(image_path).convert('RGB')
-                                text_input = rerank_prompt_template + text
-                                inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
-                                    self.model.device)
-                                labels = self.processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist()
-                                max_inputs_sum = inputs['input_ids'].shape[1]
-                                # 去掉label的第一个起始符
-                                labels = [[-100] * (max_inputs_sum - len(labels[1:])) + labels[1:]]
-                                labels_view = torch.tensor(labels).to(self.model.device)
-                                output = self.model(**inputs, output_hidden_states=True, return_dict=True)
-                                logits = output.logits
-                                shift_logits = logits[..., :-1, :].contiguous()
-                                shift_labels = labels_view[..., 1:].contiguous()
-                                loss_func = torch.nn.CrossEntropyLoss(reduction='none')
-                                nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-                                nll = nll.view(shift_labels.size())
-                                # 这个为啥是sum呢？根据原论文，是要把各个token上预测结果概率的对数似然加和取平均，但这里似乎只是求了和
-                                # upr的代码中，指定了每个batch_size是1，也就是每次只针对1个查询计算
-                                avg_nll = torch.sum(nll, dim=1)
-                                valid_tokens = (labels_view != -100).sum(dim=1).float()
-                                avg_nll /= valid_tokens
-                                # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
-                                nll_sum += avg_nll
-                            nll_sum /= 20
-                            nll_sum_dict[length_tuple] = float(nll_sum)
-                object_list = [nll_sum_dict]
-        else:
-            object_list = [None]
-        dist.broadcast_object_list(object_list, src=0)
-        received_nll_sum_dict = object_list[0]
+                                if len(input_id) not in length_content_dict.keys():
+                                    length_content_dict[len(input_id)] = [(text, img_path, text_id, img_id)]
+                                else:
+                                    length_content_dict[len(input_id)].append((text, img_path, text_id, img_id))
+                    length_count_dict = dict(sorted(length_count_dict.items(), key=lambda item: item[0]))
+                    print(length_count_dict)
+                    if search_args.tuple_sum == 20:
+                        for length_tuple in tqdm(flickr_length_list_20):
+                            content_sub_set = set()
+                            for length in length_tuple:
+                                content_sub_set.update(length_content_dict[length])
+                            selected_items = random.sample(content_sub_set, 20)
+                            print(selected_items)
+                            with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+                                nll_sum = 0
+                                for item in selected_items:
+                                    text = item[0]
+                                    image_path = item[1]
+                                    raw_image = Image.open(image_path).convert('RGB')
+                                    text_input = rerank_prompt_template + text
+                                    inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
+                                        self.model.device)
+                                    labels = self.processor(text=text, return_tensors="pt")[
+                                        'input_ids'].squeeze().tolist()
+                                    max_inputs_sum = inputs['input_ids'].shape[1]
+                                    # 去掉label的第一个起始符
+                                    labels = [[-100] * (max_inputs_sum - len(labels[1:])) + labels[1:]]
+                                    labels_view = torch.tensor(labels).to(self.model.device)
+                                    output = self.model(**inputs, output_hidden_states=True, return_dict=True)
+                                    logits = output.logits
+                                    shift_logits = logits[..., :-1, :].contiguous()
+                                    shift_labels = labels_view[..., 1:].contiguous()
+                                    loss_func = torch.nn.CrossEntropyLoss(reduction='none')
+                                    nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                                    nll = nll.view(shift_labels.size())
+                                    # 这个为啥是sum呢？根据原论文，是要把各个token上预测结果概率的对数似然加和取平均，但这里似乎只是求了和
+                                    # upr的代码中，指定了每个batch_size是1，也就是每次只针对1个查询计算
+                                    avg_nll = torch.sum(nll, dim=1)
+                                    valid_tokens = (labels_view != -100).sum(dim=1).float()
+                                    avg_nll /= valid_tokens
+                                    # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
+                                    print(item)
+                                    print(avg_nll)
+                                    nll_sum += avg_nll
+                                nll_sum /= 20
+                                nll_sum_dict[length_tuple] = float(nll_sum)
+                    elif search_args.tuple_sum == 30:
+                        for length_tuple in tqdm(flickr_length_list_30):
+                            content_sub_set = set()
+                            for length in length_tuple:
+                                content_sub_set.update(length_content_dict[length])
+                            selected_items = random.sample(content_sub_set, 30)
+                            with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+                                nll_sum = 0
+                                for item in selected_items:
+                                    text = item[0]
+                                    image_path = item[1]
+                                    raw_image = Image.open(image_path).convert('RGB')
+                                    text_input = rerank_prompt_template + text
+                                    inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
+                                        self.model.device)
+                                    labels = self.processor(text=text, return_tensors="pt")[
+                                        'input_ids'].squeeze().tolist()
+                                    max_inputs_sum = inputs['input_ids'].shape[1]
+                                    # 去掉label的第一个起始符
+                                    labels = [[-100] * (max_inputs_sum - len(labels[1:])) + labels[1:]]
+                                    labels_view = torch.tensor(labels).to(self.model.device)
+                                    output = self.model(**inputs, output_hidden_states=True, return_dict=True)
+                                    logits = output.logits
+                                    shift_logits = logits[..., :-1, :].contiguous()
+                                    shift_labels = labels_view[..., 1:].contiguous()
+                                    loss_func = torch.nn.CrossEntropyLoss(reduction='none')
+                                    nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                                    nll = nll.view(shift_labels.size())
+                                    # 这个为啥是sum呢？根据原论文，是要把各个token上预测结果概率的对数似然加和取平均，但这里似乎只是求了和
+                                    # upr的代码中，指定了每个batch_size是1，也就是每次只针对1个查询计算
+                                    avg_nll = torch.sum(nll, dim=1)
+                                    valid_tokens = (labels_view != -100).sum(dim=1).float()
+                                    avg_nll /= valid_tokens
+                                    # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
+                                    nll_sum += avg_nll
+                                nll_sum /= 30
+                                nll_sum_dict[length_tuple] = float(nll_sum)
+                    elif search_args.tuple_sum == 100:
+                        if data_args.dataset_name == 'coco':
+                            length_list = coco_length_list_100
+                        else:
+                            length_list = flickr_length_list_100
+                        for length_tuple in tqdm(length_list):
+                            content_sub_set = set()
+                            for length in length_tuple:
+                                if length in length_content_dict.keys():
+                                    content_sub_set.update(length_content_dict[length])
+                            selected_items = random.sample(content_sub_set, 100)
+                            with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+                                nll_sum = 0
+                                for item in selected_items:
+                                    text = item[0]
+                                    image_path = item[1]
+                                    raw_image = Image.open(image_path).convert('RGB')
+                                    text_input = rerank_prompt_template + text
+                                    inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
+                                        self.model.device)
+                                    labels = self.processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist()
+                                    max_inputs_sum = inputs['input_ids'].shape[1]
+                                    # 去掉label的第一个起始符
+                                    labels = [[-100] * (max_inputs_sum - len(labels[1:])) + labels[1:]]
+                                    labels_view = torch.tensor(labels).to(self.model.device)
+                                    output = self.model(**inputs, output_hidden_states=True, return_dict=True)
+                                    logits = output.logits
+                                    shift_logits = logits[..., :-1, :].contiguous()
+                                    shift_labels = labels_view[..., 1:].contiguous()
+                                    loss_func = torch.nn.CrossEntropyLoss(reduction='none')
+                                    nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                                    nll = nll.view(shift_labels.size())
+                                    # 这个为啥是sum呢？根据原论文，是要把各个token上预测结果概率的对数似然加和取平均，但这里似乎只是求了和
+                                    # upr的代码中，指定了每个batch_size是1，也就是每次只针对1个查询计算
+                                    avg_nll = torch.sum(nll, dim=1)
+                                    valid_tokens = (labels_view != -100).sum(dim=1).float()
+                                    avg_nll /= valid_tokens
+                                    # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
+                                    nll_sum += avg_nll
+                                nll_sum /= 100
+                                nll_sum_dict[length_tuple] = float(nll_sum)
+                    else:
+                        for length_tuple in tqdm(flickr_length_list_20):
+                            content_sub_set = set()
+                            for length in length_tuple:
+                                content_sub_set.update(length_content_dict[length])
+                            selected_items = random.sample(content_sub_set, 20)
+                            with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+                                nll_sum = 0
+                                for item in selected_items:
+                                    text = item[0]
+                                    image_path = item[1]
+                                    raw_image = Image.open(image_path).convert('RGB')
+                                    text_input = rerank_prompt_template + text
+                                    inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
+                                        self.model.device)
+                                    labels = self.processor(text=text, return_tensors="pt")[
+                                        'input_ids'].squeeze().tolist()
+                                    max_inputs_sum = inputs['input_ids'].shape[1]
+                                    # 去掉label的第一个起始符
+                                    labels = [[-100] * (max_inputs_sum - len(labels[1:])) + labels[1:]]
+                                    labels_view = torch.tensor(labels).to(self.model.device)
+                                    output = self.model(**inputs, output_hidden_states=True, return_dict=True)
+                                    logits = output.logits
+                                    shift_logits = logits[..., :-1, :].contiguous()
+                                    shift_labels = labels_view[..., 1:].contiguous()
+                                    loss_func = torch.nn.CrossEntropyLoss(reduction='none')
+                                    nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                                    nll = nll.view(shift_labels.size())
+                                    # 这个为啥是sum呢？根据原论文，是要把各个token上预测结果概率的对数似然加和取平均，但这里似乎只是求了和
+                                    # upr的代码中，指定了每个batch_size是1，也就是每次只针对1个查询计算
+                                    avg_nll = torch.sum(nll, dim=1)
+                                    valid_tokens = (labels_view != -100).sum(dim=1).float()
+                                    avg_nll /= valid_tokens
+                                    # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
+                                    nll_sum += avg_nll
+                                nll_sum /= 20
+                                nll_sum_dict[length_tuple] = float(nll_sum)
+                    object_list = [nll_sum_dict]
+            else:
+                object_list = [None]
+            dist.broadcast_object_list(object_list, src=0)
+            received_nll_sum_dict = object_list[0]
         with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             for k, v in tqdm(fusion_run.items()):
                 # k是查询的id，v是一个字典，key是候选的id，value是查询和候选的相似度
@@ -472,7 +529,7 @@ class Reranker:
                     for text_id, sim_score in candidate_pool.items():
                         text_id_list.append(text_id)
                         text_list.append(self.text_map[text_id])
-                        sim_score_list.append(sim_score_list)
+                        sim_score_list.append(sim_score)
 
                     sharded_nll_list = []
 
@@ -504,15 +561,15 @@ class Reranker:
 
                     for text_id, nll in zip(text_id_list, sharded_nll_list):
                         rerank_run[text_id] = -float(nll)
-                        text_token_length = len(self.processor(text=text_list[text_id], return_tensors="pt")['input_ids'].squeeze().tolist()[1:])
+                        text_token_length = len(self.processor(text=self.text_map[text_id], return_tensors="pt")['input_ids'].squeeze().tolist()[1:])
                         if search_args.modify_type != 'no':
-                            for key in nll_sum_dict.keys():
+                            for key in received_nll_sum_dict.keys():
                                 if text_token_length in key:
                                     if search_args.modify_type == 'division':
-                                        rerank_run[text_id] /= nll_sum_dict[key]
+                                        rerank_run[text_id] /= received_nll_sum_dict[key]
                                     elif search_args.modify_type == 'sub':
-                                        abs_value = abs(rerank_run[text_id]) - abs(nll_sum_dict[key])
-                                        rerank_run[text_id] = abs(abs_value)
+                                        abs_value = abs(rerank_run[text_id]) - abs(received_nll_sum_dict[key])
+                                        rerank_run[text_id] = -abs(abs_value)
 
 
                 else:

@@ -80,6 +80,8 @@ def main():
     search_args: PromptRepsLLMSearchArguments
     training_args: TrainingArguments
 
+    print(data_args.per_device_batch_size)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     device_map = "cuda"
@@ -138,9 +140,9 @@ def main():
             setattr(processor, "patch_size", 14)  # hack for pass
 
     if search_args.query_type == 'text':
-        dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
+        dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'train', 'full')
     else:
-        dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
+        dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'train', 'single')
     sampler = Data.DistributedSampler(dataset, num_replicas=world_size, shuffle=True, rank=0)
     test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, batch_size=data_args.per_device_batch_size,
                                       shuffle=False)
@@ -163,11 +165,13 @@ def main():
 
     encoder.eval()
 
-    flickr_length_dict = {3: 3, 4: 5, 5: 26, 6: 83, 7: 196, 8: 316, 9: 376, 10: 447, 11: 446, 12: 455, 13: 399, 14: 403,
-                          15: 343, 16: 287, 17: 213, 18: 179, 19: 134, 20: 127, 21: 82, 22: 78, 23: 83, 24: 45, 25: 40,
-                          26: 40, 27: 27, 28: 27, 29: 30, 30: 20, 31: 16, 32: 8, 33: 14, 34: 3, 35: 7, 36: 9, 37: 2,
-                          38: 4, 39: 3, 40: 3, 41: 3, 42: 1, 43: 2, 44: 1, 45: 2, 46: 2, 47: 1, 48: 1, 52: 1, 54: 1,
-                          56: 1, 57: 1, 58: 2, 64: 1, 85: 1}
+    flickr_length_dict = {2: 4, 3: 27, 4: 164, 5: 697, 6: 2436, 7: 5960, 8: 8969, 9: 10916, 10: 12652, 11: 13380,
+                          12: 13162, 13: 12043, 14: 10780, 15: 9326, 16: 7973, 17: 6823, 18: 5408, 19: 4469, 20: 3639,
+                          21: 2899, 22: 2522, 23: 1932, 24: 1528, 25: 1295, 26: 1001, 27: 918, 28: 708, 29: 566,
+                          30: 465, 31: 402, 32: 326, 33: 271, 34: 181, 35: 178, 36: 166, 37: 111, 38: 125, 39: 93,
+                          40: 78, 41: 49, 42: 44, 43: 51, 44: 37, 45: 24, 46: 30, 47: 23, 48: 18, 49: 15, 50: 14,
+                          51: 13, 52: 11, 53: 9, 54: 9, 55: 8, 56: 8, 57: 7, 58: 5, 59: 5, 60: 2, 61: 5, 62: 3, 63: 2,
+                          67: 1, 68: 4, 70: 2, 71: 1, 72: 1, 73: 2, 74: 1, 77: 1, 79: 1, 85: 1}
 
     coco_length_dict = {7: 2, 8: 691, 9: 2878, 10: 4461, 11: 4937, 12: 4122, 13: 2872, 14: 1815, 15: 1183, 16: 690,
                         17: 445, 18: 298, 19: 183, 20: 118, 21: 85, 22: 48, 23: 35, 24: 35, 25: 26, 26: 21, 27: 15,
@@ -184,6 +188,12 @@ def main():
                              30, 31), (32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 52, 54, 56, 57,
                              58, 64, 85)]
 
+    flickr_length_list_100 = [(2, 3, 4), (5,), (6,), (7,), (8,), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (19,),
+                          (20,), (21,), (22,), (23,), (24,), (25,), (26,), (27,), (28,), (29,),
+                          (30,), (31,), (32,), (33,), (34,), (35,), (36,), (37,), (38,), (39, 40), (41, 42, 43),
+                              (44, 45, 46, 47),
+                              (48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 67, 68, 70, 71, 72, 73, 74, 77, 79, 85)]
+
     coco_length_list_20 = [(7, 8), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (19,), (20,),
                            (21,), (22,), (23,), (24,), (25,), (26,),
                            (27, 28, 29, 30, 31, 32, 33, 34, 36, 37, 39, 42, 45, 47, 49, 50, 54)]
@@ -191,6 +201,12 @@ def main():
     coco_length_list_30 = [(7, 8), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (19,), (20,),
                            (21,), (22,), (23,), (24,),
                            (25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 36, 37, 39, 42, 45, 47, 49, 50, 54)]
+
+    coco_length_list_100 = [(2, 3, 4), (5,), (6,), (7,), (8,), (9,), (10,), (11,), (12,), (13,), (14,), (15,), (16,), (17,), (18,), (19,),
+                          (20,), (21,), (22,), (23,), (24,), (25,), (26,), (27,), (28,), (29,),
+                          (30,), (31,), (32,), (33,), (34,), (35,), (36,), (37,), (38,), (39, 40), (41, 42, 43),
+                              (44, 45, 46, 47),
+                              (48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 67, 68, 70, 71, 72, 73, 74, 77, 79, 85)]
     rerank_prompt_type = search_args.rerank_template
     if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
         if rerank_prompt_type == 'caption_generation':
@@ -325,6 +341,47 @@ def main():
                         nll_sum += avg_nll
                     nll_sum /= 30
                     nll_sum_dict[length_tuple] = float(nll_sum)
+
+        elif search_args.tuple_sum == 100:
+            if data_args.dataset_name == 'coco':
+                length_list = coco_length_list_100
+            else:
+                length_list = flickr_length_list_100
+            for length_tuple in tqdm(length_list):
+                content_sub_set = set()
+                for length in length_tuple:
+                    if length in length_content_dict.keys():
+                        content_sub_set.update(length_content_dict[length])
+                selected_items = random.sample(content_sub_set, 100)
+                with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+                    nll_sum = 0
+                    for item in selected_items:
+                        text = item[0]
+                        image_path = item[1]
+                        raw_image = Image.open(image_path).convert('RGB')
+                        text_input = rerank_prompt_template + text
+                        inputs = processor(images=raw_image, text=text_input, return_tensors="pt").to(encoder.device)
+                        labels = processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist()
+                        max_inputs_sum = inputs['input_ids'].shape[1]
+                        # 去掉label的第一个起始符
+                        labels = [[-100] * (max_inputs_sum - len(labels[1:])) + labels[1:]]
+                        labels_view = torch.tensor(labels).to(encoder.device)
+                        output = encoder(**inputs, output_hidden_states=True, return_dict=True)
+                        logits = output.logits
+                        shift_logits = logits[..., :-1, :].contiguous()
+                        shift_labels = labels_view[..., 1:].contiguous()
+                        loss_func = torch.nn.CrossEntropyLoss(reduction='none')
+                        nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                        nll = nll.view(shift_labels.size())
+                        # 这个为啥是sum呢？根据原论文，是要把各个token上预测结果概率的对数似然加和取平均，但这里似乎只是求了和
+                        # upr的代码中，指定了每个batch_size是1，也就是每次只针对1个查询计算
+                        avg_nll = torch.sum(nll, dim=1)
+                        valid_tokens = (labels_view != -100).sum(dim=1).float()
+                        avg_nll /= valid_tokens
+                        # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
+                        nll_sum += avg_nll
+                    nll_sum /= 100
+                    nll_sum_dict[length_tuple] = float(nll_sum)
         else:
             if data_args.dataset_name == 'coco':
                 length_list = coco_length_list_20
@@ -369,6 +426,8 @@ def main():
         length_of_input_id = list(length_count_dict.keys())
         count = list(length_count_dict.values())
         print(nll_sum_dict)
+
+        print(nll_sum_dict.values())
 
         # 创建条形图
         plt.bar(length_of_input_id, count, color='skyblue', edgecolor='navy', alpha=0.7)
