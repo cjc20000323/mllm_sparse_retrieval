@@ -46,6 +46,7 @@ from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, ge
 from hybrid import fuse
 from utils import load_image
 from peft import PeftModel
+from datetime import timedelta
 
 # from cuml.cluster import KMeans
 
@@ -155,7 +156,7 @@ def main():
         # gradient_accumulation_steps = gradient_accumulation_steps // world_size
 
         if not dist.is_initialized():
-            torch.distributed.init_process_group("nccl")
+            torch.distributed.init_process_group("nccl", timeout=timedelta(seconds=3600))
         rank, world_size = torch.distributed.get_rank(), torch.distributed.get_world_size()
         device_id = rank % torch.cuda.device_count()
         device = torch.device(device_id)
