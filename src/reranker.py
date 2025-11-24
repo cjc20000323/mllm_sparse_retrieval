@@ -497,6 +497,7 @@ class Reranker:
                                 nll_sum /= 20
                                 nll_sum_dict[length_tuple] = float(nll_sum)
                     object_list = [nll_sum_dict]
+                    print(nll_sum_dict)
             else:
                 object_list = [None]
             dist.broadcast_object_list(object_list, src=0)
@@ -568,8 +569,10 @@ class Reranker:
                                     if search_args.modify_type == 'division':
                                         rerank_run[text_id] /= received_nll_sum_dict[key]
                                     elif search_args.modify_type == 'sub':
-                                        abs_value = abs(rerank_run[text_id]) - abs(received_nll_sum_dict[key])
-                                        rerank_run[text_id] = -abs(abs_value)
+                                        value = rerank_run[text_id] + received_nll_sum_dict[key]
+                                        if dist.get_rank() == 0:
+                                            print(rerank_run[text_id], received_nll_sum_dict[key], value)
+                                        rerank_run[text_id] = value
 
 
                 else:
