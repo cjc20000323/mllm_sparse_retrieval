@@ -2127,6 +2127,9 @@ def main():
     metric.all_gather_object()
     metric.print_recall(output_path)
 
+    if 'caption_generation' in search_args.rerank_template and search_args.query_type == 'image':
+        metric.statistical_error_data(processor, best_test_fusion_run)
+
     # 训练结束后添加同步屏障
     dist.barrier()
 

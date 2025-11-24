@@ -345,7 +345,8 @@ class Reranker:
                         for length_tuple in tqdm(flickr_length_list_20):
                             content_sub_set = set()
                             for length in length_tuple:
-                                content_sub_set.update(length_content_dict[length])
+                                if length in length_content_dict.keys():
+                                    content_sub_set.update(length_content_dict[length])
                             selected_items = random.sample(content_sub_set, 20)
                             print(selected_items)
                             with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():

@@ -11,12 +11,17 @@ class RecallMetrics:
         self.dense_counts = {k: 0 for k in self.recall_k_setting_list}
         self.sparse_counts = {k: 0 for k in self.recall_k_setting_list}
         self.fusion_counts = {k: 0 for k in self.recall_k_setting_list}
+        self.max_statistical_error_counts = {k: 0 for k in [0, 3, 5, 8, 10]}
+        self.statistical_error_counts = {k: 0 for k in [0, 3, 5, 8, 10]}
         self.dense_recall_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in
                                    self.recall_k_setting_list}
         self.sparse_recall_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in
                                     self.recall_k_setting_list}
         self.fusion_recall_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in
                                     self.recall_k_setting_list}
+
+        self.max_statistical_error_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in [0, 3, 5, 8, 10]}
+        self.statistical_error_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in [0, 3, 5, 8, 10]}
 
         self.dataset = dataset
         self.dense_run = dense_run
@@ -182,3 +187,69 @@ class RecallMetrics:
 
             # 将DataFrame写入Excel文件，index=False表示不写入行索引
             df.to_excel(output_path, index=False)
+
+    def statistical_error_data(self, processor, candidate_pool):
+        for k, v in self.fusion_run.items():
+            target = self.dataset.get_target(k, self.search_args.query_type)
+            if isinstance(target, list):
+                target = torch.tensor([int(i) for i in target]).cuda()
+            else:
+                target = int(target)
+            if len(v) == 0:
+                continue
+            search_results = self._sort(v)
+            candidate = self._sort(candidate_pool[k])
+            if True not in torch.isin(search_results[1], target):
+                error_text = self.dataset.text_dict[str(search_results[1].item())]
+                error_length = len(processor(text=error_text, return_tensors="pt")['input_ids'].squeeze().tolist()[1:])
+                max_length_right = 0
+                candidate_right = 0
+                for result in search_results[5]:
+                    if True in torch.isin(result, target):
+                        text = self.dataset.text_dict[str(result.item())]
+                        length_right = len(processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist()[1:])
+                        if length_right >= max_length_right:
+                            max_length_right = length_right
+                if True in torch.isin(candidate[1], target):
+                    text = self.dataset.text_dict[str(candidate[1].item())]
+                    candidate_right = len(processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist()[1:])
+                if max_length_right - error_length >= 10:
+                    self.max_statistical_error_counts[10] += 1
+                elif max_length_right - error_length >= 8:
+                    self.max_statistical_error_counts[8] += 1
+                elif max_length_right - error_length >= 5:
+                    self.max_statistical_error_counts[5] += 1
+                elif max_length_right - error_length >= 3:
+                    self.max_statistical_error_counts[3] += 1
+                else:
+                    self.max_statistical_error_counts[0] += 1
+                if candidate_right - error_length >= 10:
+                    self.statistical_error_counts[10] += 1
+                elif candidate_right - error_length >= 8:
+                    self.statistical_error_counts[8] += 1
+                elif candidate_right - error_length >= 5:
+                    self.statistical_error_counts[5] += 1
+                elif candidate_right - error_length >= 3:
+                    self.statistical_error_counts[3] += 1
+                else:
+                    self.statistical_error_counts[0] += 1
+                    if dist.get_rank() == 0:
+                        print(k)
+                        print(self.dataset.text_dict[str(search_results[1].item())])
+                        print(search_results[5])
+                        print(self.dataset.text_dict[str(candidate[1].item())])
+                        print(candidate[5])
+
+        for k in [0, 3, 5, 8, 10]:
+            dist.all_gather_object(object_list=self.statistical_error_lists[k], obj=self.statistical_error_counts[k])
+            dist.all_gather_object(object_list=self.max_statistical_error_lists[k], obj=self.max_statistical_error_counts[k])
+
+        if dist.get_rank() == 0:
+            print(self.statistical_error_lists)
+            print(self.max_statistical_error_lists)
+            for k in self.statistical_error_lists:
+                self.statistical_error_lists[k] = sum(self.statistical_error_lists[k])
+            for k in self.max_statistical_error_lists:
+                self.max_statistical_error_lists[k] = sum(self.max_statistical_error_lists[k])
+            print(self.statistical_error_lists)
+            print(self.max_statistical_error_lists)
