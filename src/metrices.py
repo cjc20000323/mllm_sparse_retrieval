@@ -16,6 +16,7 @@ class RecallMetrics:
         # k=1代表r@1候选集错误，重排后错误但是候选集r@5包含正确答案
         # k=2代表r@1候选集错误，重排后错误且候选集r@5不包含正确答案
         self.max_statistical_error_counts = {k: 0 for k in [0, 3, 5, 8, 10]}
+        self.min_statistical_error_counts = {k: 0 for k in [0, 3, 5, 8, 10]}
         self.statistical_error_counts = {k: 0 for k in [0, 3, 5, 8, 10]}
         self.dense_recall_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in
                                    self.recall_k_setting_list}
@@ -26,6 +27,7 @@ class RecallMetrics:
         self.counter_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in [0, 1, 2]}
 
         self.max_statistical_error_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in [0, 3, 5, 8, 10]}
+        self.min_statistical_error_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in [0, 3, 5, 8, 10]}
         self.statistical_error_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in [0, 3, 5, 8, 10]}
 
         self.dataset = dataset
@@ -208,6 +210,7 @@ class RecallMetrics:
                 error_text = self.dataset.text_dict[str(search_results[1].item())]
                 error_length = len(processor(text=error_text, return_tensors="pt")['input_ids'].squeeze().tolist()[1:])
                 max_length_right = 0
+                min_length_right = 10000
                 candidate_right = 0
                 for result in search_results[5]:
                     if True in torch.isin(result, target):
@@ -215,6 +218,8 @@ class RecallMetrics:
                         length_right = len(processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist()[1:])
                         if length_right >= max_length_right:
                             max_length_right = length_right
+                        if length_right <= min_length_right:
+                            min_length_right = length_right
                 if True in torch.isin(candidate[1], target):
                     text = self.dataset.text_dict[str(candidate[1].item())]
                     candidate_right = len(processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist()[1:])
@@ -262,6 +267,7 @@ class RecallMetrics:
         for k in [0, 3, 5, 8, 10]:
             dist.all_gather_object(object_list=self.statistical_error_lists[k], obj=self.statistical_error_counts[k])
             dist.all_gather_object(object_list=self.max_statistical_error_lists[k], obj=self.max_statistical_error_counts[k])
+            dist.all_gather_object(object_list=self.min_statistical_error_lists[k], obj=self.min_statistical_error_counts[k])
 
         for k in [0, 1, 2]:
             dist.all_gather_object(object_list=self.counter_lists[k], obj=self.counter[k])
@@ -269,14 +275,18 @@ class RecallMetrics:
         if dist.get_rank() == 0:
             print(self.statistical_error_lists)
             print(self.max_statistical_error_lists)
+            print(self.min_statistical_error_lists)
             for k in self.statistical_error_lists:
                 self.statistical_error_lists[k] = sum(self.statistical_error_lists[k])
             for k in self.max_statistical_error_lists:
                 self.max_statistical_error_lists[k] = sum(self.max_statistical_error_lists[k])
+            for k in self.min_statistical_error_lists:
+                self.min_statistical_error_lists[k] = sum(self.min_statistical_error_lists[k])
             print(self.statistical_error_lists)
             print(self.max_statistical_error_lists)
+            print(self.min_statistical_error_lists)
 
             print(self.counter_lists)
             for k in self.counter_lists:
-                self.counter_lists = sum(self.counter_lists[k])
+                self.counter_lists[k] = sum(self.counter_lists[k])
             print(self.counter_lists)
