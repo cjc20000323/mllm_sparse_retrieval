@@ -18,7 +18,10 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     detailed_mistral_query_generation_paradigm_prompt, detailed_query_generation_paradigm_prompt, \
     detailed_query_generation_paradigm_prompt_1, detailed_mistral_query_generation_paradigm_prompt_1, \
     mistral_query_generation_paradigm_prompt_5, mistral_query_generation_paradigm_prompt_4, \
-    query_generation_paradigm_prompt_4, query_generation_paradigm_prompt_5
+    query_generation_paradigm_prompt_4, query_generation_paradigm_prompt_5, query_generation_paradigm_prompt_2, \
+    query_generation_paradigm_prompt_3, mistral_query_generation_paradigm_prompt_2, \
+    mistral_query_generation_paradigm_prompt_3, query_generation_paradigm_prompt_6, query_generation_paradigm_prompt_7, \
+    mistral_query_generation_paradigm_prompt_6, mistral_query_generation_paradigm_prompt_7
 
 from PIL import Image
 import torch.nn.functional as F
@@ -290,6 +293,14 @@ class Reranker:
                 rerank_prompt_template = mistral_query_generation_paradigm_prompt_4
             elif rerank_prompt_type == 'caption_generation_5':
                 rerank_prompt_template = mistral_query_generation_paradigm_prompt_5
+            elif rerank_prompt_type == 'caption_generation_2':
+                rerank_prompt_template = mistral_query_generation_paradigm_prompt_2
+            elif rerank_prompt_type == 'caption_generation_3':
+                rerank_prompt_template = mistral_query_generation_paradigm_prompt_3
+            elif rerank_prompt_type == 'caption_generation_6':
+                rerank_prompt_template = mistral_query_generation_paradigm_prompt_6
+            elif rerank_prompt_type == 'caption_generation_7':
+                rerank_prompt_template = mistral_query_generation_paradigm_prompt_7
             else:
                 rerank_prompt_template = mistral_query_generation_paradigm_prompt
         else:
@@ -305,6 +316,14 @@ class Reranker:
                 rerank_prompt_template = query_generation_paradigm_prompt_4
             elif rerank_prompt_type == 'caption_generation_5':
                 rerank_prompt_template = query_generation_paradigm_prompt_5
+            elif rerank_prompt_type == 'caption_generation_2':
+                rerank_prompt_template = query_generation_paradigm_prompt_2
+            elif rerank_prompt_type == 'caption_generation_3':
+                rerank_prompt_template = query_generation_paradigm_prompt_3
+            elif rerank_prompt_type == 'caption_generation_6':
+                rerank_prompt_template = query_generation_paradigm_prompt_6
+            elif rerank_prompt_type == 'caption_generation_7':
+                rerank_prompt_template = query_generation_paradigm_prompt_7
             else:
                 rerank_prompt_template = query_generation_paradigm_prompt
 
