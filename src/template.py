@@ -701,3 +701,54 @@ mistral_prompt_generation_text_modal_only_prompt_4 = llava_mistral_template.form
 )
 
 five_aspects = '1. people or objects\n2. relations\n3. environment\n4. actions\n5. appearance\n'
+
+prompt_schema_generation_text_prompt = llama3_template.format(
+    'You are an experienced knowledge engineer and you are modeling schemas for knowledge graph construction. '
+    'Given a set of sentences, you need to give several proper words or phrases for the abstract schemas of entities, relations and events in these sentences.'
+    'You must return your answer in the following format: 1. phrases1\n2.phrases2\n3.phrases3\n...'
+    'You can\'t return anything other than answers.'
+    'These abstract intention words should fulfill the following requirements.'
+    '1. The abstract schemas phrases can well represent the entities, relations and events, and it could be the type of the entities, relations and events or the related concepts of the entities, relations and events.'
+    '2. Strictly follow the provided format, do not add extra characters or words.'
+    '3. Write 3 to 7 words or phrases at the highest possible abstract level if possible.'
+    '4. Do not repeat the same word and the input in the answer.'
+    '5. Stop immediately if you can\'t think of any more phrases, and no explanation is needed.'
+
+    'Input sentences: <sent>\n'
+    'Your answer:'
+
+)
+
+prompt_schema_generation_text_prompt_1 = llama3_template.format(
+    'You are an experienced knowledge engineer and you are modeling schemas for knowledge graph construction. '
+    'Given a set of sentences, you need to give several proper words or phrases for the abstract schemas of entities, relations and events in these sentences.'
+    'You must return your answer in the following format: 1. phrases1\n2.phrases2\n3.phrases3\n...'
+    'You can\'t return anything other than answers.'
+    'These abstract intention words should fulfill the following requirements.'
+    '1. The abstract schemas phrases can well represent the entities, relations and events, and it could be the type of the entities, relations and events or the related concepts of the entities, relations and events.'
+    '2. Strictly follow the provided format, do not add extra characters or words.'
+    '3. Write 3 to 7 words or phrases at the highest possible abstract level if possible.'
+    '4. Do not repeat the same word and the input in the answer.'
+    '5. Stop immediately if you can\'t think of any more phrases, and no explanation is needed.'
+
+    'Input sentences: <sent>\n'
+    'Your answer: <sent>\n'
+    'Input sentences: <sent>\n'
+    'Your answer:'
+)
+
+mistral_prompt_schema_generation_text_prompt = llava_mistral_template.format(
+    'You are an experienced knowledge engineer and you are modeling schemas for knowledge graph construction. '
+    'Given a set of sentences, you need to give several proper words or phrases for the abstract schemas of entities, relations and events in these sentences.'
+    'You must return your answer in the following format: 1. phrases1\n2.phrases2\n3.phrases3\n...'
+    'You can\'t return anything other than answers.'
+    'These abstract intention words should fulfill the following requirements.'
+    '1. The abstract schemas phrases can well represent the entities, relations and events, and it could be the type of the entities, relations and events or the related concepts of the entities, relations and events.'
+    '2. Strictly follow the provided format, do not add extra characters or words.'
+    '3. Write 3 to 7 words or phrases at the highest possible abstract level if possible.'
+    '4. Do not repeat the same word and the input in the answer.'
+    '5. Stop immediately if you can\'t think of any more phrases, and no explanation is needed.'
+
+    'Input sentences: <sent>\n'
+    'Your answer:'
+)
