@@ -1,5 +1,6 @@
 import os
-import gc
+
+import numpy as np
 import torch
 import torch.distributed as dist
 from PIL import Image
@@ -8,23 +9,11 @@ from transformers import (
 )
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
     LlavaNextForConditionalGeneration, Qwen2_5_VLProcessor, Qwen2_5_VLForConditionalGeneration, AutoModel, \
-    AutoProcessor, LlamaForCausalLM, MistralForCausalLM, LlamaTokenizer, AutoTokenizer, AutoModelForCausalLM
+    AutoProcessor
 
 from arguments import PromptRepsLLMDataArguments, ModelArguments
-from arguments import TrainingArguments, PromptGenerationArguments, PromptRepsLLMSearchArguments
-from encode import get_filtered_ids
-from model import MLLMRetrievalModel
-from template import relevant_prompt, in_one_word_relevant_prompt, text_query_relevant_prompt, \
-    image_query_relevant_prompt, precise_caption_prompt, please_relevant_prompt, old_text_query_relevant_prompt, \
-    old_image_query_relevant_prompt, origin_old_text_query_relevant_prompt, origin_old_image_query_relevant_prompt, \
-    role_relevant_prompt, role_precise_caption_prompt, role_old_image_query_relevant_prompt, \
-    role_old_text_query_relevant_prompt, first_precise_caption_prompt, mistral_relevant_prompt, \
-    mistral_in_one_word_relevant_prompt, mistral_text_query_relevant_prompt, mistral_image_query_relevant_prompt, \
-    mistral_precise_caption_prompt, mistral_please_relevant_prompt, mistral_old_text_query_relevant_prompt, \
-    mistral_old_image_query_relevant_prompt, mistral_origin_old_text_query_relevant_prompt, \
-    mistral_origin_old_image_query_relevant_prompt, mistral_role_relevant_prompt, mistral_role_precise_caption_prompt, \
-    mistral_role_old_text_query_relevant_prompt, mistral_role_old_image_query_relevant_prompt, \
-    mistral_first_precise_caption_prompt, mistral_query_generation_paradigm_prompt, query_generation_paradigm_prompt, \
+from arguments import TrainingArguments, PromptRepsLLMSearchArguments
+from template import mistral_query_generation_paradigm_prompt, query_generation_paradigm_prompt, \
     mistral_query_generation_paradigm_prompt_1, query_generation_paradigm_prompt_1, \
     detailed_mistral_query_generation_paradigm_prompt, detailed_query_generation_paradigm_prompt, \
     detailed_query_generation_paradigm_prompt_1, detailed_mistral_query_generation_paradigm_prompt_1, \
@@ -32,7 +21,9 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     query_generation_paradigm_prompt_4, query_generation_paradigm_prompt_5, query_generation_paradigm_prompt_2, \
     query_generation_paradigm_prompt_3, mistral_query_generation_paradigm_prompt_2, \
     mistral_query_generation_paradigm_prompt_3, query_generation_paradigm_prompt_6, query_generation_paradigm_prompt_7, \
-    mistral_query_generation_paradigm_prompt_6, mistral_query_generation_paradigm_prompt_7
+    mistral_query_generation_paradigm_prompt_6, mistral_query_generation_paradigm_prompt_7, llama3_template, \
+    llava_mistral_template
+from scipy.stats import spearmanr
 
 
 def main():
@@ -107,13 +98,14 @@ def main():
         processor.tokenizer.padding_side = "left"
         processor.tokenizer.padding = True
 
-    model = MLLMRetrievalModel(encoder)
-    model = model.eval()
-    print(model.is_ddp)
+    encoder = encoder.eval()
 
-    image_path = './data/flickr/flickr30k-images/58803866.jpg'
-    text1 = 'Three dogs playing together in a grassy field with trees in the background'
-    text2 = 'A crowd of people on the street gathering to watch several young men put on a show.'
+    image_path = './data/flickr/flickr30k-images/499340051.jpg'
+    text1 = 'An aerial view of a man sitting at a desktop computer.'
+    text2 = 'A man in a black shirt sitting at a table with an open Apple laptop in front of him.'
+    print(image_path)
+    print(text1)
+    print(text2)
 
     with torch.no_grad():
         if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
@@ -165,6 +157,8 @@ def main():
 
         text_input1 = rerank_prompt_template + text1
         text_input2 = rerank_prompt_template + text2
+        print(text_input1)
+        print(text_input2)
 
         raw_image = Image.open(image_path).convert('RGB')
 
@@ -175,13 +169,19 @@ def main():
             encoder.device)
 
         max_inputs_sum_1 = inputs_1['input_ids'].shape[1]
-        labels_1 = processor(text=text_input1, return_tensors="pt")['input_ids'].squeeze().tolist()
+        labels_1 = processor(text=text1, return_tensors="pt")['input_ids'].squeeze().tolist()
         # 去掉label的第一个起始符
+        print(labels_1[1:])
+        labels_1_clone = labels_1[1:].copy()
+        length_1 = len(labels_1[1:])
         labels_1 = [-100] * (max_inputs_sum_1 - len(labels_1[1:])) + labels_1[1:]
 
         max_inputs_sum_2 = inputs_2['input_ids'].shape[1]
-        labels_2 = processor(text=text_input2, return_tensors="pt")['input_ids'].squeeze().tolist()
+        labels_2 = processor(text=text2, return_tensors="pt")['input_ids'].squeeze().tolist()
         # 去掉label的第一个起始符
+        print(labels_2[1:])
+        labels_2_clone = labels_2[1:].copy()
+        length_2 = len(labels_2[1:])
         labels_2 = [-100] * (max_inputs_sum_2 - len(labels_2[1:])) + labels_2[1:]
 
         labels_view_1 = torch.tensor(labels_1).to(encoder.device)
@@ -200,12 +200,195 @@ def main():
         loss_func = torch.nn.CrossEntropyLoss(reduction='none')
         nll_1 = loss_func(shift_logits_1.view(-1, shift_logits_1.size(-1)), shift_labels_1.view(-1))
         nll_1 = nll_1.view(shift_labels_1.size())
+        avg_nll_1 = torch.sum(nll_1)
+        valid_tokens_1 = (labels_view_1 != -100).sum().float()
+        avg_nll_1 /= valid_tokens_1
 
         nll_2 = loss_func(shift_logits_2.view(-1, shift_logits_2.size(-1)), shift_labels_2.view(-1))
         nll_2 = nll_2.view(shift_labels_2.size())
 
-        print(nll_1)
-        print(nll_2)
+        avg_nll_2 = torch.sum(nll_2)
+        valid_tokens_2 = (labels_view_2 != -100).sum().float()
+        avg_nll_2 /= valid_tokens_2
+
+        print(nll_1[-length_1:])
+        print(nll_2[-length_2:])
+
+        print(nll_1[-length_1:].shape)
+        print(nll_2[-length_2:].shape)
+
+        import matplotlib.pyplot as plt
+
+        categories_1 = [processor.decode(labels_1_clone[i]) + str(i) for i in range(len(labels_1_clone))]
+        categories_2 = [processor.decode(labels_2_clone[i]) + str(i) for i in range(len(labels_2_clone))]
+        values_1 = nll_1[-length_1:].tolist()
+        values_2 = nll_2[-length_2:].tolist()
+        values_1 = [-x for x in values_1]
+        values_2 = [-x for x in values_2]
+        print(values_1)
+        print(values_2)
+
+        array_1 = np.array(values_1)
+        array_2 = np.array(values_2)
+
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10), sharey=True)
+
+        # 在第一个子图上绘制条形图
+        bars1 = ax1.bar(categories_1, values_1, color='skyblue')
+        for indice in range(len(bars1)):
+            height = bars1[indice].get_height()  # 获取条形的高度，即y值
+            # 在条形顶部中央位置添加文本
+            ax1.text(bars1[indice].get_x() + bars1[indice].get_width() / 2,  # x坐标：条形中心
+                    height - 0.3,  # y坐标：条形顶部上方一点
+                    f'{values_1[indice]}',  # 要显示的文本
+                    ha='center',  # 水平对齐：居中
+                    va='bottom')  # 垂直对齐：底部与指定坐标对齐
+        ax1.axhline(y=-avg_nll_1.item(), color='red', linestyle='--', linewidth=2, label=f'mean: {-avg_nll_1.item()}')
+        ax1.set_ylabel('log likelihood')  # 通常只在第一个图上设置y轴标签
+
+        # 在第二个子图上绘制条形图
+        bars2 = ax2.bar(categories_2, values_2, color='lightgreen')
+        ax2.axhline(y=-avg_nll_2.item(), color='red', linestyle='--', linewidth=2, label=f'mean: {-avg_nll_2.item()}')
+
+        for indice in range(len(bars2)):
+            height = bars2[indice].get_height()  # 获取条形的高度，即y值
+            # 在条形顶部中央位置添加文本
+            ax2.text(bars2[indice].get_x() + bars2[indice].get_width() / 2,  # x坐标：条形中心
+                    height - 0.3,  # y坐标：条形顶部上方一点
+                    f'{values_2[indice]}',  # 要显示的文本
+                    ha='center',  # 水平对齐：居中
+                    va='bottom')  # 垂直对齐：底部与指定坐标对齐
+
+        ax1.legend()
+        ax2.legend()
+        plt.savefig(f'25235_{search_args.rerank_template}.png')
+
+        if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+            if search_args.rerank_template == 'caption_generation':
+                pure_text_prompt = llava_mistral_template.format('Please write a caption based on this image.')
+            else:
+                pure_text_prompt = llava_mistral_template.format('What is the caption of the above image?')
+        else:
+            if search_args.rerank_template == 'caption_generation':
+                pure_text_prompt = llama3_template.format('Please write a caption based on this image.')
+            else:
+                pure_text_prompt = llama3_template.format('What is the caption of the above image?')
+
+        text_input1 = pure_text_prompt + text1
+        text_input2 = pure_text_prompt + text2
+
+        print(text_input1)
+        print(text_input2)
+
+        inputs_1 = processor(text=text_input1, return_tensors="pt").to(
+            encoder.device)
+
+        inputs_2 = processor(text=text_input2, return_tensors="pt").to(
+            encoder.device)
+
+        max_inputs_sum_1 = inputs_1['input_ids'].shape[1]
+        labels_1 = processor(text=text1, return_tensors="pt")['input_ids'].squeeze().tolist()
+        # 去掉label的第一个起始符
+        print(labels_1[1:])
+        labels_1_clone = labels_1[1:].copy()
+        length_1 = len(labels_1[1:])
+        labels_1 = [-100] * (max_inputs_sum_1 - len(labels_1[1:])) + labels_1[1:]
+
+        max_inputs_sum_2 = inputs_2['input_ids'].shape[1]
+        labels_2 = processor(text=text2, return_tensors="pt")['input_ids'].squeeze().tolist()
+        # 去掉label的第一个起始符
+        print(labels_2[1:])
+        labels_2_clone = labels_2[1:].copy()
+        length_2 = len(labels_2[1:])
+        labels_2 = [-100] * (max_inputs_sum_2 - len(labels_2[1:])) + labels_2[1:]
+
+        labels_view_1 = torch.tensor(labels_1).to(encoder.device)
+        labels_view_2 = torch.tensor(labels_2).to(encoder.device)
+
+        output_1 = encoder(**inputs_1, output_hidden_states=True, return_dict=True)
+        logits_1 = output_1.logits
+        shift_logits_1 = logits_1[..., :-1, :].contiguous()
+        shift_labels_1 = labels_view_1[..., 1:].contiguous()
+
+        output_2 = encoder(**inputs_2, output_hidden_states=True, return_dict=True)
+        logits_2 = output_2.logits
+        shift_logits_2 = logits_2[..., :-1, :].contiguous()
+        shift_labels_2 = labels_view_2[..., 1:].contiguous()
+
+        loss_func = torch.nn.CrossEntropyLoss(reduction='none')
+        nll_1 = loss_func(shift_logits_1.view(-1, shift_logits_1.size(-1)), shift_labels_1.view(-1))
+        nll_1 = nll_1.view(shift_labels_1.size())
+        avg_nll_1 = torch.sum(nll_1)
+        valid_tokens_1 = (labels_view_1 != -100).sum().float()
+        avg_nll_1 /= valid_tokens_1
+
+        nll_2 = loss_func(shift_logits_2.view(-1, shift_logits_2.size(-1)), shift_labels_2.view(-1))
+        nll_2 = nll_2.view(shift_labels_2.size())
+
+        avg_nll_2 = torch.sum(nll_2)
+        valid_tokens_2 = (labels_view_2 != -100).sum().float()
+        avg_nll_2 /= valid_tokens_2
+
+        print(nll_1[-length_1:])
+        print(nll_2[-length_2:])
+
+        print(nll_1[-length_1:].shape)
+        print(nll_2[-length_2:].shape)
+
+        import matplotlib.pyplot as plt
+
+        categories_1 = [processor.decode(labels_1_clone[i]) + str(i) for i in range(len(labels_1_clone))]
+        categories_2 = [processor.decode(labels_2_clone[i]) + str(i) for i in range(len(labels_2_clone))]
+        values_1 = nll_1[-length_1:].tolist()
+        values_2 = nll_2[-length_2:].tolist()
+        values_1 = [-x for x in values_1]
+        values_2 = [-x for x in values_2]
+        print(values_1)
+        print(values_2)
+
+        array_3 = np.array(values_1)
+        array_4 = np.array(values_2)
+
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10), sharey=True)
+
+        # 在第一个子图上绘制条形图
+        bars1 = ax1.bar(categories_1, values_1, color='skyblue')
+        for indice in range(len(bars1)):
+            height = bars1[indice].get_height()  # 获取条形的高度，即y值
+            # 在条形顶部中央位置添加文本
+            ax1.text(bars1[indice].get_x() + bars1[indice].get_width() / 2,  # x坐标：条形中心
+                     height - 0.3,  # y坐标：条形顶部上方一点
+                     f'{values_1[indice]}',  # 要显示的文本
+                     ha='center',  # 水平对齐：居中
+                     va='bottom')  # 垂直对齐：底部与指定坐标对齐
+        ax1.axhline(y=-avg_nll_1.item(), color='red', linestyle='--', linewidth=2, label=f'mean: {-avg_nll_1.item()}')
+        ax1.set_ylabel('log likelihood')  # 通常只在第一个图上设置y轴标签
+
+        # 在第二个子图上绘制条形图
+        bars2 = ax2.bar(categories_2, values_2, color='lightgreen')
+        ax2.axhline(y=-avg_nll_2.item(), color='red', linestyle='--', linewidth=2, label=f'mean: {-avg_nll_2.item()}')
+
+        for indice in range(len(bars2)):
+            height = bars2[indice].get_height()  # 获取条形的高度，即y值
+            # 在条形顶部中央位置添加文本
+            ax2.text(bars2[indice].get_x() + bars2[indice].get_width() / 2,  # x坐标：条形中心
+                     height - 0.3,  # y坐标：条形顶部上方一点
+                     f'{values_2[indice]}',  # 要显示的文本
+                     ha='center',  # 水平对齐：居中
+                     va='bottom')  # 垂直对齐：底部与指定坐标对齐
+
+        ax1.legend()
+        ax2.legend()
+        plt.savefig(f'25235_pure_{search_args.rerank_template}.png')
+
+        rho1, p_value1 = spearmanr(array_1, array_3)
+        rho2, p_value2 = spearmanr(array_2, array_4)
+
+        print(f"斯皮尔曼相关系数: {rho1:.3f}, {rho2:.3f}")
+        print(f"P值: {p_value1:.3f}, {p_value2:.3f}")
 
 
+
+if __name__ == "__main__":
+    main()
 
