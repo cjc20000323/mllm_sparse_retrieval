@@ -2,15 +2,23 @@ llama3_template = '<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|><|sta
 llama3_template_image_prefix = '<|start_header_id|>user<|end_header_id|>\n\n<image>\n'
 llama3_template_text_prefix = '<|start_header_id|>user<|end_header_id|>\n\n<sent>\n'
 llama3_template_content_element = '<|begin_of_text|>{}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n \n<|end_of_text|>'
+llama3_template_fashion_iq_composed_image_prefix = '<|start_header_id|>user<|end_header_id|>\n\n<image> change the style of this shirt/dress/toptee to <text>\n'
+llama3_template_fashion_iq_image_prefix = '<|start_header_id|>user<|end_header_id|>\n\n<image>\n'
 llava_mistral_template = '[INST]{}[/INST]'
 llava_mistral_template_image_prefix = '[INST]<image>\n'
 llava_mistral_template_text_prefix = '[INST]<sent>\n'
 llava_mistral_template_content_element = '<s>{}[/INST]</s>'
+llava_mistral_template_fashion_iq_composed_image_prefix = '[INST]<image> change the style of this shirt/dress/toptee to <text>\n'
+llava_mistral_template_fashion_iq_image_prefix = '[INST]<image>\n'
 llava_v1_5_template = '<s>user\n\n{}</s><s>assistant\n\n \n'
 img_prompt = llama3_template.format('<image>\n<|begin_of_text|>Summary above image in one word: ')
 text_prompt = llama3_template.format('<sent>\n<|begin_of_text|>Summary above sentence in one word: ')
 mistral_img_prompt = llava_mistral_template.format('<image>\n<s>Summary above image in one word: ')
 mistral_text_prompt = llava_mistral_template.format('<sent>\n<s>Summary above sentence in one word: ')
+llama3_fashion_iq_composed_image_prompt = llama3_template.format('<image> change the style of this shirt/dress/toptee to <text>\n<|begin_of_text|>Describe this modified shirt/dress/toptee in one word based on its style: ')
+mistral_fashion_iq_composed_image_prompt = llava_mistral_template.format('<image> change the style of this shirt/dress/toptee to <text>\n<s>Describe this modified shirt/dress/toptee in one word based on its style: ')
+llama3_fashion_iq_image_prompt = llama3_template.format('<image>\n<|begin_of_text|>Describe this shirt/dress/toptee in one word based on its style: ')
+mistral_fashion_iq_image_prompt = llava_mistral_template.format('<image>\n<s>Describe this shirt/dress/toptee in one word based on its style: ')
 relevant_prompt = llama3_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
 in_one_word_relevant_prompt = llama3_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output in one word: ")
 please_relevant_prompt = llama3_template.format("For the following sentence and image, judge whether they are relevant. Please output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
@@ -42,6 +50,15 @@ mistral_role_precise_caption_prompt = llava_mistral_template.format("You are Ran
 mistral_role_old_text_query_relevant_prompt = llava_mistral_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nQuery: <sent>\nCandidate: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
 mistral_role_old_image_query_relevant_prompt = llava_mistral_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nQuery: <image>\nCandidate: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
 
+fashion_iq_relevant_prompt = llama3_template.format("For the following modified shirt/dress/toptee and target shirt/dress/toptee, judge whether they are relevant. Output 'Yes' or 'No'.\nModified shirt/dress/toptee: <image> change the style of this shirt/dress/toptee to <text> Target shirt/dress/toptee: <image> Output: ")
+fashion_iq_old_query_relevant_prompt = llama3_template.format("Query Modified shirt/dress/toptee: <image> change the style of this shirt/dress/toptee to <text>\nCandidate shirt/dress/toptee: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+fashion_iq_origin_old_query_relevant_prompt = llama3_template.format("Given a candidate shirt/dress/toptee and a query modified shirt/dress/toptee, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate shirt/dress/toptee: <image>\nQuery Modified shirt/dress/toptee: <image> change the style of this shirt/dress/toptee to <text>\nDoes the candidate answer the query? Answer: ")
+fashion_iq_query_relevant_prompt = llama3_template.format("For the following query modified shirt/dress/toptee and candidate shirt/dress/toptee, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Modified shirt/dress/toptee: <image> change the style of this shirt/dress/toptee to <text> Candidate shirt/dress/toptee: <image> Output: ")
+mistral_fashion_iq_relevant_prompt = llava_mistral_template.format("For the following modified shirt/dress/toptee and target shirt/dress/toptee, judge whether they are relevant. Output 'Yes' or 'No'.\nModified shirt/dress/toptee: <image> change the style of this shirt/dress/toptee to <text> Target shirt/dress/toptee: <image> Output: ")
+mistral_fashion_iq_old_query_relevant_prompt = llava_mistral_template.format("Query Modified shirt/dress/toptee: <image> change the style of this shirt/dress/toptee to <text>\nCandidate shirt/dress/toptee: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+mistral_fashion_iq_origin_old_query_relevant_prompt = llava_mistral_template.format("Given a candidate shirt/dress/toptee and a query modified shirt/dress/toptee, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate shirt/dress/toptee: <image>\nQuery Modified shirt/dress/toptee: <image> change the style of this shirt/dress/toptee to <text>\nDoes the candidate answer the query? Answer: ")
+mistral_fashion_iq_query_relevant_prompt = llava_mistral_template.format("For the following query modified shirt/dress/toptee and candidate shirt/dress/toptee, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Modified shirt/dress/toptee: <image> change the style of this shirt/dress/toptee to <text> Candidate shirt/dress/toptee: <image> Output: ")
+
 mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image: <image>\nPlease write a caption based on this image.")
 query_generation_paradigm_prompt = llama3_template.format("Image: <image>\nPlease write a caption based on this image.")
 mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Image: <image>\nWhat is the caption of the above image?")
@@ -63,8 +80,15 @@ detailed_query_generation_paradigm_prompt = llama3_template.format("Image: <imag
 detailed_mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Image: <image>\nGive an elaborate explanation of the image you see.")
 detailed_query_generation_paradigm_prompt_1 = llama3_template.format("Image: <image>\nGive an elaborate explanation of the image you see.")
 
+fashion_iq_mistral_query_generation_paradigm_prompt = llava_mistral_template.format("<image> change the style of this shirt/dress/toptee to <text>\nPlease write a caption based on this image.")
+fashion_iq_query_generation_paradigm_prompt = llama3_template.format("Image: <image>\nPlease write a caption based on this image.")
+fashion_iq_mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Image: <image>\nWhat is the caption of the above image?")
+fashion_iq_query_generation_paradigm_prompt_1 = llama3_template.format("Image: <image>\nWhat is the caption of the above image?")
+
 img_prompt_for_concat = 'Summary above image in one word: '
 text_prompt_for_concat = 'Summary above sentence in one word: '
+fashion_iq_composed_image_for_concat = 'Describe this modified shirt/dress/toptee in one word based on its style: '
+fashion_iq_img_prompt_for_concat = 'Describe this shirt/dress/toptee in one word based on its style: '
 img_prompt_no_one_word = llama3_template.format('<image>\n<|begin_of_text|>Summary above image: ')
 text_prompt_no_one_word = llama3_template.format('<sent>\n<|begin_of_text|>Summary above sentence: ')
 img_prompt_no_special_llava_v1_5 = llava_v1_5_template.format('<image>\n<|begin_of_text|>Summary above image in one word: ')
@@ -189,6 +213,22 @@ retrieval_disassemble_text_prompts_7_for_concat = [
     'Summary the color of main people or objects in above sentence in one word: ',
     'Summary the reason why main people or objects might be in this position and doing this thing in above sentence in one word: ',
     'Summary the material and decoration of main people or objects in above sentence in one word: '
+]
+
+retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat = [
+    'Describe the clothes type of this modified shirt/dress/toptee in one word based on its style: ',
+    'Describe the color of this modified shirt/dress/toptee in one word based on its style: ',
+    'Describe the pattern of this modified shirt/dress/toptee in one word based on its style: ',
+    'Describe the design style of this modified shirt/dress/toptee in one word based on its style: ',
+    'Describe the length characteristics of this modified shirt/dress/toptee in one word based on its style: '
+]
+
+retrieval_disassemble_image_prompts_fashion_iq_for_concat = [
+    'Describe the clothes type of this shirt/dress/toptee in one word based on its style: ',
+    'Describe the color of this shirt/dress/toptee in one word based on its style: ',
+    'Describe the pattern of this shirt/dress/toptee in one word based on its style: ',
+    'Describe the design style of this shirt/dress/toptee in one word based on its style: ',
+    'Describe the length characteristics of different part, such as sleeve, neck, shoulder and so on, of this shirt/dress/toptee in one word based on its style: '
 ]
 
 retrieval_disassemble_image_prompts = [

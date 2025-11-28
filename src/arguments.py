@@ -6,6 +6,7 @@ import tevatron.retriever.arguments
 
 coco_file_path = './data/coco/'
 flickr_file_path = './data/flickr/'
+fashion_iq_file_path = './data/fashion-iq/'
 
 
 @dataclass
@@ -27,6 +28,7 @@ class TrainingArguments(transformers.TrainingArguments):
     tau: float = field(default=0.1)
     local_loss: bool = field(default=False)
     batch_size: int = field(default=32)
+    task_type: str = field(default='ir')
 
 
 @dataclass

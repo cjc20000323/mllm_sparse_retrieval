@@ -1,11 +1,12 @@
 import csv
 import os
+import json
 
 from torch.utils.data import Dataset
 import torch
 from PIL import Image
 import tevatron.retriever.arguments
-from arguments import coco_file_path, flickr_file_path
+from arguments import coco_file_path, flickr_file_path, fashion_iq_file_path
 from template import llama3_template, text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
     img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5
 from tevatron.retriever.dataset import EncodeDataset
@@ -178,6 +179,139 @@ class CrossModalRetrievalDataset(Dataset):
 
     def get_image(self, idx):
         return self.img_dict[idx]
+
+
+
+
+class ComposedTextImageRetrievalDataset(Dataset):
+    def __init__(self, data_name, processor, split, mode, data_args=None):
+        '''
+
+        :param data_name: 指定数据集的名字，例如coco，flickr
+        :param tokenizer: 指定模型的tokenizer
+        :param processor:
+        :param split: 说明当前的数据集是哪一部分的，是train,val还是test
+        :param mode: 说明当前数据集取数据是1to1还是5to5
+        '''
+        super(ComposedTextImageRetrievalDataset, self).__init__()
+        self.data_name = data_name
+        assert self.data_name in ['fashion-iq']
+        self.split = split
+        if self.data_name == 'fashion-iq':
+            self.data_path = fashion_iq_file_path
+        else:
+            ValueError('Data name is not in the candidates list.')
+        self.img_dict = {}  # 保存数据集中图像id到图像的映射字典
+        self.img_id_list = []  # 保存数据集中图像的id（是否要使用字典来直接映射）,对于fashion-iq数据集，我们直接使用图像文件名做id
+        self.text_dict = {}  # 保存数据集中文本id到文本的映射字典
+        self.text_id_list = []  # 保存数据集中文本的id（是否要使用字典来直接映射），对于fashion-iq数据集，我们需要手动构造下id
+        self.composed_id_list = [] # 保存合成图像的id
+        self.composed2img = {}  # 保存基础图像id和修改文本id到目标图像id的映射
+        # self.tokenizer = tokenizer  # 指定模型的tokenizer，分词并转成token id用
+        self.processor = processor
+        self.mode = mode  # mode为single的时候，长度按图像长度，获取文本时，找一个对应的就行，mode为full的时候，长度按文本数量来
+        assert self.mode in ['composed', 'image']
+        if data_args is not None:
+            if data_args.use_few_shot:
+                if data_args.dataset_suffix == 'no':
+                    self.dataset_file = [f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.dress.{self.split}.json',
+                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.shirt.{self.split}.json',
+                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.toptee.{self.split}.json']
+                else:
+                    self.dataset_file = [f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.dress.{self.split}.json',
+                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.shirt.{self.split}.json',
+                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.toptee.{self.split}.json']
+            else:
+                self.dataset_file = [f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.dress.{self.split}.json',
+                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.shirt.{self.split}.json',
+                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.toptee.{self.split}.json']
+        else:
+            self.dataset_file = [f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.dress.{self.split}.json',
+                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.shirt.{self.split}.json',
+                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.toptee.{self.split}.json']
+
+        self.dataset_split_file = [f'{self.data_path}' + f'image_splits-20220326T130551Z-001/image_splits/split.dress.{self.split}.json',
+                                 f'{self.data_path}' + f'image_splits-20220326T130551Z-001/image_splits/split.shirt.{self.split}.json',
+                                 f'{self.data_path}' + f'image_splits-20220326T130551Z-001/image_splits/split.toptee.{self.split}.json']
+        print(self.dataset_file)
+
+        # 下面先把split中的图像保存下来
+        for dataset_split_file in self.dataset_split_file:
+            with open(dataset_split_file, mode='r') as file:
+                reader = json.load(file)
+
+                for id in reader:
+                    self.img_id_list.append(id)
+                    self.img_dict[id] = id + '.png'
+
+        # 然后处理it2t的映射关系以及文本的保存
+        count = 0
+
+        for dataset_file in self.dataset_file:
+            with open(dataset_file, mode='r') as file:
+                reader = json.load(file)
+
+                for item in reader:
+                    self.text_id_list.append(count)
+                    count += 1
+                    self.text_dict[str(count)] = item['captions']
+                    self.composed_id_list.append(item['candidate'] + '_' + str(count))
+                    self.composed2img[item['candidate'] + '_' + str(count)] = item['target']
+
+    def __len__(self):
+        if self.mode == 'composed':
+            return len(self.composed_id_list)
+        else:
+            return len(self.img_id_list)
+
+    def __getitem__(self, idx):
+        if self.mode == 'composed':
+            composed_id = self.composed_id_list[idx]
+            target_id = self.composed2img[composed_id]
+            indice = composed_id.index('_')
+            img_id = composed_id[:indice]
+            text_id = composed_id[indice + 1:]
+            img_name = self.img_dict[img_id]
+            target_name = self.img_dict[target_id]
+            text = self.text_dict[text_id][0] + ' ' + self.text_dict[text_id][1]
+            target_name = self.img_dict[target_name]
+            image_path = f'./data/{self.data_name}/images/images/{img_name}'
+            target_path = f'./data/{self.data_name}/images/images/{target_name}'
+            target_id = self.composed2img[img_id]  # 这个模式下，拿出第一个对应的文本即可
+        else:
+            img_id = self.img_id_list[idx]
+            img_name = self.img_dict[img_id]
+            image_path = f'./data/{self.data_name}/images/images/{img_name}'
+            count = 0
+            while True:
+                if img_name + '_' + count in self.composed_id_list:
+                    text = self.text_dict[str(count)][0] + ' ' + self.text_dict[str(count)][1]
+                    text_id = count
+                    target_id = self.composed2img[img_name + '_' + count]
+                    target_name = self.img_dict[target_id]
+                    target_name = self.img_dict[target_name]
+                    target_path = f'./data/{self.data_name}/images/images/{target_name}'
+                    break
+                else:
+                    count += 1
+        return text, image_path, target_path, text_id, img_id, target_id
+
+
+    def get_image(self, idx):
+        return self.img_dict[idx]
+
+    def get_text(self, idx):
+        return self.text_dict[idx]
+
+    def get_target(self, idx):
+        return self.composed2img[idx]
+
+
+
+
+
+class TextPersonRetrievalDataset(Dataset):
+    pass
 
 
 @dataclass
