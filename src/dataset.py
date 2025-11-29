@@ -444,9 +444,13 @@ class TextPersonRetrievalDataset(Dataset):
     def get_image(self, idx):
         return self.img_dict[idx]
 
-    def get_target(self, idx):
+    def get_target_from_text(self, idx):
+        # 因为行人检索任务是只有文搜图过程，因此输入文本的id，search中的各个run字典应该会以文本id为键值
         img_id = self.text2img[idx]
         return self.img2person[img_id]
+
+    def get_target_from_image(self, idx):
+        return self.img2person[idx]
 
 
 

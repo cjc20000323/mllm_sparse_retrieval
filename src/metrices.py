@@ -55,11 +55,11 @@ class RecallMetrics:
             sorted_by_value_dicts = {k: dict(sorted_by_value[:k]) for k in self.recall_k_setting_list}
             search_results = {k: list(sorted_by_value_dicts[k]) for k in self.recall_k_setting_list}
         else:
-            # 行人检索，应该是和图文检索方法一样吧
+            # 行人检索，与图文检索并不一样，search_results应该再到数据集里面查询一下，根据img_id获取person_id
             sorted_by_value = sorted(dictionary.items(), key=lambda x: x[1], reverse=True)
             sorted_by_value_dicts = {k: dict(sorted_by_value[:k]) for k in self.recall_k_setting_list}
             search_results = {k: list(sorted_by_value_dicts[k]) for k in self.recall_k_setting_list}
-            search_results = {k: torch.tensor([int(i) for i in search_results[k]]).cuda() for k in
+            search_results = {k: torch.tensor([int(self.dataset.get_target_from_image(i)) for i in search_results[k]]).cuda() for k in
                               self.recall_k_setting_list}
         return search_results
 
@@ -158,7 +158,7 @@ class RecallMetrics:
                     search_results = self._sort(v)
                     self._count('fusion', search_results, target)
                 else:
-                    target = self.dataset.get_target(k)
+                    target = self.dataset.get_target_from_text(k)
                     if isinstance(target, list):
                         target = torch.tensor([int(i) for i in target]).cuda()
                     else:
