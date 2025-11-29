@@ -25,7 +25,14 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     fashion_iq_query_relevant_prompt, fashion_iq_origin_old_query_relevant_prompt, fashion_iq_relevant_prompt, \
     fashion_iq_old_query_relevant_prompt, mistral_fashion_iq_relevant_prompt, \
     mistral_fashion_iq_origin_old_query_relevant_prompt, mistral_fashion_iq_old_query_relevant_prompt, \
-    mistral_fashion_iq_query_relevant_prompt
+    mistral_fashion_iq_query_relevant_prompt, mistral_person_retrieval_relevant_prompt, \
+    person_retrieval_relevant_prompt, mistral_person_retrieval_old_query_relevant_prompt, \
+    person_retrieval_old_query_relevant_prompt, mistral_person_retrieval_origin_old_query_relevant_prompt, \
+    person_retrieval_origin_old_query_relevant_prompt, mistral_person_retrieval_query_relevant_prompt, \
+    person_retrieval_query_relevant_prompt, person_retrieval_query_generation_paradigm_prompt, \
+    person_retrieval_mistral_query_generation_paradigm_prompt, person_retrieval_query_generation_paradigm_prompt_1, \
+    person_retrieval_mistral_query_generation_paradigm_prompt_1, person_retrieval_query_generation_paradigm_prompt_2, \
+    person_retrieval_mistral_query_generation_paradigm_prompt_2
 
 from PIL import Image
 import torch.nn.functional as F
@@ -127,6 +134,29 @@ class Reranker:
                         rerank_prompt_template = fashion_iq_origin_old_query_relevant_prompt
                     else:
                         rerank_prompt_template = fashion_iq_relevant_prompt
+            elif training_args.task_type == 'tbpr':
+                if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    if rerank_prompt_type == 'relevant':
+                        rerank_prompt_template = mistral_person_retrieval_relevant_prompt
+                    elif rerank_prompt_type == 'old_relevant':
+                        rerank_prompt_template = mistral_person_retrieval_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'query_relevant':
+                        rerank_prompt_template = mistral_person_retrieval_query_relevant_prompt
+                    elif rerank_prompt_type == 'origin_old_relevant':
+                        rerank_prompt_template = mistral_person_retrieval_origin_old_query_relevant_prompt
+                    else:
+                        rerank_prompt_template = mistral_fashion_iq_relevant_prompt
+                else:
+                    if rerank_prompt_type == 'relevant':
+                        rerank_prompt_template = person_retrieval_relevant_prompt
+                    elif rerank_prompt_type == 'old_relevant':
+                        rerank_prompt_template = person_retrieval_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'query_relevant':
+                        rerank_prompt_template = person_retrieval_query_relevant_prompt
+                    elif rerank_prompt_type == 'origin_old_relevant':
+                        rerank_prompt_template = person_retrieval_origin_old_query_relevant_prompt
+                    else:
+                        rerank_prompt_template = person_retrieval_relevant_prompt
             else:
                 if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                     if rerank_prompt_type == 'relevant':
@@ -231,7 +261,7 @@ class Reranker:
                         image_path = f'./data/{self.data_name}/images/images/{img_name}'
                         raw_image = Image.open(image_path).convert('RGB')
                         text = self.text_map[k[indice+1:]]
-                        target_name = self.dataset.composed2img[k]
+                        target_name = self.dataset.get_target(k)
                         target_path = f'./data/{self.data_name}/images/images/{target_name}'
                         target_image = Image.open(target_path).convert('RGB')
                         for img_id, sim_score in candidate_pool.items():
@@ -242,7 +272,7 @@ class Reranker:
                                 image_list = [candidate_raw_image, raw_image]
                             else:
                                 image_list = [raw_image, candidate_raw_image]
-                            inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
+                            inputs = self.processor(images=image_list, text=text_input, return_tensors="pt").to(
                                 self.model.device)
                             output = self.model(**inputs, output_hidden_states=True, return_dict=True)
                             if data_args.reps_loc == 'after_pad':
@@ -269,6 +299,53 @@ class Reranker:
                     if dist.get_rank() == 0:
                         print(sorted_by_value_rerank_run)
                     rerank_fusion_run[k] = sorted_by_value_rerank_run
+                elif training_args.task_type == 'tbpr':
+                    for k, v in tqdm(fusion_run.items()):
+                        sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
+                        candidate_pool = dict(sorted_by_value[:rerank_num])
+                        rerank_run = {}
+                        image_list = []
+                        text_list = []
+                        count = 0
+                        if dist.get_rank() == 0:
+                            print(k)
+                            print(candidate_pool)
+                        text = self.text_map[k]
+                        for img_id, sim_score in candidate_pool.items():
+                            img_path = self.img_path_map[img_id]
+                            if self.dataset.data_name == 'CUHK-PEDES' or self.dataset.data_name == 'ICFG-PEDES' or self.dataset.data_name == 'RSTPReid':
+                                image_path = f'./data/{self.data_name}/imgs/{img_path}'
+                            else:
+                                image_path = f'./data/{self.data_name}/imgs/{img_path}'
+                            raw_image = Image.open(image_path).convert('RGB')
+                            text_input = rerank_prompt_template.replace('<sent>', text)
+                            inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
+                                self.model.device)
+                            output = self.model(**inputs, output_hidden_states=True, return_dict=True)
+                            if data_args.reps_loc == 'after_pad':
+                                logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+                            else:
+                                logits = output.logits
+                                # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                                # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                                sequence_lengths = inputs['attention_mask'].sum(dim=-1) - 1
+                                batch_ids = torch.arange(len(inputs['input_ids']), device=logits.device)
+                                logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
+                                    batch_ids, sequence_lengths]
+                            yes_id = self.vocab_dict['Yes']
+                            no_id = self.vocab_dict['No']
+                            if log_likelihood:
+                                logits = torch.log_softmax(logits, dim=-1)
+                            logit_tensor = torch.cat(
+                                [logits[:, yes_id].unsqueeze(0), logits[:, no_id].unsqueeze(0)],
+                                dim=-1)
+                            output_probs = F.softmax(logit_tensor, dim=1)  # 同样指定dim=1
+                            yes_prob = output_probs.squeeze()[0]
+                            rerank_run[img_id] = float(yes_prob)
+                        sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
+                        if dist.get_rank() == 0:
+                            print(sorted_by_value_rerank_run)
+                        rerank_fusion_run[k] = sorted_by_value_rerank_run
                 else:
                     for k, v in tqdm(fusion_run.items()):
                         # k是查询的id，v是一个字典，key是候选的id，value是查询和候选的相似度
@@ -376,51 +453,67 @@ class Reranker:
                                   search_args, rerank_batch_size=1, rerank_prompt_type='caption_generation'):
         rerank_fusion_run = {}
         if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-            if rerank_prompt_type == 'caption_generation':
-                rerank_prompt_template = mistral_query_generation_paradigm_prompt
-            elif rerank_prompt_type == 'what_caption_generation':
-                rerank_prompt_template = mistral_query_generation_paradigm_prompt_1
-            elif rerank_prompt_type == 'detailed_caption_generation':
-                rerank_prompt_template = detailed_mistral_query_generation_paradigm_prompt
-            elif rerank_prompt_type == 'detailed_caption_generation_1':
-                rerank_prompt_template = detailed_mistral_query_generation_paradigm_prompt_1
-            elif rerank_prompt_type == 'caption_generation_4':
-                rerank_prompt_template = mistral_query_generation_paradigm_prompt_4
-            elif rerank_prompt_type == 'caption_generation_5':
-                rerank_prompt_template = mistral_query_generation_paradigm_prompt_5
-            elif rerank_prompt_type == 'caption_generation_2':
-                rerank_prompt_template = mistral_query_generation_paradigm_prompt_2
-            elif rerank_prompt_type == 'caption_generation_3':
-                rerank_prompt_template = mistral_query_generation_paradigm_prompt_3
-            elif rerank_prompt_type == 'caption_generation_6':
-                rerank_prompt_template = mistral_query_generation_paradigm_prompt_6
-            elif rerank_prompt_type == 'caption_generation_7':
-                rerank_prompt_template = mistral_query_generation_paradigm_prompt_7
+            if training_args.task_type == 'tbpr':
+                if rerank_prompt_type == 'caption_generation':
+                    rerank_prompt_template = person_retrieval_mistral_query_generation_paradigm_prompt
+                elif rerank_prompt_type == 'what_caption_generation':
+                    rerank_prompt_template = person_retrieval_mistral_query_generation_paradigm_prompt_1
+                elif rerank_prompt_type == 'describe_caption_generation':
+                    rerank_prompt_template = person_retrieval_mistral_query_generation_paradigm_prompt_2
             else:
-                rerank_prompt_template = mistral_query_generation_paradigm_prompt
+                if rerank_prompt_type == 'caption_generation':
+                    rerank_prompt_template = mistral_query_generation_paradigm_prompt
+                elif rerank_prompt_type == 'what_caption_generation':
+                    rerank_prompt_template = mistral_query_generation_paradigm_prompt_1
+                elif rerank_prompt_type == 'detailed_caption_generation':
+                    rerank_prompt_template = detailed_mistral_query_generation_paradigm_prompt
+                elif rerank_prompt_type == 'detailed_caption_generation_1':
+                    rerank_prompt_template = detailed_mistral_query_generation_paradigm_prompt_1
+                elif rerank_prompt_type == 'caption_generation_4':
+                    rerank_prompt_template = mistral_query_generation_paradigm_prompt_4
+                elif rerank_prompt_type == 'caption_generation_5':
+                    rerank_prompt_template = mistral_query_generation_paradigm_prompt_5
+                elif rerank_prompt_type == 'caption_generation_2':
+                    rerank_prompt_template = mistral_query_generation_paradigm_prompt_2
+                elif rerank_prompt_type == 'caption_generation_3':
+                    rerank_prompt_template = mistral_query_generation_paradigm_prompt_3
+                elif rerank_prompt_type == 'caption_generation_6':
+                    rerank_prompt_template = mistral_query_generation_paradigm_prompt_6
+                elif rerank_prompt_type == 'caption_generation_7':
+                    rerank_prompt_template = mistral_query_generation_paradigm_prompt_7
+                else:
+                    rerank_prompt_template = mistral_query_generation_paradigm_prompt
         else:
-            if rerank_prompt_type == 'caption_generation':
-                rerank_prompt_template = query_generation_paradigm_prompt
-            elif rerank_prompt_type == 'what_caption_generation':
-                rerank_prompt_template = query_generation_paradigm_prompt_1
-            elif rerank_prompt_type == 'detailed_caption_generation':
-                rerank_prompt_template = detailed_query_generation_paradigm_prompt
-            elif rerank_prompt_type == 'detailed_caption_generation_1':
-                rerank_prompt_template = detailed_query_generation_paradigm_prompt_1
-            elif rerank_prompt_type == 'caption_generation_4':
-                rerank_prompt_template = query_generation_paradigm_prompt_4
-            elif rerank_prompt_type == 'caption_generation_5':
-                rerank_prompt_template = query_generation_paradigm_prompt_5
-            elif rerank_prompt_type == 'caption_generation_2':
-                rerank_prompt_template = query_generation_paradigm_prompt_2
-            elif rerank_prompt_type == 'caption_generation_3':
-                rerank_prompt_template = query_generation_paradigm_prompt_3
-            elif rerank_prompt_type == 'caption_generation_6':
-                rerank_prompt_template = query_generation_paradigm_prompt_6
-            elif rerank_prompt_type == 'caption_generation_7':
-                rerank_prompt_template = query_generation_paradigm_prompt_7
+            if training_args.task_type == 'tbpr':
+                if rerank_prompt_type == 'caption_generation':
+                    rerank_prompt_template = person_retrieval_query_generation_paradigm_prompt
+                elif rerank_prompt_type == 'what_caption_generation':
+                    rerank_prompt_template = person_retrieval_query_generation_paradigm_prompt_1
+                elif rerank_prompt_type == 'describe_caption_generation':
+                    rerank_prompt_template = person_retrieval_query_generation_paradigm_prompt_2
             else:
-                rerank_prompt_template = query_generation_paradigm_prompt
+                if rerank_prompt_type == 'caption_generation':
+                    rerank_prompt_template = query_generation_paradigm_prompt
+                elif rerank_prompt_type == 'what_caption_generation':
+                    rerank_prompt_template = query_generation_paradigm_prompt_1
+                elif rerank_prompt_type == 'detailed_caption_generation':
+                    rerank_prompt_template = detailed_query_generation_paradigm_prompt
+                elif rerank_prompt_type == 'detailed_caption_generation_1':
+                    rerank_prompt_template = detailed_query_generation_paradigm_prompt_1
+                elif rerank_prompt_type == 'caption_generation_4':
+                    rerank_prompt_template = query_generation_paradigm_prompt_4
+                elif rerank_prompt_type == 'caption_generation_5':
+                    rerank_prompt_template = query_generation_paradigm_prompt_5
+                elif rerank_prompt_type == 'caption_generation_2':
+                    rerank_prompt_template = query_generation_paradigm_prompt_2
+                elif rerank_prompt_type == 'caption_generation_3':
+                    rerank_prompt_template = query_generation_paradigm_prompt_3
+                elif rerank_prompt_type == 'caption_generation_6':
+                    rerank_prompt_template = query_generation_paradigm_prompt_6
+                elif rerank_prompt_type == 'caption_generation_7':
+                    rerank_prompt_template = query_generation_paradigm_prompt_7
+                else:
+                    rerank_prompt_template = query_generation_paradigm_prompt
 
         sampler = Data.DistributedSampler(self.dataset, num_replicas=dist.get_world_size(), shuffle=True, rank=0)
 
@@ -619,108 +712,36 @@ class Reranker:
             dist.broadcast_object_list(object_list, src=0)
             received_nll_sum_dict = object_list[0]
         with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-            for k, v in tqdm(fusion_run.items()):
-                # k是查询的id，v是一个字典，key是候选的id，value是查询和候选的相似度
-                sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
-                candidate_pool = dict(sorted_by_value[:rerank_num])
-                rerank_run = {}
-                if dist.get_rank() == 0:
-                    print(k)
-                    print(candidate_pool)
-                if self.query_type == 'image':
-                    if self.img_filepath_map is not None:
-                        img_file_path = self.img_filepath_map[k]
-                        img_path = self.img_path_map[k]
-                        image_path = f'./data/{self.data_name}/{img_file_path}/{img_path}'
-                        raw_image = Image.open(image_path).convert('RGB')
-                    else:
-                        img_path = self.img_path_map[k]
-                        image_path = f'./data/{self.data_name}/flickr30k-images/{img_path}'
-                        raw_image = Image.open(image_path).convert('RGB')
-                    # image_list = []
-                    text_id_list = []
-                    sim_score_list = []
-                    label_list = []
-                    text_list = []
+            if training_args.task_type == 'tbpr':
+                for k, v in tqdm(fusion_run.items()):
+                    # k是查询的id，v是一个字典，key是候选的id，value是查询和候选的相似度
+                    sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
+                    candidate_pool = dict(sorted_by_value[:rerank_num])
+                    rerank_run = {}
+                    if dist.get_rank() == 0:
+                        print(k)
+                        print(candidate_pool)
 
-                    for text_id, sim_score in candidate_pool.items():
-                        text_id_list.append(text_id)
-                        text_list.append(self.text_map[text_id])
-                        sim_score_list.append(sim_score)
-
-                    sharded_nll_list = []
-
-                    for indice in tqdm(range(0, len(text_id_list), rerank_batch_size)):
-                        text_shard = text_list[indice: indice + rerank_batch_size]
-                        text_input = [rerank_prompt_template + text for text in text_shard]
-                        image_shard = [raw_image] * len(text_shard)
-                        inputs = self.processor(images=image_shard, text=text_input, return_tensors="pt").to(
-                            self.model.device)
-                        max_inputs_sum = inputs['input_ids'].shape[1]
-                        labels = [self.processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist() for
-                                  text in text_shard]
-                        # 去掉label的第一个起始符
-                        labels = [[-100] * (max_inputs_sum - len(label[1:])) + label[1:] for label in labels]
-                        labels_view = torch.tensor(labels).to(self.model.device)
-
-                        output = self.model(**inputs, output_hidden_states=True, return_dict=True)
-                        logits = output.logits
-                        shift_logits = logits[..., :-1, :].contiguous()
-                        shift_labels = labels_view[..., 1:].contiguous()
-                        loss_func = torch.nn.CrossEntropyLoss(reduction='none')
-                        nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-                        nll = nll.view(shift_labels.size())
-                        avg_nll = torch.sum(nll, dim=1)
-
-                        valid_tokens = (labels_view != -100).sum(dim=1).float()
-                        avg_nll /= valid_tokens
-
-                        sharded_nll_list.extend(avg_nll.tolist())
-
-                    for text_id, nll in zip(text_id_list, sharded_nll_list):
-                        rerank_run[text_id] = -float(nll)
-                        text_token_length = len(self.processor(text=self.text_map[text_id], return_tensors="pt")[
-                                                    'input_ids'].squeeze().tolist()[1:])
-                        if search_args.modify_type != 'no':
-                            for key in received_nll_sum_dict.keys():
-                                if text_token_length in key:
-                                    if search_args.modify_type == 'division':
-                                        rerank_run[text_id] /= received_nll_sum_dict[key]
-                                    elif search_args.modify_type == 'sub':
-                                        value = rerank_run[text_id] + received_nll_sum_dict[key]
-                                        if dist.get_rank() == 0:
-                                            print(rerank_run[text_id], received_nll_sum_dict[key], value)
-                                        rerank_run[text_id] = value
-
-
-                else:
                     text = self.text_map[k]
                     img_id_list = []
                     image_list = []
                     sim_score_list = []
                     for img_id, sim_score in candidate_pool.items():
-                        if self.img_filepath_map is not None:
-                            img_file_path = self.img_filepath_map[img_id]
-                            img_path = self.img_path_map[img_id]
-                            image_path = f'./data/{self.data_name}/{img_file_path}/{img_path}'
-                            raw_image = Image.open(image_path).convert('RGB')
-                        else:
-                            img_path = self.img_path_map[img_id]
-                            image_path = f'./data/{self.data_name}/flickr30k-images/{img_path}'
-                            raw_image = Image.open(image_path).convert('RGB')
+                        img_path = self.img_path_map[img_id]
+                        image_path = f'./data/{self.data_name}/imgs/{img_path}'
+                        raw_image = Image.open(image_path).convert('RGB')
                         img_id_list.append(img_id)
                         image_list.append(raw_image)
                         sim_score_list.append(sim_score)
-
                     sharded_nll_list = []
-
                     for indice in tqdm(range(0, len(img_id_list), rerank_batch_size)):
                         image_shard = image_list[indice: indice + rerank_batch_size]
                         text_input = [rerank_prompt_template + text] * len(image_shard)
                         inputs = self.processor(images=image_shard, text=text_input, return_tensors="pt").to(
                             self.model.device)
                         max_inputs_sum = inputs['input_ids'].shape[1]
-                        labels = [self.processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist()] * len(
+                        labels = [self.processor(text=text, return_tensors="pt")[
+                                      'input_ids'].squeeze().tolist()] * len(
                             image_shard)
                         # 去掉label的第一个起始符
                         labels = [[-100] * (max_inputs_sum - len(label[1:])) + label[1:] for label in labels]
@@ -740,12 +761,141 @@ class Reranker:
                         avg_nll /= valid_tokens
                         # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
                         sharded_nll_list.extend(avg_nll.tolist())
-
                     for img_id, nll in zip(img_id_list, sharded_nll_list):
                         rerank_run[img_id] = -float(nll)
                 sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
                 if dist.get_rank() == 0:
                     print(sorted_by_value_rerank_run)
                 rerank_fusion_run[k] = sorted_by_value_rerank_run
+            else:
+                for k, v in tqdm(fusion_run.items()):
+                    # k是查询的id，v是一个字典，key是候选的id，value是查询和候选的相似度
+                    sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
+                    candidate_pool = dict(sorted_by_value[:rerank_num])
+                    rerank_run = {}
+                    if dist.get_rank() == 0:
+                        print(k)
+                        print(candidate_pool)
+                    if self.query_type == 'image':
+                        if self.img_filepath_map is not None:
+                            img_file_path = self.img_filepath_map[k]
+                            img_path = self.img_path_map[k]
+                            image_path = f'./data/{self.data_name}/{img_file_path}/{img_path}'
+                            raw_image = Image.open(image_path).convert('RGB')
+                        else:
+                            img_path = self.img_path_map[k]
+                            image_path = f'./data/{self.data_name}/flickr30k-images/{img_path}'
+                            raw_image = Image.open(image_path).convert('RGB')
+                        # image_list = []
+                        text_id_list = []
+                        sim_score_list = []
+                        label_list = []
+                        text_list = []
+
+                        for text_id, sim_score in candidate_pool.items():
+                            text_id_list.append(text_id)
+                            text_list.append(self.text_map[text_id])
+                            sim_score_list.append(sim_score)
+
+                        sharded_nll_list = []
+
+                        for indice in tqdm(range(0, len(text_id_list), rerank_batch_size)):
+                            text_shard = text_list[indice: indice + rerank_batch_size]
+                            text_input = [rerank_prompt_template + text for text in text_shard]
+                            image_shard = [raw_image] * len(text_shard)
+                            inputs = self.processor(images=image_shard, text=text_input, return_tensors="pt").to(
+                                self.model.device)
+                            max_inputs_sum = inputs['input_ids'].shape[1]
+                            labels = [self.processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist() for
+                                      text in text_shard]
+                            # 去掉label的第一个起始符
+                            labels = [[-100] * (max_inputs_sum - len(label[1:])) + label[1:] for label in labels]
+                            labels_view = torch.tensor(labels).to(self.model.device)
+
+                            output = self.model(**inputs, output_hidden_states=True, return_dict=True)
+                            logits = output.logits
+                            shift_logits = logits[..., :-1, :].contiguous()
+                            shift_labels = labels_view[..., 1:].contiguous()
+                            loss_func = torch.nn.CrossEntropyLoss(reduction='none')
+                            nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                            nll = nll.view(shift_labels.size())
+                            avg_nll = torch.sum(nll, dim=1)
+
+                            valid_tokens = (labels_view != -100).sum(dim=1).float()
+                            avg_nll /= valid_tokens
+
+                            sharded_nll_list.extend(avg_nll.tolist())
+
+                        for text_id, nll in zip(text_id_list, sharded_nll_list):
+                            rerank_run[text_id] = -float(nll)
+                            text_token_length = len(self.processor(text=self.text_map[text_id], return_tensors="pt")[
+                                                        'input_ids'].squeeze().tolist()[1:])
+                            if search_args.modify_type != 'no':
+                                for key in received_nll_sum_dict.keys():
+                                    if text_token_length in key:
+                                        if search_args.modify_type == 'division':
+                                            rerank_run[text_id] /= received_nll_sum_dict[key]
+                                        elif search_args.modify_type == 'sub':
+                                            value = rerank_run[text_id] + received_nll_sum_dict[key]
+                                            if dist.get_rank() == 0:
+                                                print(rerank_run[text_id], received_nll_sum_dict[key], value)
+                                            rerank_run[text_id] = value
+
+
+                    else:
+                        text = self.text_map[k]
+                        img_id_list = []
+                        image_list = []
+                        sim_score_list = []
+                        for img_id, sim_score in candidate_pool.items():
+                            if self.img_filepath_map is not None:
+                                img_file_path = self.img_filepath_map[img_id]
+                                img_path = self.img_path_map[img_id]
+                                image_path = f'./data/{self.data_name}/{img_file_path}/{img_path}'
+                                raw_image = Image.open(image_path).convert('RGB')
+                            else:
+                                img_path = self.img_path_map[img_id]
+                                image_path = f'./data/{self.data_name}/flickr30k-images/{img_path}'
+                                raw_image = Image.open(image_path).convert('RGB')
+                            img_id_list.append(img_id)
+                            image_list.append(raw_image)
+                            sim_score_list.append(sim_score)
+
+                        sharded_nll_list = []
+
+                        for indice in tqdm(range(0, len(img_id_list), rerank_batch_size)):
+                            image_shard = image_list[indice: indice + rerank_batch_size]
+                            text_input = [rerank_prompt_template + text] * len(image_shard)
+                            inputs = self.processor(images=image_shard, text=text_input, return_tensors="pt").to(
+                                self.model.device)
+                            max_inputs_sum = inputs['input_ids'].shape[1]
+                            labels = [self.processor(text=text, return_tensors="pt")[
+                                          'input_ids'].squeeze().tolist()] * len(
+                                image_shard)
+                            # 去掉label的第一个起始符
+                            labels = [[-100] * (max_inputs_sum - len(label[1:])) + label[1:] for label in labels]
+                            labels_view = torch.tensor(labels).to(self.model.device)
+                            output = self.model(**inputs, output_hidden_states=True, return_dict=True)
+                            logits = output.logits
+                            shift_logits = logits[..., :-1, :].contiguous()
+                            shift_labels = labels_view[..., 1:].contiguous()
+
+                            loss_func = torch.nn.CrossEntropyLoss(reduction='none')
+                            nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                            nll = nll.view(shift_labels.size())
+                            # 这个为啥是sum呢？根据原论文，是要把各个token上预测结果概率的对数似然加和取平均，但这里似乎只是求了和
+                            # upr的代码中，指定了每个batch_size是1，也就是每次只针对1个查询计算
+                            avg_nll = torch.sum(nll, dim=1)
+                            valid_tokens = (labels_view != -100).sum(dim=1).float()
+                            avg_nll /= valid_tokens
+                            # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
+                            sharded_nll_list.extend(avg_nll.tolist())
+
+                        for img_id, nll in zip(img_id_list, sharded_nll_list):
+                            rerank_run[img_id] = -float(nll)
+                    sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
+                    if dist.get_rank() == 0:
+                        print(sorted_by_value_rerank_run)
+                    rerank_fusion_run[k] = sorted_by_value_rerank_run
 
         return rerank_fusion_run

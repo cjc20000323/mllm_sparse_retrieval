@@ -15,10 +15,21 @@ img_prompt = llama3_template.format('<image>\n<|begin_of_text|>Summary above ima
 text_prompt = llama3_template.format('<sent>\n<|begin_of_text|>Summary above sentence in one word: ')
 mistral_img_prompt = llava_mistral_template.format('<image>\n<s>Summary above image in one word: ')
 mistral_text_prompt = llava_mistral_template.format('<sent>\n<s>Summary above sentence in one word: ')
+
+person_retrieval_img_prompt = llama3_template.format('<image>\n<|begin_of_text|>Summary the person in above image in one word: ')
+person_retrieval_text_prompt = llama3_template.format('<sent>\n<|begin_of_text|>Summary the person in above sentence in one word: ')
+mistral_person_retrieval_img_prompt = llava_mistral_template.format('<image>\n<s>Summary the person in above image in one word: ')
+mistral_person_retrieval_text_prompt = llava_mistral_template.format('<sent>\n<s>Summary the person in above sentence in one word: ')
+person_retrieval_img_prompt_1 = llama3_template.format('<image>\n<|begin_of_text|>Describe this person in one word based on the image: ')
+person_retrieval_text_prompt_1 = llama3_template.format('<sent>\n<|begin_of_text|>Describe this person in one word based on the sentence: ')
+mistral_person_retrieval_img_prompt_1 = llava_mistral_template.format('<image>\n<s>Describe this person in one word based on its image: ')
+mistral_person_retrieval_text_prompt_1 = llava_mistral_template.format('<sent>\n<s>Describe this person in one word based on its sentence: ')
+
 llama3_fashion_iq_composed_image_prompt = llama3_template.format('<image> change the style of this shirt/dress/toptee to <text>\n<|begin_of_text|>Describe this modified shirt/dress/toptee in one word based on its style: ')
 mistral_fashion_iq_composed_image_prompt = llava_mistral_template.format('<image> change the style of this shirt/dress/toptee to <text>\n<s>Describe this modified shirt/dress/toptee in one word based on its style: ')
 llama3_fashion_iq_image_prompt = llama3_template.format('<image>\n<|begin_of_text|>Describe this shirt/dress/toptee in one word based on its style: ')
 mistral_fashion_iq_image_prompt = llava_mistral_template.format('<image>\n<s>Describe this shirt/dress/toptee in one word based on its style: ')
+
 relevant_prompt = llama3_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
 in_one_word_relevant_prompt = llama3_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output in one word: ")
 please_relevant_prompt = llama3_template.format("For the following sentence and image, judge whether they are relevant. Please output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
@@ -59,6 +70,15 @@ mistral_fashion_iq_old_query_relevant_prompt = llava_mistral_template.format("Qu
 mistral_fashion_iq_origin_old_query_relevant_prompt = llava_mistral_template.format("Given a candidate shirt/dress/toptee and a query modified shirt/dress/toptee, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate shirt/dress/toptee: <image>\nQuery Modified shirt/dress/toptee: <image> change the style of this shirt/dress/toptee to <text>\nDoes the candidate answer the query? Answer: ")
 mistral_fashion_iq_query_relevant_prompt = llava_mistral_template.format("For the following query modified shirt/dress/toptee and candidate shirt/dress/toptee, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Modified shirt/dress/toptee: <image> change the style of this shirt/dress/toptee to <text> Candidate shirt/dress/toptee: <image> Output: ")
 
+person_retrieval_relevant_prompt = llama3_template.format("For the following sentence and person image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Person Image: <image> Output: ")
+person_retrieval_old_query_relevant_prompt = llama3_template.format("Query: <sent>\nCandidate: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+person_retrieval_origin_old_query_relevant_prompt = llama3_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate: <image>\nQuery: <sent>\nDoes the candidate answer the query? Answer: ")
+person_retrieval_query_relevant_prompt = llama3_template.format("For the following query sentence and candidate person image, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Sentence: <sent> Candidate Person Image: <image> Output: ")
+mistral_person_retrieval_relevant_prompt = llava_mistral_template.format("For the following sentence and person person image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Person Image: <image> Output: ")
+mistral_person_retrieval_old_query_relevant_prompt = llava_mistral_template.format("Query: <sent>\nCandidate: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+mistral_person_retrieval_origin_old_query_relevant_prompt = llava_mistral_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate: <image>\nQuery: <sent>\nDoes the candidate answer the query? Answer: ")
+mistral_person_retrieval_query_relevant_prompt = llava_mistral_template.format("For the following query sentence and candidate image, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Sentence: <sent> Candidate Image: <image> Output: ")
+
 mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image: <image>\nPlease write a caption based on this image.")
 query_generation_paradigm_prompt = llama3_template.format("Image: <image>\nPlease write a caption based on this image.")
 mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Image: <image>\nWhat is the caption of the above image?")
@@ -85,10 +105,22 @@ fashion_iq_query_generation_paradigm_prompt = llama3_template.format("Image: <im
 fashion_iq_mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Image: <image>\nWhat is the caption of the above image?")
 fashion_iq_query_generation_paradigm_prompt_1 = llama3_template.format("Image: <image>\nWhat is the caption of the above image?")
 
+person_retrieval_mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Person Image: <image>\nPlease write a caption based on this person image.")
+person_retrieval_query_generation_paradigm_prompt = llama3_template.format("Person Image: <image>\nPlease write a caption based on this person image.")
+person_retrieval_mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Person Image: <image>\nWhat is the caption of the above person image?")
+person_retrieval_query_generation_paradigm_prompt_1 = llama3_template.format("Person Image: <image>\nWhat is the caption of the above person image?")
+person_retrieval_mistral_query_generation_paradigm_prompt_2 = llava_mistral_template.format("Person Image: <image>\nPlease describe this person write a caption for this person image.")
+person_retrieval_query_generation_paradigm_prompt_2 = llama3_template.format("Person Image: <image>\nPlease describe this person write a caption for this person image.")
+
 img_prompt_for_concat = 'Summary above image in one word: '
 text_prompt_for_concat = 'Summary above sentence in one word: '
 fashion_iq_composed_image_for_concat = 'Describe this modified shirt/dress/toptee in one word based on its style: '
 fashion_iq_img_prompt_for_concat = 'Describe this shirt/dress/toptee in one word based on its style: '
+person_retrieval_img_prompt_for_concat = 'Summary the person in above image in one word: '
+person_retrieval_text_prompt_for_concat = 'Summary the person in above sentence in one word: '
+person_retrieval_img_prompt_for_concat_1 = 'Describe this person in one word based on the image: '
+person_retrieval_text_prompt_for_concat_1 = 'Describe this person in one word based on the sentence: '
+
 img_prompt_no_one_word = llama3_template.format('<image>\n<|begin_of_text|>Summary above image: ')
 text_prompt_no_one_word = llama3_template.format('<sent>\n<|begin_of_text|>Summary above sentence: ')
 img_prompt_no_special_llava_v1_5 = llava_v1_5_template.format('<image>\n<|begin_of_text|>Summary above image in one word: ')
@@ -229,6 +261,48 @@ retrieval_disassemble_image_prompts_fashion_iq_for_concat = [
     'Describe the pattern of this shirt/dress/toptee in one word based on its style: ',
     'Describe the design style of this shirt/dress/toptee in one word based on its style: ',
     'Describe the length characteristics of different part, such as sleeve, neck, shoulder and so on, of this shirt/dress/toptee in one word based on its style: '
+]
+
+retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat = [
+    'Summary the people or objects in above sentence in one word: ',
+    'Summary the gender in above sentence in one word: ',
+    'Summary the actions or movements of main people or objects in above sentence in one word: ',
+    'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence in one word: '
+]
+
+retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat = [
+    'Summary the people or objects in above image in one word: ',
+    'Summary the gender in above image in one word: ',
+    'Summary the actions or movements of main people or objects in above image in one word: ',
+    'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above image in one word: '
+]
+
+retrieval_disassemble_text_prompts_person_retrieval_for_concat = [
+    'Summary the gender of person in above sentence in one word: ',
+    'Summary the actions or movements of person in above sentence in one word: ',
+    'Summary the objects in above sentence in one word: ',
+    'Summary the appearance and decorations of person, such as color, wearing type and pattern in above sentence in one word: '
+]
+
+retrieval_disassemble_image_prompts_person_retrieval_for_concat = [
+    'Summary the gender of person in above image in one word: ',
+    'Summary the actions or movements of person in above image in one word: ',
+    'Summary the objects in above image in one word: ',
+    'Summary the appearance and decorations of person, such as color, wearing type and pattern in above image in one word: '
+]
+
+retrieval_disassemble_image_prompts_person_retrieval_for_concat_1 = [
+    'Describe the gender of this person in one word based on the image: ',
+    'Describe the actions or movements this person in one word based on the image: ',
+    'Describe the objects in one word based on the image: ',
+    'Describe the appearance and decorations of this person, such as color, wearing type and pattern in one word based on the image: ',
+]
+
+retrieval_disassemble_text_prompts_person_retrieval_for_concat_1 = [
+    'Describe the gender of this person in one word based on the sentence: ',
+    'Describe the actions or movements this person in one word based on the sentence: ',
+    'Describe the objects in one word based on the sentence: ',
+    'Describe the appearance and decorations of this person, such as color, wearing type and pattern in one word based on the sentence: ',
 ]
 
 retrieval_disassemble_image_prompts = [

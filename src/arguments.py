@@ -7,6 +7,7 @@ import tevatron.retriever.arguments
 coco_file_path = './data/coco/'
 flickr_file_path = './data/flickr/'
 fashion_iq_file_path = './data/fashion-iq/'
+cuhk_pedes_file_path = './data/CUHK-PEDES/'
 
 
 @dataclass
@@ -70,6 +71,7 @@ class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
     prompt_type: str = field(default='prompt_5')
     sparse_value_mean: bool = field(default=False)
     sparse_type: str = field(default='single')
+    tbpr_type: str = field(default='origin_type')
 
 
 @dataclass

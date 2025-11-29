@@ -7,7 +7,10 @@ import pandas as pd
 class RecallMetrics:
 
     def __init__(self, dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args):
-        self.recall_k_setting_list = [1, 5, 10, 100, 200, 300, 400]
+        if dataset.data_name == 'CUHK-PEDES' or dataset.data_name == 'ICFG-PEDES' or dataset.data_name == '':
+            self.recall_k_setting_list = [10, 50, 100, 200, 300, 400]
+        else:
+            self.recall_k_setting_list = [1, 5, 10, 100, 200, 300, 400]
         self.dense_counts = {k: 0 for k in self.recall_k_setting_list}
         self.sparse_counts = {k: 0 for k in self.recall_k_setting_list}
         self.fusion_counts = {k: 0 for k in self.recall_k_setting_list}
@@ -40,11 +43,24 @@ class RecallMetrics:
         self.search_args = search_args
 
     def _sort(self, dictionary):
-        sorted_by_value = sorted(dictionary.items(), key=lambda x: x[1], reverse=True)
-        sorted_by_value_dicts = {k: dict(sorted_by_value[:k]) for k in self.recall_k_setting_list}
-        search_results = {k: list(sorted_by_value_dicts[k]) for k in self.recall_k_setting_list}
-        search_results = {k: torch.tensor([int(i) for i in search_results[k]]).cuda() for k in
-                          self.recall_k_setting_list}
+        if self.dataset.data_name == 'coco' or self.dataset.data_name == 'flickr':
+            sorted_by_value = sorted(dictionary.items(), key=lambda x: x[1], reverse=True)
+            sorted_by_value_dicts = {k: dict(sorted_by_value[:k]) for k in self.recall_k_setting_list}
+            search_results = {k: list(sorted_by_value_dicts[k]) for k in self.recall_k_setting_list}
+            search_results = {k: torch.tensor([int(i) for i in search_results[k]]).cuda() for k in
+                              self.recall_k_setting_list}
+        elif self.dataset.data_name == 'fashion-iq':
+            # 合成检索，key值是字符串，所以不能转换成张量
+            sorted_by_value = sorted(dictionary.items(), key=lambda x: x[1], reverse=True)
+            sorted_by_value_dicts = {k: dict(sorted_by_value[:k]) for k in self.recall_k_setting_list}
+            search_results = {k: list(sorted_by_value_dicts[k]) for k in self.recall_k_setting_list}
+        else:
+            # 行人检索，应该是和图文检索方法一样吧
+            sorted_by_value = sorted(dictionary.items(), key=lambda x: x[1], reverse=True)
+            sorted_by_value_dicts = {k: dict(sorted_by_value[:k]) for k in self.recall_k_setting_list}
+            search_results = {k: list(sorted_by_value_dicts[k]) for k in self.recall_k_setting_list}
+            search_results = {k: torch.tensor([int(i) for i in search_results[k]]).cuda() for k in
+                              self.recall_k_setting_list}
         return search_results
 
     def _sort_return_id_and_value(self, dictionary):
@@ -60,51 +76,127 @@ class RecallMetrics:
     def sort_and_count(self):
         if len(self.dense_run) > 0:
             for k, v in tqdm(self.dense_run.items()):
-                target = self.dataset.get_target(k, self.search_args.query_type)
-                if isinstance(target, list):
-                    target = torch.tensor([int(i) for i in target]).cuda()
-                else:
-                    target = int(target)
-                if len(v['docs']) == 0:
-                    continue
+                if self.dataset.data_name == 'coco' or self.dataset.data_name == 'flickr':
+                    target = self.dataset.get_target(k, self.search_args.query_type)
+                    if isinstance(target, list):
+                        target = torch.tensor([int(i) for i in target]).cuda()
+                    else:
+                        target = int(target)
+                    if len(v['docs']) == 0:
+                        continue
 
-                search_results = self._sort(v['docs'])
-                self._count('dense', search_results, target)
+                    search_results = self._sort(v['docs'])
+                    self._count('dense', search_results, target)
+                elif self.dataset.data_name == 'fashion-iq':
+                    target = self.dataset.get_target(k)
+                    if len(v['docs']) == 0:
+                        continue
+
+                    search_results = self._sort(v['docs'])
+                    self._count('dense', search_results, target)
+                else:
+                    target = self.dataset.get_target(k)
+                    if isinstance(target, list):
+                        target = torch.tensor([int(i) for i in target]).cuda()
+                    else:
+                        target = int(target)
+                    if len(v['docs']) == 0:
+                        continue
+
+                    search_results = self._sort(v['docs'])
+                    self._count('dense', search_results, target)
         if len(self.sparse_run) > 0:
             for k, v in tqdm(self.sparse_run.items()):
-                target = self.dataset.get_target(k, self.search_args.query_type)
-                if isinstance(target, list):
-                    target = torch.tensor([int(i) for i in target]).cuda()
-                else:
-                    target = int(target)
-                if len(v['docs']) == 0:
-                    continue
+                if self.dataset.data_name == 'coco' or self.dataset.data_name == 'flickr':
+                    target = self.dataset.get_target(k, self.search_args.query_type)
+                    if isinstance(target, list):
+                        target = torch.tensor([int(i) for i in target]).cuda()
+                    else:
+                        target = int(target)
+                    if len(v['docs']) == 0:
+                        continue
 
-                search_results = self._sort(v['docs'])
-                self._count('sparse', search_results, target)
+                    search_results = self._sort(v['docs'])
+                    self._count('sparse', search_results, target)
+                elif self.dataset.data_name == 'fashion-iq':
+                    target = self.dataset.get_target(k)
+                    if len(v['docs']) == 0:
+                        continue
+
+                    search_results = self._sort(v['docs'])
+                    self._count('sparse', search_results, target)
+                else:
+                    target = self.dataset.get_target(k)
+                    if isinstance(target, list):
+                        target = torch.tensor([int(i) for i in target]).cuda()
+                    else:
+                        target = int(target)
+                    if len(v['docs']) == 0:
+                        continue
+
+                    search_results = self._sort(v['docs'])
+                    self._count('sparse', search_results, target)
 
         if len(self.fusion_run) > 0:
             for k, v in tqdm(self.fusion_run.items()):
-                target = self.dataset.get_target(k, self.search_args.query_type)
-                if isinstance(target, list):
-                    target = torch.tensor([int(i) for i in target]).cuda()
-                else:
-                    target = int(target)
-                if len(v) == 0:
-                    continue
+                if self.dataset.data_name == 'coco' or self.dataset.data_name == 'flickr':
+                    target = self.dataset.get_target(k, self.search_args.query_type)
+                    if isinstance(target, list):
+                        target = torch.tensor([int(i) for i in target]).cuda()
+                    else:
+                        target = int(target)
+                    if len(v) == 0:
+                        continue
 
-                search_results = self._sort(v)
-                self._count('fusion', search_results, target)
+                    search_results = self._sort(v)
+                    self._count('fusion', search_results, target)
+                elif self.dataset.data_name == 'fashion-iq':
+                    target = self.dataset.get_target(k)
+                    if len(v) == 0:
+                        continue
+
+                    search_results = self._sort(v)
+                    self._count('fusion', search_results, target)
+                else:
+                    target = self.dataset.get_target(k)
+                    if isinstance(target, list):
+                        target = torch.tensor([int(i) for i in target]).cuda()
+                    else:
+                        target = int(target)
+                    if len(v['docs']) == 0:
+                        continue
+
+                    search_results = self._sort(v['docs'])
+                    self._count('fusion', search_results, target)
 
     def _count(self, result_type, search_results, target):
         for k in search_results:
-            if True in torch.isin(search_results[k], target):
-                if result_type == 'dense':
-                    self.dense_counts[k] += 1
-                elif result_type == 'sparse':
-                    self.sparse_counts[k] += 1
-                else:
-                    self.fusion_counts[k] += 1
+            if self.dataset.data_name == 'coco' or self.dataset.data_name == 'flickr':
+                if True in torch.isin(search_results[k], target):
+                    if result_type == 'dense':
+                        self.dense_counts[k] += 1
+                    elif result_type == 'sparse':
+                        self.sparse_counts[k] += 1
+                    else:
+                        self.fusion_counts[k] += 1
+            elif self.dataset.data_name == 'fashion-iq':
+                # 合成检索
+                if target in search_results[k]:
+                    if result_type == 'dense':
+                        self.dense_counts[k] += 1
+                    elif result_type == 'sparse':
+                        self.sparse_counts[k] += 1
+                    else:
+                        self.fusion_counts[k] += 1
+            else:
+                # 行人检索
+                if True in torch.isin(search_results[k], target):
+                    if result_type == 'dense':
+                        self.dense_counts[k] += 1
+                    elif result_type == 'sparse':
+                        self.sparse_counts[k] += 1
+                    else:
+                        self.fusion_counts[k] += 1
 
     def all_gather_object(self):
         self.dense_counts = {k: self.dense_counts[k] / (len(self.lookup_indices) * dist.get_world_size()) for k in
@@ -126,74 +218,138 @@ class RecallMetrics:
         if dist.get_rank() == 0:
             print(len(self.lookup_indices) * dist.get_world_size())
             xlsx_data = []
-            xlsx_data.append([1, 5, 10, 100, 200, 300, 400])
-            if len(self.dense_run) > 0:
-                print(len(self.look_up))
-                dense_recalls = {k: sum(self.dense_recall_lists[k]) for k in self.recall_k_setting_list}
-                for k in self.recall_k_setting_list:
-                    print('Dense recall @ {}: {}'.format(k, self.dense_recall_lists[k]))
-                print(
-                    'Dense reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
-                        dense_recalls[1],
-                        dense_recalls[5],
-                        dense_recalls[10],
-                        dense_recalls[100],
-                        dense_recalls[200],
-                        dense_recalls[300],
-                        dense_recalls[400]
-                    ))
-                xlsx_data.append([dense_recalls[1],
-                                  dense_recalls[5],
-                                  dense_recalls[10],
-                                  dense_recalls[100],
-                                  dense_recalls[200],
-                                  dense_recalls[300],
-                                  dense_recalls[400]])
+            if self.dataset.data_name != 'fashion-iq':
+                xlsx_data.append([1, 5, 10, 100, 200, 300, 400])
+                if len(self.dense_run) > 0:
+                    print(len(self.look_up))
+                    dense_recalls = {k: sum(self.dense_recall_lists[k]) for k in self.recall_k_setting_list}
+                    for k in self.recall_k_setting_list:
+                        print('Dense recall @ {}: {}'.format(k, self.dense_recall_lists[k]))
+                    print(
+                        'Dense reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
+                            dense_recalls[1],
+                            dense_recalls[5],
+                            dense_recalls[10],
+                            dense_recalls[100],
+                            dense_recalls[200],
+                            dense_recalls[300],
+                            dense_recalls[400]
+                        ))
+                    xlsx_data.append([dense_recalls[1],
+                                      dense_recalls[5],
+                                      dense_recalls[10],
+                                      dense_recalls[100],
+                                      dense_recalls[200],
+                                      dense_recalls[300],
+                                      dense_recalls[400]])
 
-            if len(self.sparse_run) > 0:
-                sparse_recalls = {k: sum(self.sparse_recall_lists[k]) for k in self.recall_k_setting_list}
-                for k in self.recall_k_setting_list:
-                    print('Sparse recall @ {}: {}'.format(k, self.sparse_recall_lists[k]))
-                print(
-                    'Sparse reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
-                        sparse_recalls[1],
-                        sparse_recalls[5],
-                        sparse_recalls[10],
-                        sparse_recalls[100],
-                        sparse_recalls[200],
-                        sparse_recalls[300],
-                        sparse_recalls[400]))
-                xlsx_data.append([sparse_recalls[1],
-                                  sparse_recalls[5],
-                                  sparse_recalls[10],
-                                  sparse_recalls[100],
-                                  sparse_recalls[200],
-                                  sparse_recalls[300],
-                                  sparse_recalls[400]])
-            if len(self.fusion_run) > 0:
-                fusion_recalls = {k: sum(self.fusion_recall_lists[k]) for k in self.recall_k_setting_list}
-                for k in self.recall_k_setting_list:
-                    print('Fusion/Hybrid recall @ {}: {}'.format(k, self.fusion_recall_lists[k]))
-                print(
-                    'Fusion/Hybrid reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
-                        fusion_recalls[1],
-                        fusion_recalls[5],
-                        fusion_recalls[10],
-                        fusion_recalls[100],
-                        fusion_recalls[200],
-                        fusion_recalls[300],
-                        fusion_recalls[400]))
-                xlsx_data.append([fusion_recalls[1],
-                        fusion_recalls[5],
-                        fusion_recalls[10],
-                        fusion_recalls[100],
-                        fusion_recalls[200],
-                        fusion_recalls[300],
-                        fusion_recalls[400]])
-            df = pd.DataFrame(xlsx_data[1:], columns=xlsx_data[0])
+                if len(self.sparse_run) > 0:
+                    sparse_recalls = {k: sum(self.sparse_recall_lists[k]) for k in self.recall_k_setting_list}
+                    for k in self.recall_k_setting_list:
+                        print('Sparse recall @ {}: {}'.format(k, self.sparse_recall_lists[k]))
+                    print(
+                        'Sparse reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
+                            sparse_recalls[1],
+                            sparse_recalls[5],
+                            sparse_recalls[10],
+                            sparse_recalls[100],
+                            sparse_recalls[200],
+                            sparse_recalls[300],
+                            sparse_recalls[400]))
+                    xlsx_data.append([sparse_recalls[1],
+                                      sparse_recalls[5],
+                                      sparse_recalls[10],
+                                      sparse_recalls[100],
+                                      sparse_recalls[200],
+                                      sparse_recalls[300],
+                                      sparse_recalls[400]])
+                if len(self.fusion_run) > 0:
+                    fusion_recalls = {k: sum(self.fusion_recall_lists[k]) for k in self.recall_k_setting_list}
+                    for k in self.recall_k_setting_list:
+                        print('Fusion/Hybrid recall @ {}: {}'.format(k, self.fusion_recall_lists[k]))
+                    print(
+                        'Fusion/Hybrid reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
+                            fusion_recalls[1],
+                            fusion_recalls[5],
+                            fusion_recalls[10],
+                            fusion_recalls[100],
+                            fusion_recalls[200],
+                            fusion_recalls[300],
+                            fusion_recalls[400]))
+                    xlsx_data.append([fusion_recalls[1],
+                                      fusion_recalls[5],
+                                      fusion_recalls[10],
+                                      fusion_recalls[100],
+                                      fusion_recalls[200],
+                                      fusion_recalls[300],
+                                      fusion_recalls[400]])
+                df = pd.DataFrame(xlsx_data[1:], columns=xlsx_data[0])
 
-            # 将DataFrame写入Excel文件，index=False表示不写入行索引
-            df.to_excel(output_path, index=False)
+                # 将DataFrame写入Excel文件，index=False表示不写入行索引
+                df.to_excel(output_path, index=False)
+            else:
+                xlsx_data.append([10, 50, 100, 200, 300, 400])
+                if len(self.dense_run) > 0:
+                    print(len(self.look_up))
+                    dense_recalls = {k: sum(self.dense_recall_lists[k]) for k in self.recall_k_setting_list}
+                    for k in self.recall_k_setting_list:
+                        print('Dense recall @ {}: {}'.format(k, self.dense_recall_lists[k]))
+                    print(
+                        'Dense reps recall: r@10 {}, r@50 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
+                            dense_recalls[10],
+                            dense_recalls[50],
+                            dense_recalls[100],
+                            dense_recalls[200],
+                            dense_recalls[300],
+                            dense_recalls[400]
+                        ))
+                    xlsx_data.append([dense_recalls[10],
+                                      dense_recalls[50],
+                                      dense_recalls[100],
+                                      dense_recalls[200],
+                                      dense_recalls[300],
+                                      dense_recalls[400]])
+
+                if len(self.sparse_run) > 0:
+                    sparse_recalls = {k: sum(self.sparse_recall_lists[k]) for k in self.recall_k_setting_list}
+                    for k in self.recall_k_setting_list:
+                        print('Sparse recall @ {}: {}'.format(k, self.sparse_recall_lists[k]))
+                    print(
+                        'Sparse reps recall: r@10 {}, r@50 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
+                            sparse_recalls[10],
+                            sparse_recalls[50],
+                            sparse_recalls[100],
+                            sparse_recalls[200],
+                            sparse_recalls[300],
+                            sparse_recalls[400]))
+                    xlsx_data.append([sparse_recalls[10],
+                                      sparse_recalls[50],
+                                      sparse_recalls[100],
+                                      sparse_recalls[200],
+                                      sparse_recalls[300],
+                                      sparse_recalls[400]])
+                if len(self.fusion_run) > 0:
+                    fusion_recalls = {k: sum(self.fusion_recall_lists[k]) for k in self.recall_k_setting_list}
+                    for k in self.recall_k_setting_list:
+                        print('Fusion/Hybrid recall @ {}: {}'.format(k, self.fusion_recall_lists[k]))
+                    print(
+                        'Fusion/Hybrid reps recall: r@10 {}, r@50 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
+                            fusion_recalls[10],
+                            fusion_recalls[50],
+                            fusion_recalls[100],
+                            fusion_recalls[200],
+                            fusion_recalls[300],
+                            fusion_recalls[400]))
+                    xlsx_data.append([fusion_recalls[10],
+                                      fusion_recalls[50],
+                                      fusion_recalls[100],
+                                      fusion_recalls[200],
+                                      fusion_recalls[300],
+                                      fusion_recalls[400]])
+                df = pd.DataFrame(xlsx_data[1:], columns=xlsx_data[0])
+
+                # 将DataFrame写入Excel文件，index=False表示不写入行索引
+                df.to_excel(output_path, index=False)
 
     def statistical_error_data(self, processor, candidate_pool):
         for k, v in self.fusion_run.items():

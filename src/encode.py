@@ -38,7 +38,13 @@ from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qw
     llava_mistral_template_text_prefix, llava_mistral_template_content_element, \
     llava_mistral_template_fashion_iq_image_prefix, llama3_template_fashion_iq_image_prefix, \
     retrieval_disassemble_image_prompts_fashion_iq_for_concat, fashion_iq_composed_image_for_concat, \
-    fashion_iq_img_prompt_for_concat, llama3_fashion_iq_image_prompt, mistral_fashion_iq_image_prompt
+    fashion_iq_img_prompt_for_concat, llama3_fashion_iq_image_prompt, mistral_fashion_iq_image_prompt, \
+    person_retrieval_img_prompt, mistral_person_retrieval_img_prompt, \
+    person_retrieval_img_prompt_1, mistral_person_retrieval_img_prompt_1, \
+    person_retrieval_img_prompt_for_concat, person_retrieval_img_prompt_for_concat_1, \
+    retrieval_disassemble_image_prompts_person_retrieval_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_for_concat_1, \
+    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat
 from utils import load_image
 
 
@@ -923,6 +929,8 @@ def main():
     if training_args.task_type == 'cir':
         dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split,
                                                     training_args.encode_type)
+    elif training_args.task_type == 'tbpr':
+        dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'single')
     else:
         if training_args.encode_type == 'text':
             dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'full')
@@ -955,6 +963,47 @@ def main():
                 prompt = mistral_fashion_iq_image_prompt
             else:
                 prompt = llama3_fashion_iq_image_prompt
+
+            if dist.get_rank() == 0:
+                print(prompt)
+
+            if 'disassembleeol' in model_args.eol_type:
+                if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    pass
+                else:
+                    prompts = llama3_retrieval_disassemble_image_prompts
+            else:
+                if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    pass
+                else:
+                    prompts = llama3_retrieval_disassemble_image_prompts
+        elif training_args.task_type == 'tbpr':
+            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
+                prompt = img_prompt_no_special_llava_v1_5
+            elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                prompt = img_prompt_qwen_v2_5
+            elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                prompt = img_prompt_intern_vl_v2_5
+                if dist.get_rank() == 0:
+                    print(prompt)
+            elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                if data_args.tbpr_type == 'origin_type':
+                    prompt = mistral_img_prompt
+                elif data_args.tbpr_type == 'type':
+                    prompt = mistral_person_retrieval_img_prompt
+                elif data_args.tbpr_type == 'type_1':
+                    prompt = mistral_person_retrieval_img_prompt_1
+                else:
+                    prompt = mistral_img_prompt
+            else:
+                if data_args.tbpr_type == 'origin_type':
+                    prompt = img_prompt
+                elif data_args.tbpr_type == 'type':
+                    prompt = person_retrieval_img_prompt
+                elif data_args.tbpr_type == 'type_1':
+                    prompt = person_retrieval_img_prompt_1
+                else:
+                    prompt = mistral_img_prompt
 
             if dist.get_rank() == 0:
                 print(prompt)
@@ -1119,6 +1168,215 @@ def main():
                                                                                  data_args, filtered_ids)
                                 else:
                                     tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                     vocab_dict,
+                                                                                     data_args, filtered_ids)
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
+                                        vector[token] = int(v)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
+                                )
+                            )
+
+        elif training_args.task_type == 'tbpr':
+            for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
+                                                                         total=len(test_dataloader)):
+                if model_args.calculate_type == 'separate':
+                    if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                        prompt = processor.apply_chat_template(
+                            img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
+                        )
+                    raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                    img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                           return_tensors="pt",
+                                           padding=True)
+                    imgs = img_inputs.to(device)
+                    logits, reps = model.encode_data_for_tbpr(imgs, 'image', processor, device, model_args,
+                                                     data_args)
+                else:
+                    if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                        if data_args.tbpr_type == 'origin_type':
+                            prompt_template = llava_mistral_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += llava_mistral_template_content_element.format(
+                                    img_prompt_for_concat)
+                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat:
+                                content_element = llava_mistral_template_content_element.format(
+                                    llava_mistral_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        elif data_args.tbpr_type == 'type':
+                            prompt_template = llava_mistral_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += llava_mistral_template_content_element.format(
+                                    person_retrieval_img_prompt_for_concat)
+                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat:
+                                content_element = llava_mistral_template_content_element.format(
+                                    llava_mistral_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        elif data_args.tbpr_type == 'type_1':
+                            prompt_template = llava_mistral_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += llava_mistral_template_content_element.format(
+                                    person_retrieval_img_prompt_for_concat_1)
+                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
+                                content_element = llava_mistral_template_content_element.format(
+                                    llava_mistral_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        else:
+                            prompt_template = llava_mistral_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += llava_mistral_template_content_element.format(
+                                    img_prompt_for_concat)
+                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat:
+                                content_element = llava_mistral_template_content_element.format(
+                                    llava_mistral_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                    else:
+                        if data_args.tbpr_type == 'origin_type':
+                            prompt_template = llama3_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat:
+                                content_element = llama3_template_content_element.format(
+                                    llama3_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        elif data_args.tbpr_type == 'type':
+                            prompt_template = llama3_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += llama3_template_content_element.format(person_retrieval_img_prompt_for_concat)
+                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat:
+                                content_element = llama3_template_content_element.format(
+                                    llama3_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        elif data_args.tbpr_type == 'type_1':
+                            prompt_template = llama3_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += llama3_template_content_element.format(
+                                    person_retrieval_img_prompt_for_concat_1)
+                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
+                                content_element = llama3_template_content_element.format(
+                                    llama3_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        else:
+                            prompt_template = llama3_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat:
+                                content_element = llama3_template_content_element.format(
+                                    llama3_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+
+                    raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                    img_inputs = processor(images=raw_images, text=[prompt_template] * len(imgs_path),
+                                           return_tensors="pt",
+                                           padding=True)
+                    imgs = img_inputs.to(device)
+                    logits, reps = model.encode_data_concat_for_tbpr(imgs, 'image', processor, device, model_args,
+                                                            data_args)
+                    if 'disassembleeol_concrete' in model_args.eol_type:
+                        disassemble_logits = logits[data_args.per_device_batch_size:]
+                        logits = logits[:data_args.per_device_batch_size]
+                    elif 'disassembleeol' in model_args.eol_type:
+                        disassemble_logits = logits
+
+                    # print(logits.shape)
+                    reps = F.normalize(reps, dim=-1)
+
+                    if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                        prompt_length = 4
+                        reps = reps.reshape(-1, prompt_length, reps.shape[1]).mean(1)
+                    lookup_indices.extend(img_ids)
+
+                    encoded.append(reps.cpu().detach().float().numpy())
+
+                    ids = img_ids
+                    if 'disassembleeol' in model_args.eol_type:
+                        for img_indice in range(len(ids)):
+                            id = ids[img_indice]
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                logit = logits[img_indice]
+                            text = texts[img_indice]
+                            length = 4
+                            disassemble_logit = disassemble_logits[
+                                                img_indice * length:(img_indice + 1) * length]
+                            vector = dict()
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                         disassemble_logit,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, logit,
+                                                                                         model_args)
+                            else:
+                                tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                         disassemble_logit,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, None,
+                                                                                         model_args)
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
+                                        vector[token] = int(v)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
+                            if data_args.sparse_value_mean:
+                                for token in vector.keys():
+                                    vector[token] //= 4
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
+                                )
+                            )
+
+                    else:
+                        for id, logit, text in zip(ids, logits, texts):
+                            vector = dict()
+                            if model_args.use_output_embedding_cluster:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values_with_cluster(processor, logit,
+                                                                                              centroids_dict,
+                                                                                              origin_to_centroids_dict,
+                                                                                              data_args,
+                                                                                              filtered_ids)
+                                else:
+                                    tokens, values = get_img_valid_tokens_values_with_cluster(
+                                        processor.tokenizer,
+                                        logit,
+                                        centroids_dict,
+                                        origin_to_centroids_dict,
+                                        data_args,
+                                        filtered_ids)
+                            else:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values(processor, logit, vocab_dict,
+                                                                                 data_args, filtered_ids)
+                                else:
+                                    if model_args.eol_type == 'prompteol_same_length':
+                                        tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                     vocab_dict,
+                                                                                     data_args, filtered_ids,
+                                                                                     text=text)
+                                    else:
+                                        tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
                                                                                      vocab_dict,
                                                                                      data_args, filtered_ids)
                             for token, v in zip(tokens, values):

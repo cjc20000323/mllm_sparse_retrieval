@@ -176,11 +176,8 @@ class CrossModalRetrievalDataset(Dataset):
     def get_text(self, idx):
         return self.text_dict[idx]
 
-
     def get_image(self, idx):
         return self.img_dict[idx]
-
-
 
 
 class ComposedTextImageRetrievalDataset(Dataset):
@@ -205,7 +202,7 @@ class ComposedTextImageRetrievalDataset(Dataset):
         self.img_id_list = []  # 保存数据集中图像的id（是否要使用字典来直接映射）,对于fashion-iq数据集，我们直接使用图像文件名做id
         self.text_dict = {}  # 保存数据集中文本id到文本的映射字典
         self.text_id_list = []  # 保存数据集中文本的id（是否要使用字典来直接映射），对于fashion-iq数据集，我们需要手动构造下id
-        self.composed_id_list = [] # 保存合成图像的id
+        self.composed_id_list = []  # 保存合成图像的id
         self.composed2img = {}  # 保存基础图像id和修改文本id到目标图像id的映射
         # self.tokenizer = tokenizer  # 指定模型的tokenizer，分词并转成token id用
         self.processor = processor
@@ -214,25 +211,30 @@ class ComposedTextImageRetrievalDataset(Dataset):
         if data_args is not None:
             if data_args.use_few_shot:
                 if data_args.dataset_suffix == 'no':
-                    self.dataset_file = [f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.dress.{self.split}.json',
-                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.shirt.{self.split}.json',
-                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.toptee.{self.split}.json']
+                    self.dataset_file = [
+                        f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.dress.{self.split}.json',
+                        f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.shirt.{self.split}.json',
+                        f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.toptee.{self.split}.json']
                 else:
-                    self.dataset_file = [f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.dress.{self.split}.json',
-                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.shirt.{self.split}.json',
-                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.toptee.{self.split}.json']
+                    self.dataset_file = [
+                        f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.dress.{self.split}.json',
+                        f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.shirt.{self.split}.json',
+                        f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.toptee.{self.split}.json']
             else:
-                self.dataset_file = [f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.dress.{self.split}.json',
-                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.shirt.{self.split}.json',
-                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.toptee.{self.split}.json']
+                self.dataset_file = [
+                    f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.dress.{self.split}.json',
+                    f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.shirt.{self.split}.json',
+                    f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.toptee.{self.split}.json']
         else:
-            self.dataset_file = [f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.dress.{self.split}.json',
-                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.shirt.{self.split}.json',
-                                 f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.toptee.{self.split}.json']
+            self.dataset_file = [
+                f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.dress.{self.split}.json',
+                f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.shirt.{self.split}.json',
+                f'{self.data_path}' + f'captions-20220326T130604Z-001/captions/cap.toptee.{self.split}.json']
 
-        self.dataset_split_file = [f'{self.data_path}' + f'image_splits-20220326T130551Z-001/image_splits/split.dress.{self.split}.json',
-                                 f'{self.data_path}' + f'image_splits-20220326T130551Z-001/image_splits/split.shirt.{self.split}.json',
-                                 f'{self.data_path}' + f'image_splits-20220326T130551Z-001/image_splits/split.toptee.{self.split}.json']
+        self.dataset_split_file = [
+            f'{self.data_path}' + f'image_splits-20220326T130551Z-001/image_splits/split.dress.{self.split}.json',
+            f'{self.data_path}' + f'image_splits-20220326T130551Z-001/image_splits/split.shirt.{self.split}.json',
+            f'{self.data_path}' + f'image_splits-20220326T130551Z-001/image_splits/split.toptee.{self.split}.json']
         print(self.dataset_file)
 
         # 下面先把split中的图像保存下来
@@ -252,11 +254,11 @@ class ComposedTextImageRetrievalDataset(Dataset):
                 reader = json.load(file)
 
                 for item in reader:
-                    self.text_id_list.append(count)
-                    count += 1
+                    self.text_id_list.append(str(count))
                     self.text_dict[str(count)] = item['captions']
                     self.composed_id_list.append(item['candidate'] + '_' + str(count))
                     self.composed2img[item['candidate'] + '_' + str(count)] = item['target']
+                    count += 1
 
     def __len__(self):
         if self.mode == 'composed':
@@ -273,7 +275,8 @@ class ComposedTextImageRetrievalDataset(Dataset):
             text_id = composed_id[indice + 1:]
             img_name = self.img_dict[img_id]
             target_name = self.img_dict[target_id]
-            text = self.text_dict[text_id][0] + ' ' + self.text_dict[text_id][1]
+            text = [', '.join([cc.strip('.?, ') for cc in c]) for c in self.text_dict[text_id]][0]
+            # text = self.text_dict[text_id][0] + ' ' + self.text_dict[text_id][1]
             target_name = self.img_dict[target_name]
             image_path = f'./data/{self.data_name}/images/images/{img_name}'
             target_path = f'./data/{self.data_name}/images/images/{target_name}'
@@ -296,7 +299,6 @@ class ComposedTextImageRetrievalDataset(Dataset):
                     count += 1
         return text, image_path, target_path, text_id, img_id, target_id
 
-
     def get_image(self, idx):
         return self.img_dict[idx]
 
@@ -307,11 +309,146 @@ class ComposedTextImageRetrievalDataset(Dataset):
         return self.composed2img[idx]
 
 
-
-
-
 class TextPersonRetrievalDataset(Dataset):
-    pass
+    def __init__(self, data_name, processor, split, mode, data_args=None):
+        '''
+
+        :param data_name: 指定数据集的名字，例如coco，flickr
+        :param tokenizer: 指定模型的tokenizer
+        :param processor:
+        :param split: 说明当前的数据集是哪一部分的，是train,val还是test
+        :param mode: 说明当前数据集取数据是1to1还是5to5
+        '''
+        super(TextPersonRetrievalDataset, self).__init__()
+        self.data_name = data_name
+        assert self.data_name in ['CUHK-PEDES', 'ICFG-PEDES', 'RSTPReid']
+        self.split = split
+        if self.data_name == 'CUHK-PEDES':
+            self.data_path = fashion_iq_file_path
+        else:
+            ValueError('Data name is not in the candidates list.')
+        self.img_dict = {}  # 保存数据集中图像id到图像的映射字典
+        self.img_id_list = []  # 保存数据集中图像的id（是否要使用字典来直接映射）,对于行人检索数据集，可能需要手动构造下id
+        self.text_dict = {}  # 保存数据集中文本id到文本的映射字典
+        self.text_id_list = []  # 保存数据集中文本的id（是否要使用字典来直接映射），对于行人检索数据集，可能需要手动构造下id
+        self.img2text = {}  # 保存图像id到文本id的映射，表明搜索索引为id的图像时，希望查到的文本id
+        self.text2img = {}  # 保存文本id到图像id的映射，报名搜索索引为id的文本时，希望查到的图像id
+        self.img2person = {}  # 保存数据集中图像id倒行人id的字典
+        self.processor = processor
+        self.mode = mode  # mode为single的时候，长度按图像长度，获取文本时，找一个对应的就行，mode为full的时候，长度按文本数量来
+
+        img_id_count = 0
+        text_id_count = 0
+
+        assert self.mode in ['single', 'full']
+        if data_args is not None:
+            if self.data_name == 'CUHK-PEDES':
+                self.dataset_file = f'{self.data_path}' + f'reid_raw.json'
+            elif self.data_name == 'ICFG-PEDES':
+                self.dataset_file = f'{self.data_path}' + f'ICFG-PEDES.json'
+            elif self.data_name == 'RSTPReid':
+                self.dataset_file = f'{self.data_path}' + f'data_captions.json'
+            else:
+                self.dataset_file = f'{self.data_path}' + f'reid_raw.json'
+        else:
+            if self.data_name == 'CUHK-PEDES':
+                self.dataset_file = f'{self.data_path}' + f'reid_raw.json'
+            elif self.data_name == 'ICFG-PEDES':
+                self.dataset_file = f'{self.data_path}' + f'ICFG-PEDES.json'
+            elif self.data_name == 'RSTPReid':
+                self.dataset_file = f'{self.data_path}' + f'data_captions.json'
+            else:
+                self.dataset_file = f'{self.data_path}' + f'reid_raw.json'
+
+        print(self.dataset_file)
+
+        with open(self.dataset_file, mode='r') as file:
+            reader = json.load(file)
+            if self.data_name == 'CUHK-PEDES' or self.data_name == 'ICFG-PEDES':
+                for item in reader:
+                    if item['split'] == self.split:
+                        self.img_id_list.append(str(img_id_count))
+                        self.img_dict[str(img_id_count)] = item['file_path']
+                        self.img2person[str(img_id_count)] = item['id']
+                        for caption in item['captions']:
+                            self.text_id_list.append(str(text_id_count))
+                            self.text_dict[str(text_id_count)] = caption
+                            if str(img_id_count) not in self.img2text.keys():
+                                self.img2text[str(img_id_count)] = [str(text_id_count)]
+                            else:
+                                self.img2text[str(img_id_count)].append(str(text_id_count))
+                            if str(text_id_count) not in self.text2img.keys():
+                                self.text2img[str(text_id_count)] = str(img_id_count)
+                            text_id_count += 1
+                        img_id_count += 1
+            elif self.data_name == 'RSTPReid':
+                for item in reader:
+                    if item['split'] == self.split:
+                        self.img_id_list.append(str(img_id_count))
+                        self.img_dict[str(img_id_count)] = item['img_path']
+                        self.img2person[str(img_id_count)] = item['id']
+                        for caption in item['captions']:
+                            self.text_id_list.append(str(text_id_count))
+                            self.text_dict[str(text_id_count)] = caption
+                            if str(img_id_count) not in self.img2text.keys():
+                                self.img2text[str(img_id_count)] = [str(text_id_count)]
+                            else:
+                                self.img2text[str(img_id_count)].append(str(text_id_count))
+                            if str(text_id_count) not in self.text2img.keys():
+                                self.text2img[str(text_id_count)] = str(img_id_count)
+                            text_id_count += 1
+                        img_id_count += 1
+            else:
+                pass
+
+    def __len__(self):
+        if self.mode == 'single':
+            return len(self.img_id_list)
+        elif self.mode == 'full':
+            return len(self.text_id_list)
+        else:
+            ValueError('Mode is not either single or full.')
+
+    def __getitem__(self, idx):
+        '''
+        这个数据集是想做图文检索，所以必然取出的数据会有图，应该不需要再进行分类讨论
+        由于不像原始llava训练的数据集中包含有conversation字段，所以后续应该想办法适配一下，可能工作量较大
+        '''
+        if self.mode == 'single':
+            img_id = self.img_id_list[idx]
+            img_name = self.img_dict[img_id]
+            if self.data_name == 'CUHK-PEDES' or self.data_name == 'ICFG-PEDES' or self.data_name == 'RSTPReid':
+                image_path = f'./data/{self.data_name}/imgs/{img_name}'
+            else:
+                image_path = f'./data/{self.data_name}/imgs/{img_name}'
+            text_id = self.img2text[img_id][0]  # 这个模式下，拿出第一个对应的文本即可
+            text = self.text_dict[text_id]
+            return text, image_path, text_id, img_id
+        elif self.mode == 'full':
+            text_id = self.text_id_list[idx]
+            text = self.text_dict[text_id]
+            img_id = self.text2img[text_id]
+            img_name = self.img_dict[img_id]
+            if self.data_name == 'CUHK-PEDES' or self.data_name == 'ICFG-PEDES' or self.data_name == 'RSTPReid':
+                image_path = f'./data/{self.data_name}/imgs/{img_name}'
+            else:
+                image_path = f'./data/{self.data_name}/imgs/{img_name}'
+            return text, image_path, text_id, img_id
+        else:
+            ValueError('Mode is not either single or full.')
+
+
+    def get_text(self, idx):
+        return self.text_dict[idx]
+
+    def get_image(self, idx):
+        return self.img_dict[idx]
+
+    def get_target(self, idx):
+        img_id = self.text2img[idx]
+        return self.img2person[img_id]
+
+
 
 
 @dataclass
@@ -340,7 +477,8 @@ class PromptRepsTrainCollator:
         else:
             prompt = img_prompt
         raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-        img_inputs = self.processor(images=raw_images, text=[prompt] * len(imgs_path), return_tensors="pt", padding=True)
+        img_inputs = self.processor(images=raw_images, text=[prompt] * len(imgs_path), return_tensors="pt",
+                                    padding=True)
         imgs = img_inputs
         labels = torch.zeros(len(texts))
 
