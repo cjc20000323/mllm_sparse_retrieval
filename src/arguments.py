@@ -8,6 +8,8 @@ coco_file_path = './data/coco/'
 flickr_file_path = './data/flickr/'
 fashion_iq_file_path = './data/fashion-iq/'
 cuhk_pedes_file_path = './data/CUHK-PEDES/'
+icfg_pedes_flie_path = './data/ICFG-PEDES/'
+rstpreid_file_path = './data/RSTPReid/'
 
 
 @dataclass

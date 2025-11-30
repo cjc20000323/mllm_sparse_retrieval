@@ -7,7 +7,7 @@ import pandas as pd
 class RecallMetrics:
 
     def __init__(self, dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args):
-        if dataset.data_name == 'CUHK-PEDES' or dataset.data_name == 'ICFG-PEDES' or dataset.data_name == '':
+        if dataset.data_name == 'fashion-iq':
             self.recall_k_setting_list = [10, 50, 100, 200, 300, 400]
         else:
             self.recall_k_setting_list = [1, 5, 10, 100, 200, 300, 400]
@@ -95,7 +95,7 @@ class RecallMetrics:
                     search_results = self._sort(v['docs'])
                     self._count('dense', search_results, target)
                 else:
-                    target = self.dataset.get_target(k)
+                    target = self.dataset.get_target_from_text(k)
                     if isinstance(target, list):
                         target = torch.tensor([int(i) for i in target]).cuda()
                     else:
@@ -126,7 +126,7 @@ class RecallMetrics:
                     search_results = self._sort(v['docs'])
                     self._count('sparse', search_results, target)
                 else:
-                    target = self.dataset.get_target(k)
+                    target = self.dataset.get_target_from_text(k)
                     if isinstance(target, list):
                         target = torch.tensor([int(i) for i in target]).cuda()
                     else:
@@ -163,10 +163,10 @@ class RecallMetrics:
                         target = torch.tensor([int(i) for i in target]).cuda()
                     else:
                         target = int(target)
-                    if len(v['docs']) == 0:
+                    if len(v) == 0:
                         continue
 
-                    search_results = self._sort(v['docs'])
+                    search_results = self._sort(v)
                     self._count('fusion', search_results, target)
 
     def _count(self, result_type, search_results, target):

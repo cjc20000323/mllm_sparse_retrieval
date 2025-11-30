@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 import torch
 from PIL import Image
 import tevatron.retriever.arguments
-from arguments import coco_file_path, flickr_file_path, fashion_iq_file_path
+from arguments import coco_file_path, flickr_file_path, fashion_iq_file_path, cuhk_pedes_file_path, icfg_pedes_flie_path, rstpreid_file_path
 from template import llama3_template, text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
     img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5
 from tevatron.retriever.dataset import EncodeDataset
@@ -260,6 +260,9 @@ class ComposedTextImageRetrievalDataset(Dataset):
                     self.composed2img[item['candidate'] + '_' + str(count)] = item['target']
                     count += 1
 
+        print(self.composed2img.keys())
+        print(self.composed_id_list)
+
     def __len__(self):
         if self.mode == 'composed':
             return len(self.composed_id_list)
@@ -286,17 +289,10 @@ class ComposedTextImageRetrievalDataset(Dataset):
             img_name = self.img_dict[img_id]
             image_path = f'./data/{self.data_name}/images/images/{img_name}'
             count = 0
-            while True:
-                if img_name + '_' + count in self.composed_id_list:
-                    text = self.text_dict[str(count)][0] + ' ' + self.text_dict[str(count)][1]
-                    text_id = count
-                    target_id = self.composed2img[img_name + '_' + count]
-                    target_name = self.img_dict[target_id]
-                    target_name = self.img_dict[target_name]
-                    target_path = f'./data/{self.data_name}/images/images/{target_name}'
-                    break
-                else:
-                    count += 1
+            text = ''
+            target_path = ''
+            text_id = ''
+            target_id = ''
         return text, image_path, target_path, text_id, img_id, target_id
 
     def get_image(self, idx):
@@ -324,7 +320,11 @@ class TextPersonRetrievalDataset(Dataset):
         assert self.data_name in ['CUHK-PEDES', 'ICFG-PEDES', 'RSTPReid']
         self.split = split
         if self.data_name == 'CUHK-PEDES':
-            self.data_path = fashion_iq_file_path
+            self.data_path = cuhk_pedes_file_path
+        elif self.data_name == 'ICFG-PEDES':
+            self.data_path = icfg_pedes_flie_path
+        elif self.data_name == 'RSTPReid':
+            self.data_path = rstpreid_file_path
         else:
             ValueError('Data name is not in the candidates list.')
         self.img_dict = {}  # 保存数据集中图像id到图像的映射字典

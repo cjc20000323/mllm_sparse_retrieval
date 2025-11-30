@@ -267,6 +267,7 @@ retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat = [
     'Summary the people or objects in above sentence in one word: ',
     'Summary the gender in above sentence in one word: ',
     'Summary the actions or movements of main people or objects in above sentence in one word: ',
+    'Summary the wearing of people or objects in above sentence in one word: ',
     'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence in one word: '
 ]
 
@@ -274,6 +275,7 @@ retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat = [
     'Summary the people or objects in above image in one word: ',
     'Summary the gender in above image in one word: ',
     'Summary the actions or movements of main people or objects in above image in one word: ',
+    'Summary the wearing of people or objects in above image in one word: ',
     'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above image in one word: '
 ]
 
@@ -281,28 +283,32 @@ retrieval_disassemble_text_prompts_person_retrieval_for_concat = [
     'Summary the gender of person in above sentence in one word: ',
     'Summary the actions or movements of person in above sentence in one word: ',
     'Summary the objects in above sentence in one word: ',
-    'Summary the appearance and decorations of person, such as color, wearing type and pattern in above sentence in one word: '
+    'Summary the wearing of person in above sentence in one word: ',
+    'Summary the appearance and decoration details of person, such as color, pattern and so on, in above sentence in one word: '
 ]
 
 retrieval_disassemble_image_prompts_person_retrieval_for_concat = [
     'Summary the gender of person in above image in one word: ',
     'Summary the actions or movements of person in above image in one word: ',
     'Summary the objects in above image in one word: ',
-    'Summary the appearance and decorations of person, such as color, wearing type and pattern in above image in one word: '
+    'Summary the wearing of person in above image in one word: ',
+    'Summary the appearance and decoration details of person, such as color, pattern and so on, in above image in one word: '
 ]
 
 retrieval_disassemble_image_prompts_person_retrieval_for_concat_1 = [
     'Describe the gender of this person in one word based on the image: ',
     'Describe the actions or movements this person in one word based on the image: ',
     'Describe the objects in one word based on the image: ',
-    'Describe the appearance and decorations of this person, such as color, wearing type and pattern in one word based on the image: ',
+    'Describe the wearing of this person in one word based on the image: '
+    'Describe the appearance and decoration details of this person, such as color, pattern and so on, in one word based on the image: ',
 ]
 
 retrieval_disassemble_text_prompts_person_retrieval_for_concat_1 = [
     'Describe the gender of this person in one word based on the sentence: ',
     'Describe the actions or movements this person in one word based on the sentence: ',
     'Describe the objects in one word based on the sentence: ',
-    'Describe the appearance and decorations of this person, such as color, wearing type and pattern in one word based on the sentence: ',
+    'Describe the wearing of this person in one word based on the sentence: '
+    'Describe the appearance and decoration details of this person, such as color, pattern and so on, in one word based on the sentence: ',
 ]
 
 retrieval_disassemble_image_prompts = [

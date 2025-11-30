@@ -1658,7 +1658,7 @@ def main():
                         else:
                             query_dense_reps = F.normalize(query_dense_reps, dim=-1)
                             if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                                prompt_length = 4
+                                prompt_length = 5
                                 query_dense_reps = query_dense_reps.reshape(-1, prompt_length,
                                                                             query_dense_reps.shape[1]).mean(1)
                             query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
@@ -1676,7 +1676,7 @@ def main():
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         logit = query_logits[text_indice]
                                     text = texts[text_indice]
-                                    length = 4
+                                    length = 5
                                     disassemble_logit = disassemble_logits[
                                                         text_indice * length:(text_indice + 1) * length]
                                     vector = dict()
@@ -1714,7 +1714,7 @@ def main():
                                             vector[token] = int(v)
                                     if data_args.sparse_value_mean:
                                         for token in vector.keys():
-                                            vector[token] //= 4
+                                            vector[token] //= 5
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         tokens, values = get_text_valid_disassemble_tokens_values_fusion(text,
                                                                                                          processor.tokenizer,
@@ -1799,7 +1799,7 @@ def main():
                                             vector[token] = int(v)
                                     if data_args.sparse_value_mean:
                                         for token in vector.keys():
-                                            vector[token] //= 4
+                                            vector[token] //= 5
                                     query = ""
                                     for token, v in vector.items():
                                         query += (' ' + token) * v
