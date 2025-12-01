@@ -24,6 +24,11 @@ person_retrieval_img_prompt_1 = llama3_template.format('<image>\n<|begin_of_text
 person_retrieval_text_prompt_1 = llama3_template.format('<sent>\n<|begin_of_text|>Describe this person in one word based on the sentence: ')
 mistral_person_retrieval_img_prompt_1 = llava_mistral_template.format('<image>\n<s>Describe this person in one word based on its image: ')
 mistral_person_retrieval_text_prompt_1 = llava_mistral_template.format('<sent>\n<s>Describe this person in one word based on its sentence: ')
+person_retrieval_img_prompt_2 = llama3_template.format('<image>\n<|begin_of_text|>Describe wearing style of this person in one word based on the image: ')
+person_retrieval_text_prompt_2 = llama3_template.format('<sent>\n<|begin_of_text|>Describe wearing style of this person in one word based on the sentence: ')
+mistral_person_retrieval_img_prompt_2 = llava_mistral_template.format('<image>\n<s>Describe wearing style of this person in one word based on the image: ')
+mistral_person_retrieval_text_prompt_2 = llava_mistral_template.format('<sent>\n<s>Describe wearing style of this person in one word based on the sentence: ')
+
 
 llama3_fashion_iq_composed_image_prompt = llama3_template.format('<image> change the style of this shirt/dress/toptee to <text>\n<|begin_of_text|>Describe this modified shirt/dress/toptee in one word based on its style: ')
 mistral_fashion_iq_composed_image_prompt = llava_mistral_template.format('<image> change the style of this shirt/dress/toptee to <text>\n<s>Describe this modified shirt/dress/toptee in one word based on its style: ')
@@ -120,6 +125,8 @@ person_retrieval_img_prompt_for_concat = 'Summary the person in above image in o
 person_retrieval_text_prompt_for_concat = 'Summary the person in above sentence in one word: '
 person_retrieval_img_prompt_for_concat_1 = 'Describe this person in one word based on the image: '
 person_retrieval_text_prompt_for_concat_1 = 'Describe this person in one word based on the sentence: '
+person_retrieval_img_prompt_for_concat_2 = 'Describe wearing style of this person in one word based on the image: '
+person_retrieval_text_prompt_for_concat_2 = 'Describe wearing style of this person in one word based on the sentence: '
 
 img_prompt_no_one_word = llama3_template.format('<image>\n<|begin_of_text|>Summary above image: ')
 text_prompt_no_one_word = llama3_template.format('<sent>\n<|begin_of_text|>Summary above sentence: ')

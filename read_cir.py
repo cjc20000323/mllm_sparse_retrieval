@@ -9,11 +9,22 @@ with open('D:\数据集\合成检索\\fashion-iq\captions-20220326T130604Z-001\c
     fashion_iq_dataset = json.load(file)
 
     for item in fashion_iq_dataset:
-        for caption in caption_list:
-            for text in caption:
-                for text_1 in item['captions']:
-                    if text == text_1:
-                        print(text)
+        caption_list.append(item['captions'])
+
+    print(len(fashion_iq_dataset))
+
+with open('D:\数据集\合成检索\\fashion-iq\captions-20220326T130604Z-001\captions/cap.shirt.val.json') as file:
+    fashion_iq_dataset = json.load(file)
+
+    for item in fashion_iq_dataset:
+        caption_list.append(item['captions'])
+
+    print(len(fashion_iq_dataset))
+
+with open('D:\数据集\合成检索\\fashion-iq\captions-20220326T130604Z-001\captions/cap.toptee.val.json') as file:
+    fashion_iq_dataset = json.load(file)
+
+    for item in fashion_iq_dataset:
         caption_list.append(item['captions'])
 
     print(len(fashion_iq_dataset))

@@ -2744,6 +2744,9 @@ def main():
 
     if training_args.task_type == 'cir':
         choice_dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'train', search_args.query_type)
+    elif training_args.task_type == 'tbpr':
+        choice_dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'train',
+                                                           'full')
     else:
         choice_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'train', 'full')
 
