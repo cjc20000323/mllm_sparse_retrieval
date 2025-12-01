@@ -51,7 +51,8 @@ from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, ge
     person_retrieval_img_prompt_for_concat, person_retrieval_img_prompt_for_concat_1, \
     retrieval_disassemble_image_prompts_person_retrieval_for_concat, \
     retrieval_disassemble_image_prompts_person_retrieval_for_concat_1, \
-    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat
+    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, mistral_person_retrieval_img_prompt_2, \
+    person_retrieval_img_prompt_2, person_retrieval_img_prompt_for_concat_2
 from hybrid import fuse, normalize
 from utils import load_image
 from peft import PeftModel
@@ -1563,7 +1564,7 @@ def main():
                                                                              total=len(test_dataloader)):
                     lookup_indices.extend(text_ids)
                     if model_args.calculate_type == 'separate':
-                        query_logits, query_dense_reps = model.encode_data(texts, 'text', processor, device,
+                        query_logits, query_dense_reps = model.encode_data_for_tbpr(texts, 'text', processor, device,
                                                                            model_args,
                                                                            data_args)
                     else:
@@ -1591,6 +1592,15 @@ def main():
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                     prompt_template += llava_mistral_template_content_element.format(
                                         person_retrieval_img_prompt_for_concat_1)
+                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.tbpr_type == 'type_2':
+                                prompt_template = llava_mistral_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_mistral_template_content_element.format(
+                                        person_retrieval_img_prompt_for_concat_2)
                                 for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
                                     content_element = llava_mistral_template_content_element.format(
                                         llava_mistral_retrieval_disassemble_image_prompt)
@@ -1631,6 +1641,15 @@ def main():
                                     content_element = llama3_template_content_element.format(
                                         llama3_retrieval_disassemble_image_prompt)
                                     prompt_template += content_element
+                            elif data_args.tbpr_type == 'type_2':
+                                prompt_template = llama3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llama3_template_content_element.format(
+                                        person_retrieval_img_prompt_for_concat_2)
+                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
                             else:
                                 prompt_template = llama3_template_image_prefix
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
@@ -1640,7 +1659,7 @@ def main():
                                         llama3_retrieval_disassemble_image_prompt)
                                     prompt_template += content_element
 
-                        query_logits, query_dense_reps = model.encode_data_concat(texts, 'text', processor, device,
+                        query_logits, query_dense_reps = model.encode_data_concat_for_tbpr(texts, 'text', processor, device,
                                                                                   model_args, data_args)
                         if 'disassembleeol_concrete' in model_args.eol_type:
                             disassemble_logits = query_logits[data_args.per_device_batch_size:]

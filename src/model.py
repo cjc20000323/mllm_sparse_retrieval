@@ -21,7 +21,8 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     mistral_person_retrieval_text_prompt_1, person_retrieval_text_prompt_for_concat, \
     person_retrieval_text_prompt_for_concat_1, retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat, \
     retrieval_disassemble_text_prompts_person_retrieval_for_concat, \
-    retrieval_disassemble_text_prompts_person_retrieval_for_concat_1
+    retrieval_disassemble_text_prompts_person_retrieval_for_concat_1, mistral_person_retrieval_text_prompt_2, \
+    person_retrieval_text_prompt_for_concat_2
 import torch.nn.functional as F
 
 
@@ -1459,6 +1460,12 @@ class MLLMRetrievalModel(nn.Module):
                 for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
                     content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
+            elif data_args.tbpr_type == 'type_2':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_mistral_template_content_element.format(person_retrieval_text_prompt_for_concat_2)
+                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
+                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
             else:
                 pass
         else:
@@ -1478,6 +1485,12 @@ class MLLMRetrievalModel(nn.Module):
             elif data_args.tbpr_type == 'type_1':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                     prompt_template += llama3_template_content_element.format(person_retrieval_text_prompt_for_concat_1)
+                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
+                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.tbpr_type == 'type_2':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llama3_template_content_element.format(person_retrieval_text_prompt_for_concat_2)
                 for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
                     content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element

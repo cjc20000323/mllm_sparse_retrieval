@@ -44,7 +44,8 @@ from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qw
     person_retrieval_img_prompt_for_concat, person_retrieval_img_prompt_for_concat_1, \
     retrieval_disassemble_image_prompts_person_retrieval_for_concat, \
     retrieval_disassemble_image_prompts_person_retrieval_for_concat_1, \
-    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat
+    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, mistral_person_retrieval_img_prompt_2, \
+    person_retrieval_img_prompt_2, person_retrieval_img_prompt_for_concat_2
 from utils import load_image
 
 
@@ -993,6 +994,8 @@ def main():
                     prompt = mistral_person_retrieval_img_prompt
                 elif data_args.tbpr_type == 'type_1':
                     prompt = mistral_person_retrieval_img_prompt_1
+                elif data_args.tbpr_type == 'type_2':
+                    prompt = mistral_person_retrieval_img_prompt_2
                 else:
                     prompt = mistral_img_prompt
             else:
@@ -1002,6 +1005,8 @@ def main():
                     prompt = person_retrieval_img_prompt
                 elif data_args.tbpr_type == 'type_1':
                     prompt = person_retrieval_img_prompt_1
+                elif data_args.tbpr_type == 'type_2':
+                    prompt = person_retrieval_img_prompt_2
                 else:
                     prompt = mistral_img_prompt
 
@@ -1233,6 +1238,13 @@ def main():
                                 content_element = llava_mistral_template_content_element.format(
                                     llava_mistral_retrieval_disassemble_image_prompt)
                                 prompt_template += content_element
+                        elif data_args.tbpr_type == 'type_2':
+                            prompt_template += llava_mistral_template_content_element.format(
+                                person_retrieval_img_prompt_for_concat_2)
+                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
+                                content_element = llava_mistral_template_content_element.format(
+                                    llava_mistral_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
                         else:
                             prompt_template = llava_mistral_template_image_prefix
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
@@ -1264,6 +1276,15 @@ def main():
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                 prompt_template += llama3_template_content_element.format(
                                     person_retrieval_img_prompt_for_concat_1)
+                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
+                                content_element = llama3_template_content_element.format(
+                                    llama3_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        elif data_args.tbpr_type == 'type_2':
+                            prompt_template = llama3_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += llama3_template_content_element.format(
+                                    person_retrieval_img_prompt_for_concat_2)
                             for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
                                 content_element = llama3_template_content_element.format(
                                     llama3_retrieval_disassemble_image_prompt)
