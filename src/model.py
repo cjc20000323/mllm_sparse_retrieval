@@ -22,7 +22,7 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     person_retrieval_text_prompt_for_concat_1, retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat, \
     retrieval_disassemble_text_prompts_person_retrieval_for_concat, \
     retrieval_disassemble_text_prompts_person_retrieval_for_concat_1, mistral_person_retrieval_text_prompt_2, \
-    person_retrieval_text_prompt_for_concat_2
+    person_retrieval_text_prompt_for_concat_2, person_retrieval_text_prompt_2
 import torch.nn.functional as F
 
 
@@ -385,6 +385,8 @@ class MLLMRetrievalModel(nn.Module):
                 prompt = mistral_person_retrieval_text_prompt
             elif data_args.tbpr_type == 'type_1':
                 prompt = mistral_person_retrieval_text_prompt_1
+            elif data_args.tbpr_type == 'type_2':
+                prompt = mistral_person_retrieval_text_prompt_2
             else:
                 prompt = mistral_text_prompt
         else:
@@ -394,6 +396,8 @@ class MLLMRetrievalModel(nn.Module):
                 prompt = person_retrieval_text_prompt
             elif data_args.tbpr_type == 'type_1':
                 prompt = person_retrieval_text_prompt_1
+            elif data_args.tbpr_type == 'type_2':
+                prompt = person_retrieval_text_prompt_2
             else:
                 prompt = mistral_text_prompt
 

@@ -45,3 +45,4 @@ with open('D:\数据集\合成检索\\fashion-iq\image_splits-20220326T130551Z-0
     print(len(fashion_iq_dataset))
 
 # 一共15536个图像，可以被4整除
+# 一共6016个查询，可以被4整除
