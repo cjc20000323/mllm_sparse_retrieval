@@ -180,6 +180,9 @@ class RecallMetrics:
                     else:
                         self.fusion_counts[k] += 1
             elif self.dataset.data_name == 'fashion-iq':
+                if dist.get_rank() == 0:
+                    print(search_results[k])
+                    print(target)
                 # 合成检索
                 if target in search_results[k]:
                     if result_type == 'dense':

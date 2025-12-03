@@ -792,14 +792,15 @@ def main():
                 ],
             },
         ]
-        prompt = processor.apply_chat_template(conversation, add_generation_prompt=True)
-        if dist.get_rank() == 0:
-            print(prompt)
-        input_id = processor(text=prompt,
-                  return_tensors="pt",
-                  padding=True).input_ids
-        if dist.get_rank() == 0:
-            print(input_id)
+        if 'royokong-e5-v' not in model_args.model_name_or_path:
+            prompt = processor.apply_chat_template(conversation, add_generation_prompt=True)
+            if dist.get_rank() == 0:
+                print(prompt)
+            input_id = processor(text=prompt,
+                                 return_tensors="pt",
+                                 padding=True).input_ids
+            if dist.get_rank() == 0:
+                print(input_id)
 
     if data_args.reps_loc == 'after_pad':
         processor.tokenizer.padding_side = "left"

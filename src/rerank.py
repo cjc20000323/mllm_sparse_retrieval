@@ -1554,8 +1554,8 @@ def main():
                     lookup_indices.extend(text_ids)
                     if model_args.calculate_type == 'separate':
                         query_logits, query_dense_reps = model.encode_data_for_tbpr(texts, 'text', processor, device,
-                                                                           model_args,
-                                                                           data_args)
+                                                                                    model_args,
+                                                                                    data_args)
                     else:
                         if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                             if data_args.tbpr_type == 'origin_type':
@@ -1581,6 +1581,15 @@ def main():
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                     prompt_template += llava_mistral_template_content_element.format(
                                         person_retrieval_img_prompt_for_concat_1)
+                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.tbpr_type == 'type_2':
+                                prompt_template = llava_mistral_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_mistral_template_content_element.format(
+                                        person_retrieval_img_prompt_for_concat_2)
                                 for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
                                     content_element = llava_mistral_template_content_element.format(
                                         llava_mistral_retrieval_disassemble_image_prompt)
@@ -1621,6 +1630,15 @@ def main():
                                     content_element = llama3_template_content_element.format(
                                         llama3_retrieval_disassemble_image_prompt)
                                     prompt_template += content_element
+                            elif data_args.tbpr_type == 'type_2':
+                                prompt_template = llama3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llama3_template_content_element.format(
+                                        person_retrieval_img_prompt_for_concat_2)
+                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
                             else:
                                 prompt_template = llama3_template_image_prefix
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
@@ -1630,13 +1648,15 @@ def main():
                                         llama3_retrieval_disassemble_image_prompt)
                                     prompt_template += content_element
 
-                        query_logits, query_dense_reps = model.encode_data_concat_for_tbpr(texts, 'text', processor, device,
-                                                                                  model_args, data_args)
+                        query_logits, query_dense_reps = model.encode_data_concat_for_tbpr(texts, 'text', processor,
+                                                                                           device,
+                                                                                           model_args, data_args)
                         if 'disassembleeol_concrete' in model_args.eol_type:
                             disassemble_logits = query_logits[data_args.per_device_batch_size:]
                             query_logits = query_logits[:data_args.per_device_batch_size]
                         elif 'disassembleeol' in model_args.eol_type:
                             disassemble_logits = query_logits
+
                     batch_ids = text_ids
 
                     if dense_retriever is not None:
@@ -1764,7 +1784,7 @@ def main():
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         logit = query_logits[text_indice]
                                     text = texts[text_indice]
-                                    length = 4
+                                    length = 5
                                     disassemble_logit = disassemble_logits[
                                                         text_indice * length:(text_indice + 1) * length]
                                     vector = dict()
@@ -2799,11 +2819,11 @@ def main():
                 f'0_{i + 1}_0_{10 - i - 1}.xlsx')
         else:
             os.makedirs(
-                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
                 exist_ok=True)
 
             output_path = os.path.join(
-                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
                 f'0_{i + 1}_0_{10 - i - 1}.xlsx')
 
         metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run[i], look_up, lookup_indices, search_args)
@@ -2811,9 +2831,14 @@ def main():
 
         metric.all_gather_object()
         fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
-        if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
-            max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
-            best_weight = float(i / 10)
+        if data_args.dataset_name != 'fashion-iq':
+            if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+                max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+                best_weight = float(i / 10)
+        else:
+            if (fusion_recalls[10] + fusion_recalls[50]) / 2 > max_val_fusion_metric:
+                max_val_fusion_metric = (fusion_recalls[10] + fusion_recalls[50]) / 2
+                best_weight = float(i / 10)
         metric.print_recall(output_path)
 
     best_test_fusion_run = {}

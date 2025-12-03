@@ -280,10 +280,10 @@ class ComposedTextImageRetrievalDataset(Dataset):
             target_name = self.img_dict[target_id]
             text = [', '.join([cc.strip('.?, ') for cc in c]) for c in self.text_dict[text_id]][0]
             # text = self.text_dict[text_id][0] + ' ' + self.text_dict[text_id][1]
-            target_name = self.img_dict[target_name]
+            # target_name = self.img_dict[target_name]
             image_path = f'./data/{self.data_name}/images/images/{img_name}'
             target_path = f'./data/{self.data_name}/images/images/{target_name}'
-            target_id = self.composed2img[img_id]  # 这个模式下，拿出第一个对应的文本即可
+            # target_id = self.composed2img[img_id]  # 这个模式下，拿出第一个对应的文本即可
         else:
             img_id = self.img_id_list[idx]
             img_name = self.img_dict[img_id]
@@ -292,8 +292,8 @@ class ComposedTextImageRetrievalDataset(Dataset):
             text = ''
             target_path = ''
             text_id = ''
-            target_id = ''
-        return text, image_path, target_path, text_id, img_id, target_id
+            composed_id = ''
+        return text, image_path, target_path, text_id, img_id, composed_id
 
     def get_image(self, idx):
         return self.img_dict[idx]
