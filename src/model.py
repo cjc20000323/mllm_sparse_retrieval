@@ -288,7 +288,7 @@ class MLLMRetrievalModel(nn.Module):
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
 
 
-    def encode_data_for_cir(self, text_input, image_input, input_type, processor, device, model_args, data_args):
+    def encode_data_for_cir(self, text_input, image_input, dress_type, input_type, processor, device, model_args, data_args):
         '''
 
                 :param input: 输入的数据
@@ -316,6 +316,7 @@ class MLLMRetrievalModel(nn.Module):
             prompt = llama3_fashion_iq_composed_image_prompt
 
         if input_type == 'composed':
+            prompt = prompt.replace("{}", dress_type)
             text_inputs = processor(images=image_input, text=[prompt.replace('<sent>', text) for text in text_input],
                                     return_tensors="pt",
                                     padding=True).to(device)
@@ -1231,7 +1232,7 @@ class MLLMRetrievalModel(nn.Module):
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
 
 
-    def encode_data_concat_for_cir(self, text_input, image_input, input_type, processor, device, model_args, data_args):
+    def encode_data_concat_for_cir(self, text_input, image_input, dress_type, input_type, processor, device, model_args, data_args):
         if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
             prompt_template = llava_mistral_template_fashion_iq_composed_image_prefix
             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
@@ -1247,8 +1248,9 @@ class MLLMRetrievalModel(nn.Module):
             for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
                 content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
                 prompt_template += content_element
+        prompt_list = [prompt_template.replace("{}", dress_type_item) for dress_type_item in dress_type]
         if input_type == 'composed':
-            text_inputs = processor(images=image_input, text=[prompt_template.replace('<sent>', text) for text in text_input],
+            text_inputs = processor(images=image_input, text=prompt_list,
                                     return_tensors="pt", padding=True).to(device)
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']

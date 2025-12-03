@@ -15,3 +15,8 @@ plt.ylabel('log-likelihood') # Y轴标签
 plt.grid(True) # 显示网格
 plt.legend()
 plt.show() # 显示图表
+
+
+str_a = "{} is a good shirt. {}, {}"
+str_b = str_a.replace('{}', 'toptee')
+print(str_b)

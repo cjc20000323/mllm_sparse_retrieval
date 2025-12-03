@@ -1053,16 +1053,19 @@ def main():
                     prompts = llama3_retrieval_disassemble_image_prompts
 
         if training_args.task_type == 'cir':
-            for batch_idx, (texts, imgs_path, target_path, text_ids, img_ids, composed_ids) in tqdm(enumerate(test_dataloader),
+            for batch_idx, (texts, imgs_path, target_path, text_ids, img_ids, composed_ids, dress_type) in tqdm(enumerate(test_dataloader),
                                                                                                     total=len(test_dataloader)):
                 with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
                     if model_args.calculate_type == 'separate':
+                        prompt_list = [prompt.replace("{}", dress_type_item) for dress_type_item in dress_type]
+                        if dist.get_rank() == 0:
+                            print(prompt_list)
                         raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                        img_inputs = processor(images=raw_images, text=prompt_list,
                                                return_tensors="pt",
                                                padding=True)
                         imgs = img_inputs.to(device)
-                        logits, reps = model.encode_data_for_cir(texts, imgs, 'image', processor, device, model_args,
+                        logits, reps = model.encode_data_for_cir(texts, imgs, dress_type, 'image', processor, device, model_args,
                                                                  data_args)
                     else:
                         if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
@@ -1085,11 +1088,12 @@ def main():
                                 prompt_template += content_element
 
                         raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        img_inputs = processor(images=raw_images, text=[prompt_template] * len(imgs_path),
+                        prompt_list = [prompt_template.replace("{}", dress_type_item) for dress_type_item in dress_type]
+                        img_inputs = processor(images=raw_images, text=prompt_list,
                                                return_tensors="pt",
                                                padding=True)
                         imgs = img_inputs.to(device)
-                        logits, reps = model.encode_data_concat_for_cir(texts, imgs, 'image', processor, device,
+                        logits, reps = model.encode_data_concat_for_cir(texts, imgs, dress_type, 'image', processor, device,
                                                                         model_args,
                                                                         data_args)
                         if 'disassembleeol_concrete' in model_args.eol_type:

@@ -1279,7 +1279,7 @@ def main():
 
         if training_args.task_type == 'cir':
             with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-                for batch_idx, (texts, imgs_path, target_path, text_ids, img_ids, composed_ids) in tqdm(
+                for batch_idx, (texts, imgs_path, target_path, text_ids, img_ids, composed_ids, dress_type) in tqdm(
                         enumerate(test_dataloader),
                         total=len(test_dataloader)):
                     '''
@@ -1289,12 +1289,12 @@ def main():
                     lookup_indices.extend(composed_ids)
                     if model_args.calculate_type == 'separate':
                         raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        query_logits, query_dense_reps = model.encode_data_for_cir(texts, raw_images, 'composed', processor, device,
+                        query_logits, query_dense_reps = model.encode_data_for_cir(texts, raw_images, dress_type, 'composed', processor, device,
                                                                            model_args,
                                                                            data_args)
                     else:
                         raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        query_logits, query_dense_reps = model.encode_data_concat_for_cir(texts, raw_images, 'composed', processor, device,
+                        query_logits, query_dense_reps = model.encode_data_concat_for_cir(texts, raw_images, dress_type, 'composed', processor, device,
                                                                                   model_args, data_args)
                         if 'disassembleeol_concrete' in model_args.eol_type:
                             disassemble_logits = query_logits[data_args.per_device_batch_size:]

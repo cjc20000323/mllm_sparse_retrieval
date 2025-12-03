@@ -206,6 +206,7 @@ class ComposedTextImageRetrievalDataset(Dataset):
         self.composed2img = {}  # 保存基础图像id和修改文本id到目标图像id的映射
         # self.tokenizer = tokenizer  # 指定模型的tokenizer，分词并转成token id用
         self.processor = processor
+        self.dress_type_dict = {}
         self.mode = mode  # mode为single的时候，长度按图像长度，获取文本时，找一个对应的就行，mode为full的时候，长度按文本数量来
         assert self.mode in ['composed', 'image']
         if data_args is not None:
@@ -245,6 +246,10 @@ class ComposedTextImageRetrievalDataset(Dataset):
                 for id in reader:
                     self.img_id_list.append(id)
                     self.img_dict[id] = id + '.png'
+                    if 'shirt' in dataset_split_file or 'toptee' in dataset_split_file:
+                        self.dress_type_dict[id] = 'shirt'
+                    else:
+                        self.dress_type_dict[id] = 'dress'
 
         # 然后处理it2t的映射关系以及文本的保存
         count = 0
@@ -260,8 +265,8 @@ class ComposedTextImageRetrievalDataset(Dataset):
                     self.composed2img[item['candidate'] + '_' + str(count)] = item['target']
                     count += 1
 
-        print(self.composed2img.keys())
-        print(self.composed_id_list)
+        # print(self.composed2img.keys())
+        # print(self.composed_id_list)
 
     def __len__(self):
         if self.mode == 'composed':
@@ -284,6 +289,7 @@ class ComposedTextImageRetrievalDataset(Dataset):
             image_path = f'./data/{self.data_name}/images/images/{img_name}'
             target_path = f'./data/{self.data_name}/images/images/{target_name}'
             # target_id = self.composed2img[img_id]  # 这个模式下，拿出第一个对应的文本即可
+            dress_type = self.dress_type_dict[img_id]
         else:
             img_id = self.img_id_list[idx]
             img_name = self.img_dict[img_id]
@@ -293,7 +299,8 @@ class ComposedTextImageRetrievalDataset(Dataset):
             target_path = ''
             text_id = ''
             composed_id = ''
-        return text, image_path, target_path, text_id, img_id, composed_id
+            dress_type = self.dress_type_dict[img_id]
+        return text, image_path, target_path, text_id, img_id, composed_id, dress_type
 
     def get_image(self, idx):
         return self.img_dict[idx]
