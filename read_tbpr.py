@@ -26,7 +26,7 @@ with open('D:\数据集\文本行人识别\ICFG-PDES\ICFG-PEDES/ICFG-PEDES.json'
 
 text_img_prompt = "Image of: <sent>"
 caption = [["a cat.", "a dog?"]]
-input_texts = [', '.join([cc.strip('.?, ') for cc in c]) for c in caption][0]
+input_texts = [', '.join([cc.strip('.?, ') for cc in c]) for c in caption][0].lower()
 print(input_texts)
 
 

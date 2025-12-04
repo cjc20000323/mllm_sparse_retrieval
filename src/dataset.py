@@ -246,8 +246,10 @@ class ComposedTextImageRetrievalDataset(Dataset):
                 for id in reader:
                     self.img_id_list.append(id)
                     self.img_dict[id] = id + '.png'
-                    if 'shirt' in dataset_split_file or 'toptee' in dataset_split_file:
+                    if 'shirt' in dataset_split_file:
                         self.dress_type_dict[id] = 'shirt'
+                    elif 'toptee' in dataset_split_file:
+                        self.dress_type_dict[id] = 'toptee'
                     else:
                         self.dress_type_dict[id] = 'dress'
 
@@ -283,13 +285,15 @@ class ComposedTextImageRetrievalDataset(Dataset):
             text_id = composed_id[indice + 1:]
             img_name = self.img_dict[img_id]
             target_name = self.img_dict[target_id]
-            text = [', '.join([cc.strip('.?, ') for cc in c]) for c in [self.text_dict[text_id]]][0]
+            text = [', '.join([cc.strip('.?, ') for cc in c]) for c in [self.text_dict[text_id]]][0].lower()
             # text = self.text_dict[text_id][0] + ' ' + self.text_dict[text_id][1]
             # target_name = self.img_dict[target_name]
             image_path = f'./data/{self.data_name}/images/images/{img_name}'
             target_path = f'./data/{self.data_name}/images/images/{target_name}'
             # target_id = self.composed2img[img_id]  # 这个模式下，拿出第一个对应的文本即可
             dress_type = self.dress_type_dict[img_id]
+            if dress_type == 'toptee':
+                dress_type = 'shirt'
         else:
             img_id = self.img_id_list[idx]
             img_name = self.img_dict[img_id]
@@ -300,6 +304,8 @@ class ComposedTextImageRetrievalDataset(Dataset):
             text_id = ''
             composed_id = ''
             dress_type = self.dress_type_dict[img_id]
+            if dress_type == 'toptee':
+                dress_type = 'shirt'
         return text, image_path, target_path, text_id, img_id, composed_id, dress_type
 
     def get_image(self, idx):
@@ -310,6 +316,9 @@ class ComposedTextImageRetrievalDataset(Dataset):
 
     def get_target(self, idx):
         return self.composed2img[idx]
+
+    def get_dress_type(self, idx):
+        return self.dress_type_dict[idx]
 
 
 class TextPersonRetrievalDataset(Dataset):

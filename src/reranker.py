@@ -763,10 +763,10 @@ class Reranker:
                         sharded_nll_list.extend(avg_nll.tolist())
                     for img_id, nll in zip(img_id_list, sharded_nll_list):
                         rerank_run[img_id] = -float(nll)
-                sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
-                if dist.get_rank() == 0:
-                    print(sorted_by_value_rerank_run)
-                rerank_fusion_run[k] = sorted_by_value_rerank_run
+                    sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
+                    if dist.get_rank() == 0:
+                        print(sorted_by_value_rerank_run)
+                    rerank_fusion_run[k] = sorted_by_value_rerank_run
             else:
                 for k, v in tqdm(fusion_run.items()):
                     # k是查询的id，v是一个字典，key是候选的id，value是查询和候选的相似度

@@ -2805,14 +2805,20 @@ def main():
         metric.sort_and_count()
 
         metric.all_gather_object()
-        fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
+        # fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
         if data_args.dataset_name != 'fashion-iq':
+            fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
             if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
                 max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
                 best_weight = float(i / 10)
         else:
-            if (fusion_recalls[10] + fusion_recalls[50]) / 2 > max_val_fusion_metric:
-                max_val_fusion_metric = (fusion_recalls[10] + fusion_recalls[50]) / 2
+            fusion_recalls = {dress: {k: sum(metric.fusion_recall_lists[dress][k]) for k in metric.recall_k_setting_list} for dress in metric.fashion_iq_list}
+            if (fusion_recalls['dress'][10] + fusion_recalls['dress'][50] + fusion_recalls['shirt'][10] +
+                fusion_recalls['shirt'][50] + fusion_recalls['toptee'][10] + fusion_recalls['toptee'][50]) / 6 > \
+                    max_val_fusion_metric:
+                max_val_fusion_metric = (fusion_recalls['dress'][10] + fusion_recalls['dress'][50] +
+                                         fusion_recalls['shirt'][10] + fusion_recalls['shirt'][50] +
+                                         fusion_recalls['toptee'][10] + fusion_recalls['toptee'][50]) / 6
                 best_weight = float(i / 10)
         metric.print_recall(output_path)
 
