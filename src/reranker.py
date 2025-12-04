@@ -232,6 +232,7 @@ class Reranker:
                         rerank_prompt_template = first_precise_caption_prompt
                     else:
                         rerank_prompt_template = relevant_prompt
+            '''
             conversation = [
                 {
 
@@ -244,6 +245,7 @@ class Reranker:
                 },
             ]
             prompt = self.processor.apply_chat_template(conversation, add_generation_prompt=True)
+            '''
             if rerank_type == 'pointwise':
                 if training_args.task_type == 'cir':
                     for k, v in tqdm(fusion_run.items()):
@@ -260,13 +262,13 @@ class Reranker:
                         img_name = self.img_path_map[k[:indice]]
                         image_path = f'./data/{self.data_name}/images/images/{img_name}'
                         raw_image = Image.open(image_path).convert('RGB')
-                        text = self.text_map[k[indice+1:]]
-                        target_name = self.dataset.get_target(k)
-                        target_path = f'./data/{self.data_name}/images/images/{target_name}'
-                        target_image = Image.open(target_path).convert('RGB')
+                        text = self.dataset.get_text(k[indice+1:])
+                        # target_name = self.dataset.get_target(k)
+                        # target_path = f'./data/{self.data_name}/images/images/{target_name}'
+                        # target_image = Image.open(target_path).convert('RGB')
                         for img_id, sim_score in candidate_pool.items():
                             text_input = rerank_prompt_template.replace('<sent>', text)
-                            candidate_image_path = f'./data/{self.data_name}/images/images/{img_id}'
+                            candidate_image_path = f'./data/{self.data_name}/images/images/{img_id}.png'
                             candidate_raw_image = Image.open(candidate_image_path).convert('RGB')
                             if rerank_prompt_type == 'origin_old_relevant':
                                 image_list = [candidate_raw_image, raw_image]

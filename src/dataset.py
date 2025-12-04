@@ -312,7 +312,7 @@ class ComposedTextImageRetrievalDataset(Dataset):
         return self.img_dict[idx]
 
     def get_text(self, idx):
-        return self.text_dict[idx]
+        return [', '.join([cc.strip('.?, ') for cc in c]) for c in [self.text_dict[idx]]][0].lower()
 
     def get_target(self, idx):
         return self.composed2img[idx]

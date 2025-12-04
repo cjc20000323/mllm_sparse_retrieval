@@ -4,7 +4,6 @@ import os
 import pickle
 from contextlib import nullcontext
 from itertools import chain
-import random
 
 import faiss
 import numpy as np
@@ -42,13 +41,10 @@ from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, ge
     retrieval_disassemble_image_prompts_3_for_concat, \
     retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, \
     retrieval_disassemble_image_prompts_7_for_concat, mistral_img_prompt, llava_mistral_template_image_prefix, \
-    llava_mistral_template_content_element, person_retrieval_img_prompt, mistral_person_retrieval_img_prompt, \
-    person_retrieval_img_prompt_1, mistral_person_retrieval_img_prompt_1, \
-    person_retrieval_img_prompt_for_concat, person_retrieval_img_prompt_for_concat_1, \
+    llava_mistral_template_content_element, person_retrieval_img_prompt_for_concat, person_retrieval_img_prompt_for_concat_1, \
     retrieval_disassemble_image_prompts_person_retrieval_for_concat, \
     retrieval_disassemble_image_prompts_person_retrieval_for_concat_1, \
-    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, mistral_person_retrieval_img_prompt_2, \
-    person_retrieval_img_prompt_2, person_retrieval_img_prompt_for_concat_2
+    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, person_retrieval_img_prompt_for_concat_2
 from hybrid import fuse
 from utils import load_image
 from peft import PeftModel
@@ -280,7 +276,7 @@ def main():
     if training_args.task_type == 'cir':
         dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split,
                                                     search_args.query_type)
-        val_dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split,
+        val_dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'val',
                                                     search_args.query_type)
     elif training_args.task_type == 'tbpr':
         dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'single')
@@ -1549,6 +1545,7 @@ def main():
                                 sparse_run.update(
                                     get_run_dict(batch_ids, sparse_scores, sparse_rankings,
                                                  search_args.remove_query))
+                    break
 
         elif training_args.task_type == 'tbpr':
             with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
@@ -2776,7 +2773,7 @@ def main():
 
     if training_args.task_type == 'cir':
         ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict, None,
-                          dataset.img_dict, processor.tokenizer.get_vocab(), choice_dataset)
+                          dataset.img_dict, processor.tokenizer.get_vocab(), dataset)
     else:
         if data_args.dataset_name == 'coco':
             ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict,
