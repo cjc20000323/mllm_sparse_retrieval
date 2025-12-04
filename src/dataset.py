@@ -283,7 +283,7 @@ class ComposedTextImageRetrievalDataset(Dataset):
             text_id = composed_id[indice + 1:]
             img_name = self.img_dict[img_id]
             target_name = self.img_dict[target_id]
-            text = [', '.join([cc.strip('.?, ') for cc in c]) for c in self.text_dict[text_id]][0]
+            text = [', '.join([cc.strip('.?, ') for cc in c]) for c in [self.text_dict[text_id]]][0]
             # text = self.text_dict[text_id][0] + ' ' + self.text_dict[text_id][1]
             # target_name = self.img_dict[target_name]
             image_path = f'./data/{self.data_name}/images/images/{img_name}'

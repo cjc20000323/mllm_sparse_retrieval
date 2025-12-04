@@ -1058,8 +1058,6 @@ def main():
                 with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
                     if model_args.calculate_type == 'separate':
                         prompt_list = [prompt.replace("{}", dress_type_item) for dress_type_item in dress_type]
-                        if dist.get_rank() == 0:
-                            print(prompt_list)
                         raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                         img_inputs = processor(images=raw_images, text=prompt_list,
                                                return_tensors="pt",

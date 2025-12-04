@@ -316,8 +316,15 @@ class MLLMRetrievalModel(nn.Module):
             prompt = llama3_fashion_iq_composed_image_prompt
 
         if input_type == 'composed':
-            prompt = prompt.replace("{}", dress_type)
-            text_inputs = processor(images=image_input, text=[prompt.replace('<sent>', text) for text in text_input],
+            # prompt = prompt.replace("{}", dress_type)
+            prompt_list = [prompt.replace("{}", dress_type_item) for dress_type_item in dress_type]
+            for i in range(len(prompt_list)):
+                prompt_list[i] = prompt_list[i].replace('<sent>', text_input[i])
+            '''
+            if dist.get_rank() == 0:
+                print(prompt_list)
+            '''
+            text_inputs = processor(images=image_input, text=prompt_list,
                                     return_tensors="pt",
                                     padding=True).to(device)
             output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
@@ -1249,6 +1256,8 @@ class MLLMRetrievalModel(nn.Module):
                 content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
                 prompt_template += content_element
         prompt_list = [prompt_template.replace("{}", dress_type_item) for dress_type_item in dress_type]
+        for i in range(len(prompt_list)):
+            prompt_list[i] = prompt_list[i].replace('<sent>', text_input[i])
         if input_type == 'composed':
             text_inputs = processor(images=image_input, text=prompt_list,
                                     return_tensors="pt", padding=True).to(device)

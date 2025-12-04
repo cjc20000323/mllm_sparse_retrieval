@@ -20,3 +20,6 @@ plt.show() # 显示图表
 str_a = "{} is a good shirt. {}, {}"
 str_b = str_a.replace('{}', 'toptee')
 print(str_b)
+
+a = [', '.join([cc.strip('.?, ') for cc in c]) for c in ['I love cat.', 'I love dog.']]
+print(a)

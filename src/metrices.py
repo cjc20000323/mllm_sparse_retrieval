@@ -11,9 +11,17 @@ class RecallMetrics:
             self.recall_k_setting_list = [10, 50, 100, 200, 300, 400]
         else:
             self.recall_k_setting_list = [1, 5, 10, 100, 200, 300, 400]
-        self.dense_counts = {k: 0 for k in self.recall_k_setting_list}
-        self.sparse_counts = {k: 0 for k in self.recall_k_setting_list}
-        self.fusion_counts = {k: 0 for k in self.recall_k_setting_list}
+
+        self.fashion_iq_list = ['shirt', 'dress', 'toptee']
+
+        if dataset.data_name == 'fashion-iq':
+            self.dense_counts = {dress_type: {k: 0 for k in self.recall_k_setting_list} for dress_type in self.fashion_iq_list}
+            self.sparse_counts = {dress_type: {k: 0 for k in self.recall_k_setting_list} for dress_type in self.fashion_iq_list}
+            self.fusion_counts = {dress_type: {k: 0 for k in self.recall_k_setting_list} for dress_type in self.fashion_iq_list}
+        else:
+            self.dense_counts = {k: 0 for k in self.recall_k_setting_list}
+            self.sparse_counts = {k: 0 for k in self.recall_k_setting_list}
+            self.fusion_counts = {k: 0 for k in self.recall_k_setting_list}
         self.counter = {k: 0 for k in [0, 1, 2]}
         # k=0代表r@1候选集正确但是重排后错误
         # k=1代表r@1候选集错误，重排后错误但是候选集r@5包含正确答案
@@ -21,12 +29,20 @@ class RecallMetrics:
         self.max_statistical_error_counts = {k: 0 for k in [0, 3, 5, 8, 10]}
         self.min_statistical_error_counts = {k: 0 for k in [0, 3, 5, 8, 10]}
         self.statistical_error_counts = {k: 0 for k in [0, 3, 5, 8, 10]}
-        self.dense_recall_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in
-                                   self.recall_k_setting_list}
-        self.sparse_recall_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in
-                                    self.recall_k_setting_list}
-        self.fusion_recall_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in
-                                    self.recall_k_setting_list}
+        if dataset.data_name == 'fashion-iq':
+            self.dense_recall_lists = {dress_type: {k: [[None] for _ in range(dist.get_world_size())] for k in
+                                       self.recall_k_setting_list} for dress_type in self.fashion_iq_list}
+            self.sparse_recall_lists = {dress_type: {k: [[None] for _ in range(dist.get_world_size())] for k in
+                                        self.recall_k_setting_list} for dress_type in self.fashion_iq_list}
+            self.fusion_recall_lists = {dress_type: {k: [[None] for _ in range(dist.get_world_size())] for k in
+                                        self.recall_k_setting_list} for dress_type in self.fashion_iq_list}
+        else:
+            self.dense_recall_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in
+                                       self.recall_k_setting_list}
+            self.sparse_recall_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in
+                                        self.recall_k_setting_list}
+            self.fusion_recall_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in
+                                        self.recall_k_setting_list}
         self.counter_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in [0, 1, 2]}
 
         self.max_statistical_error_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in [0, 3, 5, 8, 10]}
