@@ -8,7 +8,7 @@ class RecallMetrics:
 
     def __init__(self, dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args):
         if dataset.data_name == 'fashion-iq':
-            self.recall_k_setting_list = [10, 20, 30, 50, 100, 200, 300, 400]
+            self.recall_k_setting_list = [1, 5, 10, 20, 30, 50, 100, 200, 300, 400]
         else:
             self.recall_k_setting_list = [1, 5, 10, 100, 200, 300, 400]
 
@@ -326,7 +326,7 @@ class RecallMetrics:
                 # 将DataFrame写入Excel文件，index=False表示不写入行索引
                 df.to_excel(output_path, index=False)
             else:
-                xlsx_data.append([10, 20, 30, 50, 100, 200, 300, 400])
+                xlsx_data.append([1, 5, 10, 20, 30, 50, 100, 200, 300, 400])
                 for dress_type in self.fashion_iq_list:
                     if len(self.dense_run) > 0:
                         print(len(self.look_up))
@@ -336,7 +336,9 @@ class RecallMetrics:
                         for k in self.recall_k_setting_list:
                             print('Dense recall @ {}: {}'.format(k, self.dense_recall_lists[dress_type][k]))
                         print(
-                            'Dense reps recall: r@10 {}, r@20 {}, r@30 {}, r@50 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
+                            'Dense reps recall: r@1 {}, r@5 {}, r@10 {}, r@20 {}, r@30 {}, r@50 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
+                                dense_recalls[dress_type][1],
+                                dense_recalls[dress_type][5],
                                 dense_recalls[dress_type][10],
                                 dense_recalls[dress_type][20],
                                 dense_recalls[dress_type][30],
@@ -346,7 +348,9 @@ class RecallMetrics:
                                 dense_recalls[dress_type][300],
                                 dense_recalls[dress_type][400]
                             ))
-                        xlsx_data.append([dense_recalls[dress_type][10],
+                        xlsx_data.append([dense_recalls[dress_type][1],
+                                          dense_recalls[dress_type][5],
+                                          dense_recalls[dress_type][10],
                                           dense_recalls[dress_type][20],
                                           dense_recalls[dress_type][30],
                                           dense_recalls[dress_type][50],
@@ -360,7 +364,9 @@ class RecallMetrics:
                         for k in self.recall_k_setting_list:
                             print('Sparse recall @ {}: {}'.format(k, self.sparse_recall_lists[dress_type][k]))
                         print(
-                            'Sparse reps recall: r@10 {}, r@20 {}, r@30 {}, r@50 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
+                            'Sparse reps recall: r@1 {}, r@5 {}, r@10 {}, r@20 {}, r@30 {}, r@50 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
+                                sparse_recalls[dress_type][1],
+                                sparse_recalls[dress_type][5],
                                 sparse_recalls[dress_type][10],
                                 sparse_recalls[dress_type][20],
                                 sparse_recalls[dress_type][30],
@@ -369,7 +375,9 @@ class RecallMetrics:
                                 sparse_recalls[dress_type][200],
                                 sparse_recalls[dress_type][300],
                                 sparse_recalls[dress_type][400]))
-                        xlsx_data.append([sparse_recalls[dress_type][10],
+                        xlsx_data.append([sparse_recalls[dress_type][1],
+                                          sparse_recalls[dress_type][5],
+                                          sparse_recalls[dress_type][10],
                                           sparse_recalls[dress_type][20],
                                           sparse_recalls[dress_type][30],
                                           sparse_recalls[dress_type][50],
@@ -382,7 +390,9 @@ class RecallMetrics:
                         for k in self.recall_k_setting_list:
                             print('Fusion/Hybrid recall @ {}: {}'.format(k, self.fusion_recall_lists[dress_type][k]))
                         print(
-                            'Fusion/Hybrid reps recall: r@10 {}, r@20 {}, r@30 {}, r@50 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
+                            'Fusion/Hybrid reps recall: r@1 {}, r@5 {}, r@10 {}, r@20 {}, r@30 {}, r@50 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
+                                fusion_recalls[dress_type][1],
+                                fusion_recalls[dress_type][5],
                                 fusion_recalls[dress_type][10],
                                 fusion_recalls[dress_type][20],
                                 fusion_recalls[dress_type][30],
@@ -391,7 +401,9 @@ class RecallMetrics:
                                 fusion_recalls[dress_type][200],
                                 fusion_recalls[dress_type][300],
                                 fusion_recalls[dress_type][400]))
-                        xlsx_data.append([fusion_recalls[dress_type][10],
+                        xlsx_data.append([fusion_recalls[dress_type][1],
+                                          fusion_recalls[dress_type][5],
+                                          fusion_recalls[dress_type][10],
                                           fusion_recalls[dress_type][20],
                                           fusion_recalls[dress_type][30],
                                           fusion_recalls[dress_type][50],

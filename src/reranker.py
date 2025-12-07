@@ -253,9 +253,11 @@ class Reranker:
                         sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
                         candidate_pool = dict(sorted_by_value[:rerank_num])
                         rerank_run = {}
+                        '''
                         if dist.get_rank() == 0:
                             print(k)
                             print(candidate_pool)
+                        '''
 
                         # 正常情况下，cir任务的k应该是composed2img的keys，_前是图像id，_后是文本id，取出来的值也是图像id
                         indice = k.index('_')
@@ -263,11 +265,19 @@ class Reranker:
                         image_path = f'./data/{self.data_name}/images/images/{img_name}'
                         raw_image = Image.open(image_path).convert('RGB')
                         text = self.dataset.get_text(k[indice+1:])
+                        dress_type = self.dataset.get_dress_type(k[:indice])
+                        if dress_type == 'toptee':
+                            dress_type = 'shirt'
+                        template = rerank_prompt_template.replace("{}", dress_type)
+                        '''
+                        if dist.get_rank() == 0:
+                            print(template)
+                        '''
                         # target_name = self.dataset.get_target(k)
                         # target_path = f'./data/{self.data_name}/images/images/{target_name}'
                         # target_image = Image.open(target_path).convert('RGB')
                         for img_id, sim_score in candidate_pool.items():
-                            text_input = rerank_prompt_template.replace('<sent>', text)
+                            text_input = template.replace('<sent>', text)
                             candidate_image_path = f'./data/{self.data_name}/images/images/{img_id}.png'
                             candidate_raw_image = Image.open(candidate_image_path).convert('RGB')
                             if rerank_prompt_type == 'origin_old_relevant':

@@ -318,7 +318,8 @@ class ComposedTextImageRetrievalDataset(Dataset):
         return self.composed2img[idx]
 
     def get_dress_type(self, idx):
-        return self.dress_type_dict[idx]
+        dress_type = self.dress_type_dict[idx]
+        return dress_type
 
 
 class TextPersonRetrievalDataset(Dataset):
