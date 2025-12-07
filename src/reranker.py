@@ -307,10 +307,10 @@ class Reranker:
                             output_probs = F.softmax(logit_tensor, dim=1)  # 同样指定dim=1
                             yes_prob = output_probs.squeeze()[0]
                             rerank_run[img_id] = float(yes_prob)
-                    sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
-                    if dist.get_rank() == 0:
-                        print(sorted_by_value_rerank_run)
-                    rerank_fusion_run[k] = sorted_by_value_rerank_run
+                        sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
+                        if dist.get_rank() == 0:
+                            print(sorted_by_value_rerank_run)
+                        rerank_fusion_run[k] = sorted_by_value_rerank_run
                 elif training_args.task_type == 'tbpr':
                     for k, v in tqdm(fusion_run.items()):
                         sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
