@@ -32,7 +32,9 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     person_retrieval_query_relevant_prompt, person_retrieval_query_generation_paradigm_prompt, \
     person_retrieval_mistral_query_generation_paradigm_prompt, person_retrieval_query_generation_paradigm_prompt_1, \
     person_retrieval_mistral_query_generation_paradigm_prompt_1, person_retrieval_query_generation_paradigm_prompt_2, \
-    person_retrieval_mistral_query_generation_paradigm_prompt_2
+    person_retrieval_mistral_query_generation_paradigm_prompt_2, mistral_fashion_iq_role_old_query_relevant_prompt, \
+    mistral_fashion_iq_role_relevant_prompt, mistral_fashion_iq_in_one_word_relevant_prompt, \
+    mistral_fashion_iq_please_relevant_prompt
 
 from PIL import Image
 import torch.nn.functional as F
@@ -121,6 +123,14 @@ class Reranker:
                         rerank_prompt_template = mistral_fashion_iq_query_relevant_prompt
                     elif rerank_prompt_type == 'origin_old_relevant':
                         rerank_prompt_template = mistral_fashion_iq_origin_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'please_relevant':
+                        rerank_prompt_template = mistral_fashion_iq_please_relevant_prompt
+                    elif rerank_prompt_type == 'in_one_word_relevant':
+                        rerank_prompt_template = mistral_fashion_iq_in_one_word_relevant_prompt
+                    elif rerank_prompt_type == 'role_relevant':
+                        rerank_prompt_template = mistral_fashion_iq_role_relevant_prompt
+                    elif rerank_prompt_type == 'role_old_relevant':
+                        rerank_prompt_template = mistral_fashion_iq_role_old_query_relevant_prompt
                     else:
                         rerank_prompt_template = mistral_fashion_iq_relevant_prompt
                 else:
