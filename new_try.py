@@ -23,3 +23,95 @@ print(str_b)
 
 a = [', '.join([cc.strip('.?, ') for cc in c]) for c in ['I love cat.', 'I love dog.']]
 print(a)
+
+x = np.array([1, 5, 10, 20, 30, 50, 100, 200, 300, 400])
+y = np.array([0.036310108, 0.098135427, 0.139842983, 0.194798822, 0.239450442, 0.291462218, 0.390578999, 0.490186457, 0.557409225, 0.602060844])
+y1 = np.array([0.017174, 0.045633, 0.073602, 0.110402, 0.143768, 0.186457, 0.267419, 0.368989, 0.43474, 0.483808])
+y2 = np.array([0.029441, 0.067223, 0.097154, 0.126104, 0.152601, 0.189401, 0.24632, 0.3263, 0.382237, 0.424926])
+y3 = np.array([0.035329, 0.098626, 0.152601, 0.2105, 0.249755, 0.314033, 0.402355, 0.508342, 0.569676, 0.621688])
+y4 = np.array([0.048086, 0.118253, 0.160942, 0.214917, 0.255152, 0.308636, 0.400393, 0.504907, 0.574583, 0.62316])
+plt.figure()
+plt.plot(x, [i*100 for i in y], marker='o', linestyle='-', color='g', label='dense') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.plot(x, [i*100 for i in y1], marker='o', linestyle='-', color='b', label='perspective sparse 20') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.plot(x, [i*100 for i in y2], marker='o', linestyle='-', color='r', label='sparse 128')
+plt.plot(x, [i*100 for i in y3], marker='^', linestyle='-', color='b', label='perspective hybrid 20') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.plot(x, [i*100 for i in y4], marker='^', linestyle='-', color='r', label='hybrid 128')
+plt.xlabel('k') # X轴标签
+plt.ylabel('r@k') # Y轴标签
+plt.grid(True) # 显示网格
+plt.legend()
+plt.title('shirt')
+plt.show() # 显示图表
+
+y = np.array([0.027268, 0.090729, 0.131383, 0.188399, 0.226078, 0.285077, 0.39762, 0.521567, 0.600397, 0.663857])
+y1 = np.array([0.014378, 0.043133, 0.072385, 0.113039, 0.145761, 0.194844, 0.275161, 0.371839, 0.445711, 0.499256])
+y2 = np.array([0.002479, 0.019831, 0.02826, 0.043133, 0.052553, 0.076351, 0.128409, 0.189886, 0.238473, 0.283589])
+y3 = np.array([0.032226, 0.093208, 0.133862, 0.196827, 0.244422, 0.307883, 0.411502, 0.534953, 0.610312, 0.670302])
+y4 = np.array([0.030243, 0.086267, 0.119484, 0.165592, 0.207734, 0.271691, 0.367377, 0.483887, 0.565692, 0.635597])
+plt.figure()
+plt.plot(x, [i*100 for i in y], marker='o', linestyle='-', color='g', label='dense') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.plot(x, [i*100 for i in y1], marker='o', linestyle='-', color='b', label='perspective sparse 20') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.plot(x, [i*100 for i in y2], marker='o', linestyle='-', color='r', label='sparse 128')
+plt.plot(x, [i*100 for i in y3], marker='^', linestyle='-', color='b', label='perspective hybrid 20') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.plot(x, [i*100 for i in y4], marker='^', linestyle='-', color='r', label='hybrid 128')
+plt.xlabel('k') # X轴标签
+plt.ylabel('r@k') # Y轴标签
+plt.grid(True) # 显示网格
+plt.legend()
+plt.title('dress')
+
+plt.show() # 显示图表
+y = np.array([0.037736, 0.107598, 0.154003, 0.219786, 0.261091, 0.319225, 0.413565, 0.515553, 0.582356, 0.626721])
+y1 = np.array([0.012239, 0.049465, 0.080571, 0.122896, 0.156553, 0.199898, 0.279449, 0.374809, 0.444161, 0.486486])
+y2 = np.array([0.025497, 0.053034, 0.071902, 0.103009, 0.124936, 0.151453, 0.198368, 0.27588, 0.335033, 0.376339])
+y3 = np.array([0.036206, 0.105558, 0.160122, 0.226415, 0.27027, 0.334013, 0.425293, 0.531871, 0.596124, 0.6359])
+y4 = np.array([0.048445, 0.109128, 0.166752, 0.231515, 0.27282, 0.329424, 0.420704, 0.531362, 0.592555, 0.63488])
+plt.figure()
+plt.plot(x, [i*100 for i in y], marker='o', linestyle='-', color='g', label='dense') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.plot(x, [i*100 for i in y1], marker='o', linestyle='-', color='b', label='perspective sparse 20') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.plot(x, [i*100 for i in y2], marker='o', linestyle='-', color='r', label='sparse 128')
+plt.plot(x, [i*100 for i in y3], marker='^', linestyle='-', color='b', label='perspective hybrid 20') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.plot(x, [i*100 for i in y4], marker='^', linestyle='-', color='r', label='hybrid 128')
+plt.xlabel('k') # X轴标签
+plt.ylabel('r@k') # Y轴标签
+plt.grid(True) # 显示网格
+plt.legend()
+plt.title('toptee')
+plt.show() # 显示图表
+
+x = np.array([1, 5, 10, 20])
+y1 = np.array([0.054956, 0.125613, 0.168793, 0.2105])
+y2 = np.array([0.035329, 0.098626, 0.152601, 0.2105])
+plt.figure()
+plt.plot(x, [i*100 for i in y1], marker='o', linestyle='-', color='r', label='after rerank') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.plot(x, [i*100 for i in y2], marker='o', linestyle='-', color='b', label='before rerank') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.xlabel('k') # X轴标签
+plt.ylabel('r@k') # Y轴标签
+plt.grid(True) # 显示网格
+plt.legend()
+plt.title('shirt')
+plt.show() # 显示图表
+
+y1 = np.array([0.033218, 0.111056, 0.156173, 0.196827])
+y2 = np.array([0.032226, 0.093208, 0.133862, 0.196827])
+plt.figure()
+plt.plot(x, [i*100 for i in y1], marker='o', linestyle='-', color='r', label='after rerank') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.plot(x, [i*100 for i in y2], marker='o', linestyle='-', color='b', label='before rerank') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.xlabel('k') # X轴标签
+plt.ylabel('r@k') # Y轴标签
+plt.grid(True) # 显示网格
+plt.legend()
+plt.title('dress')
+plt.show() # 显示图表
+
+y1 = np.array([0.062723, 0.139725, 0.175931, 0.226415])
+y2 = np.array([0.036206, 0.105558, 0.160122, 0.226415])
+plt.figure()
+plt.plot(x, [i*100 for i in y1], marker='o', linestyle='-', color='r', label='after rerank') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.plot(x, [i*100 for i in y2], marker='o', linestyle='-', color='b', label='before rerank') # 绘制折线，并设置数据点标记、线条样式和颜色
+plt.xlabel('k') # X轴标签
+plt.ylabel('r@k') # Y轴标签
+plt.grid(True) # 显示网格
+plt.legend()
+plt.title('toptee')
+plt.show() # 显示图表

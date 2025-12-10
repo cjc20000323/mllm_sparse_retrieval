@@ -34,7 +34,11 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     person_retrieval_mistral_query_generation_paradigm_prompt_1, person_retrieval_query_generation_paradigm_prompt_2, \
     person_retrieval_mistral_query_generation_paradigm_prompt_2, mistral_fashion_iq_role_old_query_relevant_prompt, \
     mistral_fashion_iq_role_relevant_prompt, mistral_fashion_iq_in_one_word_relevant_prompt, \
-    mistral_fashion_iq_please_relevant_prompt
+    mistral_fashion_iq_please_relevant_prompt, mistral_origin_old_image_reverse_query_relevant_prompt, \
+    mistral_origin_old_text_reverse_query_relevant_prompt, origin_old_image_reverse_query_relevant_prompt, \
+    origin_old_text_reverse_query_relevant_prompt, mistral_old_text_reverse_query_relevant_prompt, \
+    mistral_old_image_reverse_query_relevant_prompt, old_text_reverse_query_relevant_prompt, \
+    old_image_reverse_query_relevant_prompt
 
 from PIL import Image
 import torch.nn.functional as F
@@ -176,6 +180,11 @@ class Reranker:
                             rerank_prompt_template = mistral_old_image_query_relevant_prompt
                         else:
                             rerank_prompt_template = mistral_old_text_query_relevant_prompt
+                    elif rerank_prompt_type == 'old_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = mistral_old_image_reverse_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = mistral_old_text_reverse_query_relevant_prompt
                     elif rerank_prompt_type == 'please_relevant':
                         rerank_prompt_template = mistral_please_relevant_prompt
                     elif rerank_prompt_type == 'in_one_word_relevant':
@@ -192,6 +201,11 @@ class Reranker:
                             rerank_prompt_template = mistral_origin_old_image_query_relevant_prompt
                         else:
                             rerank_prompt_template = mistral_origin_old_text_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_origin_old_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = mistral_origin_old_image_reverse_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = mistral_origin_old_text_reverse_query_relevant_prompt
                     elif rerank_prompt_type == 'role_relevant':
                         rerank_prompt_template = mistral_role_relevant_prompt
                     elif rerank_prompt_type == 'role_precise_caption':
@@ -213,6 +227,11 @@ class Reranker:
                             rerank_prompt_template = old_image_query_relevant_prompt
                         else:
                             rerank_prompt_template = old_text_query_relevant_prompt
+                    elif rerank_prompt_type == 'old_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = old_image_reverse_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = old_text_reverse_query_relevant_prompt
                     elif rerank_prompt_type == 'please_relevant':
                         rerank_prompt_template = please_relevant_prompt
                     elif rerank_prompt_type == 'in_one_word_relevant':
@@ -229,6 +248,11 @@ class Reranker:
                             rerank_prompt_template = origin_old_image_query_relevant_prompt
                         else:
                             rerank_prompt_template = origin_old_text_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_origin_old_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = origin_old_image_reverse_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = origin_old_text_reverse_query_relevant_prompt
                     elif rerank_prompt_type == 'role_relevant':
                         rerank_prompt_template = role_relevant_prompt
                     elif rerank_prompt_type == 'role_precise_caption':
