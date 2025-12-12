@@ -2,6 +2,7 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/BLIP" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/E5-V" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/nltk_data" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/tevatron" vcs="Git" />
