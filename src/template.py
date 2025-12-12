@@ -271,7 +271,7 @@ retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat = [
     'Describe the color of this modified {} in one word based on its style: ',
     'Describe the pattern of this modified {} in one word based on its style: ',
     'Describe the design style of this modified {} in one word based on its style: ',
-    'Describe the length characteristics of this modified {} in one word based on its style: '
+    'Describe the length characteristics of different part, such as sleeve, neck, shoulder and so on, of this {} in one word based on its style: '
 ]
 
 retrieval_disassemble_image_prompts_fashion_iq_for_concat = [
