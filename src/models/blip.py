@@ -8,13 +8,12 @@
 import warnings
 warnings.filterwarnings("ignore")
 
-from vit import VisionTransformer, interpolate_pos_embed
-from med import BertConfig, BertModel, BertLMHeadModel
+from .vit import VisionTransformer, interpolate_pos_embed
+from .med import BertConfig, BertModel, BertLMHeadModel
 from transformers import BertTokenizer
 
 import torch
 from torch import nn
-import torch.nn.functional as F
 
 import os
 from urllib.parse import urlparse
@@ -22,7 +21,7 @@ from timm.models.hub import download_cached_file
 
 class BLIP_Base(nn.Module):
     def __init__(self,                 
-                 med_config = 'configs/med_config.json',  
+                 med_config = 'src/configs/med_config.json',
                  image_size = 224,
                  vit = 'base',
                  vit_grad_ckpt = False,

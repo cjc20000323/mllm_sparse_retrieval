@@ -27,6 +27,8 @@ import torch.nn.functional as F
 from nltk.corpus import stopwords
 import string
 from encode_dense import blip_load_image
+from models.blip_itm import blip_itm
+from eva_clip import create_model_and_transforms, get_tokenizer
 
 # from cuml.cluster import KMeans
 
@@ -152,14 +154,17 @@ def main():
         torch_type = torch.float32
 
     # 指定模型
-    if 'clip' in model_args.model_name_or_path:
+    if 'eva' in model_args.model_name_or_path:
+        encoder, _, processor = create_model_and_transforms('EVA02_CLIP_E_psz14_plus_s9B', model_args.model_name_or_path + '/EVA02_CLIP_E_psz14_plus_s9B.pt',
+                                                           force_custom_clip=True)
+        encoder = encoder.to(device)
+    elif 'clip' in model_args.model_name_or_path:
         encoder = CLIPModel.from_pretrained(model_args.model_name_or_path, device_map=device_map,
                                                 torch_dtype=torch_type)
         processor = CLIPProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'blip' in model_args.model_name_or_path:
-        encoder = BLIP_Base(vit='large')
-        encoder, msg = load_checkpoint(encoder, model_args.model_name_or_path)
-        print(msg)
+        encoder = blip_itm(pretrained=model_args.model_name_or_path + '/model_large.pth', vit='large')
+        encoder = encoder.to(device)
         processor = None
     else:
         encoder = CLIPModel.from_pretrained(model_args.model_name_or_path, device_map=device_map,
@@ -253,7 +258,11 @@ def main():
                 for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                              total=len(test_dataloader)):
                     lookup_indices.extend(text_ids)
-                    if 'clip' in model_args.model_name_or_path:
+                    if 'eva' in model_args.model_name_or_path:
+                        tokenizer = get_tokenizer('EVA02_CLIP_E_psz14_plus_s9B')
+                        text = tokenizer(texts).to(device)
+                        query_dense_reps = encoder.encode_text(text)
+                    elif 'clip' in model_args.model_name_or_path:
                         text_inputs = processor(text=texts, return_tensors="pt", padding=True)
                         if text_inputs['input_ids'].shape[1] > 77:
                             text_inputs['input_ids'] = text_inputs['input_ids'][:, :77]
@@ -263,7 +272,9 @@ def main():
                     else:
                         text_input = encoder.tokenizer(texts, padding='max_length', truncation=True, max_length=35,
                                                        return_tensors="pt").to(device)
-                        query_dense_reps = encoder(imgs, text_input, 'text')
+                        text_output = encoder.text_encoder(text_input.input_ids,
+                                                           attention_mask=text_input.attention_mask, mode='text')
+                        query_dense_reps = encoder.text_proj(text_output.last_hidden_state[:, 0, :])
 
                     batch_ids = text_ids
 
@@ -285,7 +296,12 @@ def main():
                         lookup_indices.extend(img_ids)
 
                     if search_args.query_type == 'text':
-                        if 'clip' in model_args.model_name_or_path:
+                        if 'eva' in model_args.model_name_or_path:
+                            tokenizer = get_tokenizer('EVA02_CLIP_E_psz14_plus_s9B')
+                            text = tokenizer(texts).to(device)
+                            query_dense_reps = encoder.encode_text(text)
+
+                        elif 'clip' in model_args.model_name_or_path:
                             text_inputs = processor(text=texts, return_tensors="pt", padding=True)
                             if text_inputs['input_ids'].shape[1] > 77:
                                 text_inputs['input_ids'] = text_inputs['input_ids'][:, :77]
@@ -295,16 +311,24 @@ def main():
                         else:
                             text_input = encoder.tokenizer(texts, padding='max_length', truncation=True, max_length=35,
                                                            return_tensors="pt").to(device)
-                            query_dense_reps = encoder(imgs, text_input, 'text')
+                            text_output = encoder.text_encoder(text_input.input_ids,
+                                                               attention_mask=text_input.attention_mask, mode='text')
+                            query_dense_reps = encoder.text_proj(text_output.last_hidden_state[:, 0, :])
                     else:
-                        if 'clip' in model_args.model_name_or_path:
+                        if 'eva' in model_args.model_name_or_path:
+                            image = [processor(Image.open(path)).unsqueeze(0).to(device) for path in imgs_path]
+                            image = torch.cat(image)
+                            query_dense_reps = encoder.encode_image(image)
+                        elif 'clip' in model_args.model_name_or_path:
                             raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                             img_inputs = processor(images=raw_images, return_tensors="pt", padding=True)
                             imgs = img_inputs.to(device)
                             query_dense_reps = encoder.get_image_features(imgs['pixel_values'])
                         else:
-                            raw_images = [blip_load_image(path, 384, device) for path in imgs_path]
-                            query_dense_reps = encoder(raw_images, texts, 'image')
+                            raw_images = [blip_load_image(path, 384, device).to(device) for path in imgs_path]
+                            raw_images = torch.cat(raw_images)
+                            image_feat = encoder.visual_encoder(raw_images)
+                            query_dense_reps = encoder.vision_proj(image_feat[:, 0, :])
 
 
                     if search_args.query_type == 'text':
@@ -322,8 +346,6 @@ def main():
         if dense_retriever:
             del dense_retriever
             torch.cuda.empty_cache()
-
-    max_val_fusion_metric = 0
 
     if data_args.is_filtered:
         filtered = "filter"

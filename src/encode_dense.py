@@ -22,7 +22,8 @@ from transformers import CLIPModel, CLIPProcessor, BlipModel, BlipProcessor
 from arguments import PromptRepsLLMDataArguments, ModelArguments
 from arguments import TrainingArguments
 from dataset import CrossModalRetrievalDataset, TextPersonRetrievalDataset
-from models.blip import BLIP_Base, load_checkpoint
+from models.blip_itm import BLIP_ITM, blip_itm
+from eva_clip import create_model_and_transforms, get_tokenizer
 
 
 def blip_load_image(image, image_size, device):
@@ -77,14 +78,17 @@ def main():
         torch_type = torch.float32
 
     # 指定模型
-    if 'clip' in model_args.model_name_or_path:
+    if 'eva' in model_args.model_name_or_path:
+        encoder, _, processor = create_model_and_transforms('EVA02_CLIP_E_psz14_plus_s9B', model_args.model_name_or_path + '/EVA02_CLIP_E_psz14_plus_s9B.pt',
+                                                           force_custom_clip=True)
+        encoder = encoder.to(device)
+    elif 'clip' in model_args.model_name_or_path:
         encoder = CLIPModel.from_pretrained(model_args.model_name_or_path, device_map=device_map,
                                                                 torch_dtype=torch_type)
         processor = CLIPProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'blip' in model_args.model_name_or_path:
-        encoder = BLIP_Base(vit='large')
-        encoder, msg = load_checkpoint(encoder, model_args.model_name_or_path)
-        print(msg)
+        encoder = blip_itm(pretrained=model_args.model_name_or_path + '/model_large.pth', vit='large')
+        encoder = encoder.to(device)
         processor = None
     else:
         encoder = CLIPModel.from_pretrained(model_args.model_name_or_path, device_map=device_map,
@@ -114,14 +118,21 @@ def main():
         if training_args.task_type == 'tbpr':
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
-                if 'clip' in model_args.model_name_or_path:
+                if 'eva' in model_args.model_name_or_path:
+                    image = [processor(Image.open(path)).unsqueeze(0).to(device) for path in imgs_path]
+                    image = torch.cat(image)
+                    reps = encoder.encode_image(image)
+
+                elif 'clip' in model_args.model_name_or_path:
                     raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                     img_inputs = processor(images=raw_images, return_tensors="pt", padding=True)
                     imgs = img_inputs.to(device)
                     reps = encoder.get_image_features(imgs['pixel_values'])
                 else:
-                    raw_images = [blip_load_image(path, 384, device) for path in imgs_path]
-                    reps = encoder(raw_images, texts, 'image')
+                    raw_images = [blip_load_image(path, 384, device).to(device) for path in imgs_path]
+                    raw_images = torch.cat(raw_images)
+                    image_feat = encoder.visual_encoder(raw_images)
+                    reps = encoder.vision_proj(image_feat[:, 0, :])
 
                 # print(logits.shape)
                 reps = F.normalize(reps, dim=-1)
@@ -137,7 +148,11 @@ def main():
                         print(len(texts))
                         print(dist.get_rank())
                     if training_args.encode_type == 'text':
-                        if 'clip' in model_args.model_name_or_path:
+                        if 'eva' in model_args.model_name_or_path:
+                            tokenizer = get_tokenizer('EVA02_CLIP_E_psz14_plus_s9B')
+                            text = tokenizer(texts).to(device)
+                            reps = encoder.encode_text(text)
+                        elif 'clip' in model_args.model_name_or_path:
                             text_inputs = processor(text=texts, return_tensors="pt", padding=True)
                             if text_inputs['input_ids'].shape[1] > 77:
                                 text_inputs['input_ids'] = text_inputs['input_ids'][:, :77]
@@ -147,16 +162,24 @@ def main():
                         else:
                             text_input = encoder.tokenizer(texts, padding='max_length', truncation=True, max_length=35,
                                                          return_tensors="pt").to(device)
-                            reps = encoder(imgs, text_input, 'text')
+                            text_output = encoder.text_encoder(text_input.input_ids,
+                                                             attention_mask=text_input.attention_mask, mode='text')
+                            reps = encoder.text_proj(text_output.last_hidden_state[:, 0, :])
                     else:
-                        if 'clip' in model_args.model_name_or_path:
+                        if 'eva' in model_args.model_name_or_path:
+                            image = [processor(Image.open(path)).unsqueeze(0).to(device) for path in imgs_path]
+                            image = torch.cat(image)
+                            reps = encoder.encode_image(image)
+                        elif 'clip' in model_args.model_name_or_path:
                             raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                             img_inputs = processor(images=raw_images, return_tensors="pt", padding=True)
                             imgs = img_inputs.to(device)
                             reps = encoder.get_image_features(imgs['pixel_values'])
                         else:
-                            raw_images = [blip_load_image(path, 384, device) for path in imgs_path]
-                            reps = encoder(raw_images, texts, 'image')
+                            raw_images = [blip_load_image(path, 384, device).to(device) for path in imgs_path]
+                            raw_images = torch.cat(raw_images)
+                            image_feat = encoder.visual_encoder(raw_images)
+                            reps = encoder.vision_proj(image_feat[:, 0, :])
 
                     # print(logits.shape)
                     reps = F.normalize(reps, dim=-1)
