@@ -155,7 +155,7 @@ def main():
 
     # 指定模型
     if 'eva' in model_args.model_name_or_path:
-        encoder, _, processor = create_model_and_transforms('EVA02_CLIP_E_psz14_plus_s9B', model_args.model_name_or_path + '/EVA02_CLIP_E_psz14_plus_s9B.pt',
+        encoder, _, processor = create_model_and_transforms('EVA02-CLIP-bigE-14-plus', model_args.model_name_or_path + '/EVA02_CLIP_E_psz14_plus_s9B.pt',
                                                            force_custom_clip=True)
         encoder = encoder.to(device)
     elif 'clip' in model_args.model_name_or_path:
@@ -259,7 +259,7 @@ def main():
                                                                              total=len(test_dataloader)):
                     lookup_indices.extend(text_ids)
                     if 'eva' in model_args.model_name_or_path:
-                        tokenizer = get_tokenizer('EVA02_CLIP_E_psz14_plus_s9B')
+                        tokenizer = get_tokenizer('EVA02-CLIP-bigE-14-plus')
                         text = tokenizer(texts).to(device)
                         query_dense_reps = encoder.encode_text(text)
                     elif 'clip' in model_args.model_name_or_path:
@@ -297,7 +297,7 @@ def main():
 
                     if search_args.query_type == 'text':
                         if 'eva' in model_args.model_name_or_path:
-                            tokenizer = get_tokenizer('EVA02_CLIP_E_psz14_plus_s9B')
+                            tokenizer = get_tokenizer('EVA02-CLIP-bigE-14-plus')
                             text = tokenizer(texts).to(device)
                             query_dense_reps = encoder.encode_text(text)
 
