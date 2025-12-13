@@ -1,52 +1,25 @@
-import json
 import os
 import pickle
-import string
+import sys
 from contextlib import nullcontext
 
 import numpy as np
 import torch
 import torch.distributed as dist
-import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data as Data
-import sys
 
 torch.set_printoptions(threshold=sys.maxsize)
 from PIL import Image
-from nltk import word_tokenize
-from nltk.corpus import stopwords
-from peft import PeftModel
 from tqdm import tqdm
 from transformers import (
     HfArgumentParser,
 )
-from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
-    LlavaNextForConditionalGeneration, Qwen2_5_VLProcessor, Qwen2_5_VLForConditionalGeneration, AutoModel, \
-    AutoProcessor, LlamaForCausalLM, GPTJForCausalLM, CLIPProcessor, CLIPModel, BlipProcessor, BlipForImageTextRetrieval
+from transformers import CLIPModel, CLIPProcessor, BlipModel, BlipProcessor
 
 from arguments import PromptRepsLLMDataArguments, ModelArguments
 from arguments import TrainingArguments
-from dataset import CrossModalRetrievalDataset, ComposedTextImageRetrievalDataset, TextPersonRetrievalDataset
-from model import MLLMRetrievalModel
-from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, \
-    img_prompt_intern_vl_v2_5, llama3_template, task_text_prompts_copy, task_image_prompts_copy, \
-    llama3_retrieval_disassemble_image_prompts, llama3_retrieval_disassemble_text_prompts, \
-    llama3_template_image_prefix, llama3_template_content_element, retrieval_disassemble_image_prompts_3_for_concat, \
-    retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, \
-    retrieval_disassemble_image_prompts_7_for_concat, mistral_img_prompt, llava_mistral_template_image_prefix, \
-    llava_mistral_template_text_prefix, llava_mistral_template_content_element, \
-    llava_mistral_template_fashion_iq_image_prefix, llama3_template_fashion_iq_image_prefix, \
-    retrieval_disassemble_image_prompts_fashion_iq_for_concat, fashion_iq_composed_image_for_concat, \
-    fashion_iq_img_prompt_for_concat, llama3_fashion_iq_image_prompt, mistral_fashion_iq_image_prompt, \
-    person_retrieval_img_prompt, mistral_person_retrieval_img_prompt, \
-    person_retrieval_img_prompt_1, mistral_person_retrieval_img_prompt_1, \
-    person_retrieval_img_prompt_for_concat, person_retrieval_img_prompt_for_concat_1, \
-    retrieval_disassemble_image_prompts_person_retrieval_for_concat, \
-    retrieval_disassemble_image_prompts_person_retrieval_for_concat_1, \
-    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, mistral_person_retrieval_img_prompt_2, \
-    person_retrieval_img_prompt_2, person_retrieval_img_prompt_for_concat_2
-from utils import load_image
+from dataset import CrossModalRetrievalDataset, TextPersonRetrievalDataset
 
 
 def main():
@@ -88,20 +61,20 @@ def main():
 
     # 指定模型
     if 'clip' in model_args.model_name_or_path:
-        encoder = LlavaForConditionalGeneration.from_pretrained(model_args.model_name_or_path, device_map=device_map,
+        encoder = CLIPModel.from_pretrained(model_args.model_name_or_path, device_map=device_map,
                                                                 torch_dtype=torch_type)
-        processor = LlavaProcessor.from_pretrained(model_args.model_name_or_path)
+        processor = CLIPProcessor.from_pretrained(model_args.model_name_or_path)
+    elif 'blip' in model_args.model_name_or_path:
+        encoder = BlipModel.from_pretrained(model_args.model_name_or_path, device_map=device_map,
+                                            torch_dtype=torch_type)
+        processor = BlipProcessor.from_pretrained(model_args.model_name_or_path)
     else:
-        encoder = LlavaNextForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
-                                                                    device_map=device_map,
-                                                                    torch_dtype=torch_type)
-        processor = LlavaNextProcessor.from_pretrained(model_args.model_name_or_path)
+        encoder = CLIPModel.from_pretrained(model_args.model_name_or_path, device_map=device_map,
+                                            torch_dtype=torch_type)
+        processor = CLIPProcessor.from_pretrained(model_args.model_name_or_path)
 
 
-    if training_args.task_type == 'cir':
-        dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split,
-                                                    training_args.encode_type)
-    elif training_args.task_type == 'tbpr':
+    if training_args.task_type == 'tbpr':
         dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'single')
     else:
         if training_args.encode_type == 'text':
@@ -112,52 +85,24 @@ def main():
     test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, pin_memory=True,
                                       batch_size=data_args.per_device_batch_size, shuffle=False)
 
-    model = MLLMRetrievalModel(encoder)
-    model = model.eval()
-    print(model.is_ddp)
+    encoder = encoder.eval()
 
     encoded = []
-    jsonl_data = []
     lookup_indices = []
 
     with torch.no_grad():
         sampler.set_epoch(0)
 
-        if training_args.task_type == 'cir':
-            for batch_idx, (texts, imgs_path, target_path, text_ids, img_ids, composed_ids, dress_type) in tqdm(enumerate(test_dataloader),
-                                                                                                    total=len(test_dataloader)):
-                with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-                    prompt_list = [prompt.replace("{}", dress_type_item) for dress_type_item in dress_type]
-                    raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                    img_inputs = processor(images=raw_images, text=prompt_list,
-                                           return_tensors="pt",
-                                           padding=True)
-                    imgs = img_inputs.to(device)
-                    logits, reps = model.encode_data_for_cir(texts, imgs, dress_type, 'image', processor, device,
-                                                             model_args,
-                                                             data_args)
-                    # print(logits.shape)
-                    reps = F.normalize(reps, dim=-1)
-                    if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                        prompt_length = 5
-                        reps = reps.reshape(-1, prompt_length, reps.shape[1]).mean(1)
-                    lookup_indices.extend(img_ids)
-                    encoded.append(reps.cpu().detach().float().numpy())
-
-        elif training_args.task_type == 'tbpr':
+        if training_args.task_type == 'tbpr':
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
-                if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-                    prompt = processor.apply_chat_template(
-                        img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
-                    )
                 raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
-                                       return_tensors="pt",
-                                       padding=True)
+                img_inputs = processor(images=raw_images, return_tensors="pt", padding=True)
                 imgs = img_inputs.to(device)
-                logits, reps = model.encode_data_for_tbpr(imgs, 'image', processor, device, model_args,
-                                                          data_args)
+                if 'clip' in model_args.model_name_or_path:
+                    reps = encoder.get_image_features(imgs)
+                else:
+                    reps = encoder.get_image_features(imgs)
 
                 # print(logits.shape)
                 reps = F.normalize(reps, dim=-1)
@@ -172,24 +117,88 @@ def main():
                     if len(texts) != data_args.per_device_batch_size:
                         print(len(texts))
                         print(dist.get_rank())
-                    if model_args.calculate_type == 'separate':
-                        if training_args.encode_type == 'text':
-                            logits, reps = model.encode_data(texts, 'text', processor, device, model_args, data_args)
-
-                        else:
-                            if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-                                prompt = processor.apply_chat_template(
-                                    img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
-                                )
-                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                            img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
-                                                   return_tensors="pt",
-                                                   padding=True)
-                            imgs = img_inputs.to(device)
-                            logits, reps = model.encode_data(imgs, 'image', processor, device, model_args,
-                                                             data_args)
+                    if training_args.encode_type == 'text':
+                        text_inputs = processor(text=texts, return_tensors="pt", padding=True)
+                        reps = encoder.get_text_features(text_inputs)
+                    else:
+                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                        img_inputs = processor(images=raw_images, return_tensors="pt", padding=True)
+                        imgs = img_inputs.to(device)
+                        reps = encoder.get_image_features(imgs)
 
                     # print(logits.shape)
                     reps = F.normalize(reps, dim=-1)
+                    if training_args.encode_type == 'text':
+                        lookup_indices.extend(text_ids)
+                    else:
+                        lookup_indices.extend(img_ids)
 
                     encoded.append(reps.cpu().detach().float().numpy())
+
+    encoded = np.concatenate(encoded)
+
+    print(f'rank:{dist.get_rank()}, encoded length:{len(encoded)}')
+
+    if data_args.is_filtered:
+        filtered = "filter"
+    else:
+        filtered = "no_filter"
+
+    if data_args.sparse_manual:
+        manual = 'manual'
+    else:
+        manual = "no_manual"
+
+    if model_args.use_output_embedding_cluster:
+        cluster = f'cluster_{model_args.cluster_sum}'
+    else:
+        cluster = 'no_cluster'
+
+    if data_args.sparse_value_mean:
+        use_sparse_value_mean = 'mean'
+    else:
+        use_sparse_value_mean = 'no_mean'
+
+    if training_args.task_type == 'tbpr':
+        os.makedirs(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+            exist_ok=True)
+        os.makedirs(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+            exist_ok=True)
+
+        with open(os.path.join(
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                f'query.pkl') if data_args.encode_is_query else os.path.join(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+            pickle.dump((encoded, lookup_indices), f)
+
+    else:
+        os.makedirs(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+            exist_ok=True)
+        os.makedirs(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+            exist_ok=True)
+
+        with open(os.path.join(
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                f'query.pkl') if data_args.encode_is_query else os.path.join(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+            pickle.dump((encoded, lookup_indices), f)
+
+    # 训练结束后添加同步屏障
+    dist.barrier()
+
+    # 确保所有进程同步退出
+    if dist.get_rank() == 0:
+        # 主进程最后退出
+        torch.distributed.destroy_process_group()
+    else:
+        torch.distributed.destroy_process_group()
+
+
+if __name__ == "__main__":
+    main()
