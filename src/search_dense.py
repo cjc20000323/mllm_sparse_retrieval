@@ -26,6 +26,7 @@ import torch.utils.data as Data
 import torch.nn.functional as F
 from nltk.corpus import stopwords
 import string
+from encode_dense import blip_load_image
 
 # from cuml.cluster import KMeans
 
@@ -156,9 +157,10 @@ def main():
                                                 torch_dtype=torch_type)
         processor = CLIPProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'blip' in model_args.model_name_or_path:
-        encoder = BlipModel.from_pretrained(model_args.model_name_or_path, device_map=device_map,
-                                                torch_dtype=torch_type)
-        processor = BlipProcessor.from_pretrained(model_args.model_name_or_path)
+        encoder = BLIP_Base(vit='large')
+        encoder, msg = load_checkpoint(encoder, model_args.model_name_or_path)
+        print(msg)
+        processor = None
     else:
         encoder = CLIPModel.from_pretrained(model_args.model_name_or_path, device_map=device_map,
                                                 torch_dtype=torch_type)
@@ -184,6 +186,8 @@ def main():
     lookup_indices = []
 
     dense_run = {}
+    sparse_run = {}
+    fusion_run = {}
 
     dense_retriever_indices = []
 
@@ -249,8 +253,17 @@ def main():
                 for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                              total=len(test_dataloader)):
                     lookup_indices.extend(text_ids)
-                    text_inputs = processor(text=texts, return_tensors="pt", padding=True)
-                    query_dense_reps = encoder.get_text_features(text_inputs)
+                    if 'clip' in model_args.model_name_or_path:
+                        text_inputs = processor(text=texts, return_tensors="pt", padding=True)
+                        if text_inputs['input_ids'].shape[1] > 77:
+                            text_inputs['input_ids'] = text_inputs['input_ids'][:, :77]
+                            text_inputs['attention_mask'] = text_inputs['attention_mask'][:, :77]
+                        query_dense_reps = encoder.get_text_features(text_inputs['input_ids'].cuda(),
+                                                                     text_inputs['attention_mask'].cuda())
+                    else:
+                        text_input = encoder.tokenizer(texts, padding='max_length', truncation=True, max_length=35,
+                                                       return_tensors="pt").to(device)
+                        query_dense_reps = encoder(imgs, text_input, 'text')
 
                     batch_ids = text_ids
 
@@ -270,14 +283,28 @@ def main():
                         lookup_indices.extend(text_ids)
                     else:
                         lookup_indices.extend(img_ids)
+
                     if search_args.query_type == 'text':
-                        text_inputs = processor(text=texts, return_tensors="pt", padding=True)
-                        query_dense_reps = encoder.get_text_features(text_inputs)
+                        if 'clip' in model_args.model_name_or_path:
+                            text_inputs = processor(text=texts, return_tensors="pt", padding=True)
+                            if text_inputs['input_ids'].shape[1] > 77:
+                                text_inputs['input_ids'] = text_inputs['input_ids'][:, :77]
+                                text_inputs['attention_mask'] = text_inputs['attention_mask'][:, :77]
+                            query_dense_reps = encoder.get_text_features(text_inputs['input_ids'].cuda(),
+                                                                         text_inputs['attention_mask'].cuda())
+                        else:
+                            text_input = encoder.tokenizer(texts, padding='max_length', truncation=True, max_length=35,
+                                                           return_tensors="pt").to(device)
+                            query_dense_reps = encoder(imgs, text_input, 'text')
                     else:
-                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        img_inputs = processor(images=raw_images, return_tensors="pt", padding=True)
-                        imgs = img_inputs.to(device)
-                        query_dense_reps = encoder.get_image_features(imgs)
+                        if 'clip' in model_args.model_name_or_path:
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            img_inputs = processor(images=raw_images, return_tensors="pt", padding=True)
+                            imgs = img_inputs.to(device)
+                            query_dense_reps = encoder.get_image_features(imgs['pixel_values'])
+                        else:
+                            raw_images = [blip_load_image(path, 384, device) for path in imgs_path]
+                            query_dense_reps = encoder(raw_images, texts, 'image')
 
 
                     if search_args.query_type == 'text':
@@ -335,7 +362,7 @@ def main():
             f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
             f'dense.xlsx')
 
-    metric = RecallMetrics(dataset, dense_run, dense_run, dense_run, look_up, lookup_indices, search_args)
+    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args)
     metric.sort_and_count()
 
     metric.all_gather_object()

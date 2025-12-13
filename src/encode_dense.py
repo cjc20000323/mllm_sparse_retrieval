@@ -8,6 +8,8 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 import torch.utils.data as Data
+from torchvision import transforms
+from torchvision.transforms.functional import InterpolationMode
 
 torch.set_printoptions(threshold=sys.maxsize)
 from PIL import Image
@@ -20,6 +22,21 @@ from transformers import CLIPModel, CLIPProcessor, BlipModel, BlipProcessor
 from arguments import PromptRepsLLMDataArguments, ModelArguments
 from arguments import TrainingArguments
 from dataset import CrossModalRetrievalDataset, TextPersonRetrievalDataset
+from models.blip import BLIP_Base, load_checkpoint
+
+
+def blip_load_image(image, image_size, device):
+    raw_image = Image.open(str(image)).convert('RGB')
+
+    w, h = raw_image.size
+
+    transform = transforms.Compose([
+        transforms.Resize((image_size, image_size), interpolation=InterpolationMode.BICUBIC),
+        transforms.ToTensor(),
+        transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+    ])
+    image = transform(raw_image).unsqueeze(0).to(device)
+    return image
 
 
 def main():
@@ -65,9 +82,10 @@ def main():
                                                                 torch_dtype=torch_type)
         processor = CLIPProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'blip' in model_args.model_name_or_path:
-        encoder = BlipModel.from_pretrained(model_args.model_name_or_path, device_map=device_map,
-                                            torch_dtype=torch_type)
-        processor = BlipProcessor.from_pretrained(model_args.model_name_or_path)
+        encoder = BLIP_Base(vit='large')
+        encoder, msg = load_checkpoint(encoder, model_args.model_name_or_path)
+        print(msg)
+        processor = None
     else:
         encoder = CLIPModel.from_pretrained(model_args.model_name_or_path, device_map=device_map,
                                             torch_dtype=torch_type)
@@ -96,13 +114,14 @@ def main():
         if training_args.task_type == 'tbpr':
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
-                raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                img_inputs = processor(images=raw_images, return_tensors="pt", padding=True)
-                imgs = img_inputs.to(device)
                 if 'clip' in model_args.model_name_or_path:
-                    reps = encoder.get_image_features(imgs)
+                    raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                    img_inputs = processor(images=raw_images, return_tensors="pt", padding=True)
+                    imgs = img_inputs.to(device)
+                    reps = encoder.get_image_features(imgs['pixel_values'])
                 else:
-                    reps = encoder.get_image_features(imgs)
+                    raw_images = [blip_load_image(path, 384, device) for path in imgs_path]
+                    reps = encoder(raw_images, texts, 'image')
 
                 # print(logits.shape)
                 reps = F.normalize(reps, dim=-1)
@@ -118,13 +137,26 @@ def main():
                         print(len(texts))
                         print(dist.get_rank())
                     if training_args.encode_type == 'text':
-                        text_inputs = processor(text=texts, return_tensors="pt", padding=True)
-                        reps = encoder.get_text_features(text_inputs)
+                        if 'clip' in model_args.model_name_or_path:
+                            text_inputs = processor(text=texts, return_tensors="pt", padding=True)
+                            if text_inputs['input_ids'].shape[1] > 77:
+                                text_inputs['input_ids'] = text_inputs['input_ids'][:, :77]
+                                text_inputs['attention_mask'] = text_inputs['attention_mask'][:, :77]
+                            reps = encoder.get_text_features(text_inputs['input_ids'].cuda(),
+                                                             text_inputs['attention_mask'].cuda())
+                        else:
+                            text_input = encoder.tokenizer(texts, padding='max_length', truncation=True, max_length=35,
+                                                         return_tensors="pt").to(device)
+                            reps = encoder(imgs, text_input, 'text')
                     else:
-                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        img_inputs = processor(images=raw_images, return_tensors="pt", padding=True)
-                        imgs = img_inputs.to(device)
-                        reps = encoder.get_image_features(imgs)
+                        if 'clip' in model_args.model_name_or_path:
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            img_inputs = processor(images=raw_images, return_tensors="pt", padding=True)
+                            imgs = img_inputs.to(device)
+                            reps = encoder.get_image_features(imgs['pixel_values'])
+                        else:
+                            raw_images = [blip_load_image(path, 384, device) for path in imgs_path]
+                            reps = encoder(raw_images, texts, 'image')
 
                     # print(logits.shape)
                     reps = F.normalize(reps, dim=-1)
