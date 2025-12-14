@@ -1,32 +1,30 @@
 import gc
 import glob
-import json
 import os
 import pickle
-import time
+from contextlib import nullcontext
+from itertools import chain
 
 import faiss
+import numpy as np
+import torch
+import torch.distributed as dist
+from PIL import Image
 from tqdm import tqdm
 from transformers import (
     HfArgumentParser,
 )
-from contextlib import nullcontext
-from PIL import Image
-from itertools import chain
-
-from model import MLLMRetrievalModel
-from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
-import torch.distributed as dist
-from arguments import TrainingArguments
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
     LlavaNextForConditionalGeneration, Qwen2_5_VLForConditionalGeneration, Qwen2_5_VLProcessor, AutoProcessor, \
-    AutoModelForCausalLM, AutoModel, LlamaForCausalLM
-from encode import get_filtered_ids
-from dataset import CrossModalRetrievalDataset, ComposedTextImageRetrievalDataset, TextPersonRetrievalDataset
-from metrices import RecallMetrics
+    AutoModel
 
-import numpy as np
-import torch
+from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
+from arguments import TrainingArguments
+from dataset import CrossModalRetrievalDataset, ComposedTextImageRetrievalDataset, TextPersonRetrievalDataset
+from encode import get_filtered_ids
+from metrices import RecallMetrics
+from model import MLLMRetrievalModel
+from reranker import Reranker
 
 torch.set_printoptions(threshold=10000)  # 数字根据你的张量尺寸调整
 import torch.nn as nn
@@ -36,26 +34,23 @@ from nltk.corpus import stopwords
 import string
 from template import img_prompt, \
     img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, task_image_prompts, \
-    llama3_template, task_text_prompts, llama3_retrieval_disassemble_image_prompts, \
-    llama3_retrieval_disassemble_text_prompts, llama3_fashion_iq_image_prompt, mistral_fashion_iq_image_prompt, \
-    llava_mistral_template_fashion_iq_composed_image_prefix, llama3_template_fashion_iq_composed_image_prefix, \
-    retrieval_disassemble_image_prompts_fashion_iq_for_concat
+    llama3_template, task_text_prompts, llama3_retrieval_disassemble_image_prompts
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
-    get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, get_text_valid_tokens_values_fusion, get_text_valid_disassemble_tokens_values_fusion, \
+    get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, \
+    get_text_valid_tokens_values_fusion, get_text_valid_disassemble_tokens_values_fusion, \
     get_img_valid_disassemble_tokens_values, llama3_template_image_prefix, llama3_template_content_element, \
     retrieval_disassemble_image_prompts_3_for_concat, \
     retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, \
     retrieval_disassemble_image_prompts_7_for_concat, mistral_img_prompt, llava_mistral_template_image_prefix, \
-    llava_mistral_template_content_element, person_retrieval_img_prompt, mistral_person_retrieval_img_prompt, \
-    person_retrieval_img_prompt_1, mistral_person_retrieval_img_prompt_1, \
-    person_retrieval_img_prompt_for_concat, person_retrieval_img_prompt_for_concat_1, \
+    llava_mistral_template_content_element, person_retrieval_img_prompt_for_concat, \
+    person_retrieval_img_prompt_for_concat_1, \
     retrieval_disassemble_image_prompts_person_retrieval_for_concat, \
     retrieval_disassemble_image_prompts_person_retrieval_for_concat_1, \
-    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, mistral_person_retrieval_img_prompt_2, \
-    person_retrieval_img_prompt_2, person_retrieval_img_prompt_for_concat_2
-from hybrid import fuse, normalize
+    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, person_retrieval_img_prompt_for_concat_2
+from hybrid import fuse
 from utils import load_image
 from peft import PeftModel
+from datetime import timedelta
 
 # from cuml.cluster import KMeans
 
@@ -165,7 +160,7 @@ def main():
         # gradient_accumulation_steps = gradient_accumulation_steps // world_size
 
         if not dist.is_initialized():
-            torch.distributed.init_process_group("nccl")
+            torch.distributed.init_process_group("nccl", timeout=timedelta(seconds=3600))
         rank, world_size = torch.distributed.get_rank(), torch.distributed.get_world_size()
         device_id = rank % torch.cuda.device_count()
         device = torch.device(device_id)
@@ -198,9 +193,9 @@ def main():
                                             torch_dtype=torch_type,
                                             trust_remote_code=True,
                                             use_flash_attn=True,
-                                            low_cpu_mem_usage=True, )
+                                            low_cpu_mem_usage=True)
         processor = AutoProcessor.from_pretrained(model_args.model_name_or_path,
-                                                  trust_remote_code=True, )
+                                                  trust_remote_code=True)
     else:
         encoder = LlavaNextForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
                                                                     device_map=device_map,
@@ -281,12 +276,13 @@ def main():
         encoder = encoder.merge_and_unload()
 
     if training_args.task_type == 'cir':
-        dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'val', search_args.query_type)
+        dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split,
+                                                    search_args.query_type)
         val_dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'val',
                                                         search_args.query_type)
     elif training_args.task_type == 'tbpr':
-        dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
-        if data_args.dataset_name != 'ICFG-PEDES':
+        dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'single')
+        if data_args.dataset_name == 'RSTPReid':
             val_dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'val', 'full')
         else:
             val_dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'train', 'full')
@@ -299,8 +295,9 @@ def main():
             val_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'val', 'single')
 
     val_sampler = Data.DistributedSampler(val_dataset, num_replicas=world_size, shuffle=True, rank=rank)
-    val_dataloader = Data.DataLoader(dataset=val_dataset, sampler=val_sampler, batch_size=data_args.per_device_batch_size,
-                                      shuffle=False)
+    val_dataloader = Data.DataLoader(dataset=val_dataset, sampler=val_sampler,
+                                     batch_size=data_args.per_device_batch_size,
+                                     shuffle=False)
     sampler = Data.DistributedSampler(dataset, num_replicas=world_size, shuffle=True, rank=rank)
     test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, batch_size=data_args.per_device_batch_size,
                                       shuffle=False)
@@ -335,7 +332,7 @@ def main():
     val_sparse_retriever_indices = []
 
     '''
-    
+
     if search_args.val_passage_reps is not None:
         val_dense_retriever_indices = [search_args.val_passage_reps]
 
@@ -391,12 +388,12 @@ def main():
                         co.shard = True
                         co.useFloat16 = True
                         val_dense_retriever.index = faiss.index_cpu_to_all_gpus(val_dense_retriever.index, co,
-                                                                            ngpu=num_gpus)
+                                                                                ngpu=num_gpus)
 
-        if val_sparse_retriever_indices:
+        if sparse_retriever_indices:
             val_sparse_retriever = LuceneImpactSearcher(os.path.join(val_sparse_retriever_indices[i], 'index'), None)
-            val_analyzer = JWhiteSpaceAnalyzer()
-            val_sparse_retriever.set_analyzer(val_analyzer)
+            analyzer = JWhiteSpaceAnalyzer()
+            val_sparse_retriever.set_analyzer(analyzer)
 
         with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(val_dataloader),
@@ -718,7 +715,8 @@ def main():
                             query_dense_reps = query_dense_reps.reshape(-1, prompt_length,
                                                                         query_dense_reps.shape[1]).mean(1)
                         query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
-                        dense_scores, dense_rankings = search_queries(val_dense_retriever, query_dense_reps, val_look_up,
+                        dense_scores, dense_rankings = search_queries(val_dense_retriever, query_dense_reps,
+                                                                      val_look_up,
                                                                       search_args)
                         val_dense_run.update(
                             get_run_dict(batch_ids, dense_scores, dense_rankings, search_args.remove_query))
@@ -745,20 +743,22 @@ def main():
                                     vector = dict()
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         tokens, values = get_text_valid_disassemble_tokens_values_fusion(text,
-                                                                                                  processor.tokenizer,
-                                                                                                  disassemble_logit,
-                                                                                                  vocab_dict,
-                                                                                                  data_args,
-                                                                                                  filtered_ids, 'guess', logit,
-                                                                                                  model_args)
+                                                                                                         processor.tokenizer,
+                                                                                                         disassemble_logit,
+                                                                                                         vocab_dict,
+                                                                                                         data_args,
+                                                                                                         filtered_ids,
+                                                                                                         'guess', logit,
+                                                                                                         model_args)
                                     else:
                                         tokens, values = get_text_valid_disassemble_tokens_values_fusion(text,
-                                                                                                  processor.tokenizer,
-                                                                                                  disassemble_logit,
-                                                                                                  vocab_dict,
-                                                                                                  data_args,
-                                                                                                  filtered_ids, 'guess', None,
-                                                                                                  model_args)
+                                                                                                         processor.tokenizer,
+                                                                                                         disassemble_logit,
+                                                                                                         vocab_dict,
+                                                                                                         data_args,
+                                                                                                         filtered_ids,
+                                                                                                         'guess', None,
+                                                                                                         model_args)
 
                                     for token, v in zip(tokens, values):
                                         if token in vector.keys():
@@ -781,20 +781,24 @@ def main():
                                                 vector[token] //= 3
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         tokens, values = get_text_valid_disassemble_tokens_values_fusion(text,
-                                                                                                  processor.tokenizer,
-                                                                                                  disassemble_logit,
-                                                                                                  vocab_dict,
-                                                                                                  data_args,
-                                                                                                  filtered_ids, 'origin_text', logit,
-                                                                                                  model_args)
+                                                                                                         processor.tokenizer,
+                                                                                                         disassemble_logit,
+                                                                                                         vocab_dict,
+                                                                                                         data_args,
+                                                                                                         filtered_ids,
+                                                                                                         'origin_text',
+                                                                                                         logit,
+                                                                                                         model_args)
                                     else:
                                         tokens, values = get_text_valid_disassemble_tokens_values_fusion(text,
-                                                                                                  processor.tokenizer,
-                                                                                                  disassemble_logit,
-                                                                                                  vocab_dict,
-                                                                                                  data_args,
-                                                                                                  filtered_ids, 'origin_text', None,
-                                                                                                  model_args)
+                                                                                                         processor.tokenizer,
+                                                                                                         disassemble_logit,
+                                                                                                         vocab_dict,
+                                                                                                         data_args,
+                                                                                                         filtered_ids,
+                                                                                                         'origin_text',
+                                                                                                         None,
+                                                                                                         model_args)
 
                                     for token, v in zip(tokens, values):
                                         if token in vector.keys():
@@ -944,10 +948,10 @@ def main():
                                 for _, logits, text in zip(batch_ids, query_logits, texts):
                                     vector = dict()
                                     tokens, values = get_text_valid_tokens_values_fusion(text, processor.tokenizer,
-                                                                                          logits,
-                                                                                          vocab_dict,
-                                                                                          data_args,
-                                                                                          filtered_ids, 'guess')
+                                                                                         logits,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, 'guess')
                                     for token, v in zip(tokens, values):
                                         if token in vector.keys():
                                             if data_args.sparse_value_type == 'replace':
@@ -1105,54 +1109,49 @@ def main():
             del val_dense_retriever
             gc.collect()
             torch.cuda.empty_cache()
-
         if val_sparse_retriever:
             del val_sparse_retriever
-            del val_analyzer
             gc.collect()
             torch.cuda.empty_cache()
 
     val_fusion_run_1.update(
         fuse(
-            runs=[val_dense_run, val_sparse_run],
+            runs=[dense_run, sparse_run],
             weights=[0.5, 0.5]
         )
     )
     val_fusion_run_2.update(
         fuse(
-            runs=[val_dense_run, val_sparse_run],
+            runs=[dense_run, sparse_run],
             weights=[0.6, 0.4]
         )
     )
     val_fusion_run_3.update(
         fuse(
-            runs=[val_dense_run, val_sparse_run],
+            runs=[dense_run, sparse_run],
             weights=[0.7, 0.3]
         )
     )
     val_fusion_run_4.update(
         fuse(
-            runs=[val_dense_run, val_sparse_run],
+            runs=[dense_run, sparse_run],
             weights=[0.8, 0.2]
         )
     )
     val_fusion_run_5.update(
         fuse(
-            runs=[val_dense_run, val_sparse_run],
+            runs=[dense_run, sparse_run],
             weights=[0.9, 0.1]
         )
     )
     max_val_fusion_metric = 0
     best_weight = 0.5
-
     val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_1, val_look_up,
                                val_lookup_indices, search_args)
     val_metric.sort_and_count()
     val_metric.all_gather_object()
 
     fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
-    if dist.get_rank() == 0:
-        print((fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3)
     if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
         max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
         best_weight = 0.5
@@ -1196,19 +1195,6 @@ def main():
     if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
         best_weight = 0.9
 
-    del val_metric
-    del fusion_recalls
-    del val_dense_run
-    del val_sparse_run
-    del val_fusion_run_1
-    del val_fusion_run_2
-    del val_fusion_run_3
-    del val_fusion_run_4
-    del val_fusion_run_5
-    del val_dataset
-    del val_dataloader
-    gc.collect()
-    
     '''
 
     if search_args.passage_reps is not None:
@@ -1289,13 +1275,15 @@ def main():
                     lookup_indices.extend(composed_ids)
                     if model_args.calculate_type == 'separate':
                         raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        query_logits, query_dense_reps = model.encode_data_for_cir(texts, raw_images, dress_type, 'composed', processor, device,
-                                                                           model_args,
-                                                                           data_args)
+                        query_logits, query_dense_reps = model.encode_data_for_cir(texts, raw_images, dress_type,
+                                                                                   'composed', processor, device,
+                                                                                   model_args,
+                                                                                   data_args)
                     else:
                         raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        query_logits, query_dense_reps = model.encode_data_concat_for_cir(texts, raw_images, dress_type, 'composed', processor, device,
-                                                                                  model_args, data_args)
+                        query_logits, query_dense_reps = model.encode_data_concat_for_cir(texts, raw_images, dress_type,
+                                                                                          'composed', processor, device,
+                                                                                          model_args, data_args)
                         if 'disassembleeol_concrete' in model_args.eol_type:
                             disassemble_logits = query_logits[data_args.per_device_batch_size:]
                             query_logits = query_logits[:data_args.per_device_batch_size]
@@ -1409,10 +1397,6 @@ def main():
                                                  search_args.remove_query))
                             else:
                                 for composed_indice in range(len(batch_ids)):
-                                    if dist.get_rank() == 0:
-                                        if data_args.print_sparse:
-                                            print(composed_indice)
-                                            print(batch_ids[composed_indice])
                                     id = batch_ids[composed_indice]
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         logit = query_logits[composed_indice]
@@ -1564,7 +1548,6 @@ def main():
                                     get_run_dict(batch_ids, sparse_scores, sparse_rankings,
                                                  search_args.remove_query))
 
-
         elif training_args.task_type == 'tbpr':
             with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
                 for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
@@ -1572,8 +1555,8 @@ def main():
                     lookup_indices.extend(text_ids)
                     if model_args.calculate_type == 'separate':
                         query_logits, query_dense_reps = model.encode_data_for_tbpr(texts, 'text', processor, device,
-                                                                           model_args,
-                                                                           data_args)
+                                                                                    model_args,
+                                                                                    data_args)
                     else:
                         if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                             if data_args.tbpr_type == 'origin_type':
@@ -1666,8 +1649,9 @@ def main():
                                         llama3_retrieval_disassemble_image_prompt)
                                     prompt_template += content_element
 
-                        query_logits, query_dense_reps = model.encode_data_concat_for_tbpr(texts, 'text', processor, device,
-                                                                                  model_args, data_args)
+                        query_logits, query_dense_reps = model.encode_data_concat_for_tbpr(texts, 'text', processor,
+                                                                                           device,
+                                                                                           model_args, data_args)
                         if 'disassembleeol_concrete' in model_args.eol_type:
                             disassemble_logits = query_logits[data_args.per_device_batch_size:]
                             query_logits = query_logits[:data_args.per_device_batch_size]
@@ -1951,7 +1935,6 @@ def main():
                                 sparse_run.update(
                                     get_run_dict(batch_ids, sparse_scores, sparse_rankings,
                                                  search_args.remove_query))
-
         else:
             with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
                 for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
@@ -1974,15 +1957,9 @@ def main():
                     # batch['qids'] = batch_ids
                     # model_output: EncoderOutput = model(query=batch)
                     if 'disassembleeol' in model_args.eol_type:
-                        if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-                            pass
-                        else:
-                            prompts = llama3_retrieval_disassemble_image_prompts
+                        prompts = llama3_retrieval_disassemble_image_prompts
                     else:
-                        if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-                            pass
-                        else:
-                            prompts = llama3_retrieval_disassemble_image_prompts
+                        prompts = llama3_retrieval_disassemble_image_prompts
 
                     if model_args.calculate_type == 'separate':
                         if search_args.query_type == 'text':
@@ -2757,9 +2734,55 @@ def main():
             torch.cuda.empty_cache()
 
     del model
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    if torch.cuda.is_available():
+        # 获取当前设备
+        device = torch.cuda.current_device()
+
+        # 获取内存分配情况（字节）
+        allocated = torch.cuda.memory_allocated(device)
+        reserved = torch.cuda.memory_reserved(device)
+
+        # 获取设备总内存
+        total = torch.cuda.get_device_properties(device).total_memory
+
+        # 转换为 MB
+        allocated_mb = allocated / (1024 ** 2)
+        reserved_mb = reserved / (1024 ** 2)
+        total_mb = total / (1024 ** 2)
+
+        print(f"当前 GPU 内存使用情况:")
+        print(f"已分配: {allocated_mb:.2f} MB")
+        print(f"已保留: {reserved_mb:.2f} MB")
+        print(f"总内存: {total_mb:.2f} MB")
+        print(f"使用率: {allocated_mb / total_mb * 100:.1f}%")
+    else:
+        print("没有可用的 GPU 设备")
 
     max_val_fusion_metric = 0
     best_weight = 0.5
+
+    if training_args.task_type == 'cir':
+        choice_dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'train',
+                                                           search_args.query_type)
+    elif training_args.task_type == 'tbpr':
+        choice_dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'train',
+                                                    'full')
+    else:
+        choice_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'train', 'full')
+
+    if training_args.task_type == 'cir':
+        ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict, None,
+                          dataset.img_dict, processor.tokenizer.get_vocab(), dataset)
+    else:
+        if data_args.dataset_name == 'coco':
+            ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict,
+                              dataset.img2filepath, dataset.img_dict, processor.tokenizer.get_vocab(), choice_dataset)
+        else:
+            ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict,
+                              None, dataset.img_dict, processor.tokenizer.get_vocab(), choice_dataset)
 
     if data_args.is_filtered:
         filtered = "filter"
@@ -2785,38 +2808,39 @@ def main():
         fusion_run[i].update(
             fuse(
                 runs=[dense_run, sparse_run],
-                weights=[float((i+1)/10), 1-float((i+1)/10)]
+                weights=[float((i + 1) / 10), 1 - float((i + 1) / 10)]
             )
         )
         if training_args.task_type == 'tbpr':
             os.makedirs(
-                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
                 exist_ok=True)
 
             output_path = os.path.join(
-                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
                 f'0_{i + 1}_0_{10 - i - 1}.xlsx')
         else:
             os.makedirs(
-                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
                 exist_ok=True)
 
             output_path = os.path.join(
-                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
                 f'0_{i + 1}_0_{10 - i - 1}.xlsx')
 
         metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run[i], look_up, lookup_indices, search_args)
         metric.sort_and_count()
 
         metric.all_gather_object()
-        # fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
         if data_args.dataset_name != 'fashion-iq':
             fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
             if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
                 max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
                 best_weight = float(i / 10)
         else:
-            fusion_recalls = {dress: {k: sum(metric.fusion_recall_lists[dress][k]) for k in metric.recall_k_setting_list} for dress in metric.fashion_iq_list}
+            fusion_recalls = {
+                dress: {k: sum(metric.fusion_recall_lists[dress][k]) for k in metric.recall_k_setting_list} for dress in
+                metric.fashion_iq_list}
             if (fusion_recalls['dress'][10] + fusion_recalls['dress'][50] + fusion_recalls['shirt'][10] +
                 fusion_recalls['shirt'][50] + fusion_recalls['toptee'][10] + fusion_recalls['toptee'][50]) / 6 > \
                     max_val_fusion_metric:
@@ -2826,114 +2850,6 @@ def main():
                 best_weight = float(i / 10)
         metric.print_recall(output_path)
 
-    '''
-    os.makedirs(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-            exist_ok=True)
-
-    output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-            f'0_5_0_5.xlsx')
-
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_1, look_up, lookup_indices, search_args)
-
-    metric.sort_and_count()
-
-    metric.all_gather_object()
-    fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
-    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
-        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
-        best_weight = 0.5
-    metric.print_recall(output_path)
-
-    fusion_run_2.update(
-        fuse(
-            runs=[dense_run, sparse_run],
-            weights=[0.6, 0.4]
-        )
-    )
-
-    output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-            f'0_6_0_4.xlsx')
-
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_2, look_up, lookup_indices, search_args)
-
-    metric.sort_and_count()
-
-    metric.all_gather_object()
-    fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
-    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
-        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
-        best_weight = 0.6
-    metric.print_recall(output_path)
-
-    fusion_run_3.update(
-        fuse(
-            runs=[dense_run, sparse_run],
-            weights=[0.7, 0.3]
-        )
-    )
-
-    output_path = os.path.join(
-        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-        f'0_7_0_3.xlsx')
-
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_3, look_up, lookup_indices, search_args)
-
-    metric.sort_and_count()
-
-    metric.all_gather_object()
-    fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
-    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
-        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
-        best_weight = 0.7
-    metric.print_recall(output_path)
-
-    fusion_run_4.update(
-        fuse(
-            runs=[dense_run, sparse_run],
-            weights=[0.8, 0.2]
-        )
-    )
-
-    output_path = os.path.join(
-        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-        f'0_8_0_2.xlsx')
-
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_4, look_up, lookup_indices, search_args)
-
-    metric.sort_and_count()
-
-    metric.all_gather_object()
-    fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
-    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
-        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
-        best_weight = 0.8
-    metric.print_recall(output_path)
-
-    fusion_run_5.update(
-        fuse(
-            runs=[dense_run, sparse_run],
-            weights=[0.9, 0.1]
-        )
-    )
-
-    output_path = os.path.join(
-        f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-        f'0_9_0_1.xlsx')
-
-    metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run_5, look_up, lookup_indices, search_args)
-
-    metric.sort_and_count()
-
-    metric.all_gather_object()
-    fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
-    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
-        best_weight = 0.9
-    metric.print_recall(output_path)
-    '''
-
     best_test_fusion_run = {}
     best_test_fusion_run.update(
         fuse(
@@ -2942,148 +2858,41 @@ def main():
         )
     )
 
+    if dist.get_rank() == 0:
+        print(best_test_fusion_run)
+
+    if 'caption_generation' in search_args.rerank_template:
+        rerank_best_test_fusion_run = ranker.caption_generation_rerank(best_test_fusion_run, search_args.rerank_type,
+                                                                       search_args.rerank_num, data_args,
+                                                                       training_args, model_args, search_args,
+                                                                       rerank_prompt_type=search_args.rerank_template)
+    else:
+        rerank_best_test_fusion_run = ranker.rerank(best_test_fusion_run, search_args.rerank_type,
+                                                    search_args.rerank_num, data_args,
+                                                    training_args, model_args,
+                                                    rerank_prompt_type=search_args.rerank_template)
+
+    if dist.get_rank() == 0:
+        print(rerank_best_test_fusion_run)
     if training_args.task_type == 'tbpr':
         output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
             f'best.xlsx')
     else:
         output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
             f'best.xlsx')
 
-    metric = RecallMetrics(dataset, dense_run, sparse_run, best_test_fusion_run, look_up, lookup_indices, search_args)
+    metric = RecallMetrics(dataset, dense_run, sparse_run, rerank_best_test_fusion_run, look_up, lookup_indices,
+                           search_args)
 
     metric.sort_and_count()
 
     metric.all_gather_object()
     metric.print_recall(output_path)
 
-    '''
-    if not model_args.lora and not model_args.use_output_embedding_cluster:
-        sparse_correct_dict = {}
-        sparse_wrong_dict = {}
-        dense_correct_dict = {}
-        dense_wrong_dict = {}
-        hybrid_correct_dict = {}
-        hybrid_wrong_dict = {}
-
-        normalize_sparse_run = normalize(metric.sparse_run)
-        normalize_dense_run = normalize(metric.dense_run)
-        for k, v in tqdm(normalize_sparse_run.items()):
-            target = metric.dataset.get_target(k, metric.search_args.query_type)
-            if isinstance(target, list):
-                target = torch.tensor([int(i) for i in target]).cuda()
-            else:
-                target = int(target)
-            if len(v) == 0:
-                continue
-
-            search_results, search_scores = metric._sort_return_id_and_value(v)
-            if True in torch.isin(search_results[1], target):
-                sparse_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                          'r@1': True in torch.isin(search_results[1], target),
-                                          'r@5': True in torch.isin(search_results[5], target),
-                                          'r@10': True in torch.isin(search_results[10], target)}
-            else:
-                sparse_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                        'r@1': True in torch.isin(search_results[1], target),
-                                        'r@5': True in torch.isin(search_results[5], target),
-                                        'r@10': True in torch.isin(search_results[10], target)}
-
-        for k, v in tqdm(normalize_dense_run.items()):
-            target = metric.dataset.get_target(k, metric.search_args.query_type)
-            if isinstance(target, list):
-                target = torch.tensor([int(i) for i in target]).cuda()
-            else:
-                target = int(target)
-            if len(v) == 0:
-                continue
-
-            search_results, search_scores = metric._sort_return_id_and_value(v)
-            if True in torch.isin(search_results[1], target):
-                dense_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                         'r@1': True in torch.isin(search_results[1], target),
-                                         'r@5': True in torch.isin(search_results[5], target),
-                                         'r@10': True in torch.isin(search_results[10], target)}
-            else:
-                dense_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                       'r@1': True in torch.isin(search_results[1], target),
-                                       'r@5': True in torch.isin(search_results[5], target),
-                                       'r@10': True in torch.isin(search_results[10], target)}
-
-        for k, v in tqdm(metric.fusion_run.items()):
-            target = metric.dataset.get_target(k, metric.search_args.query_type)
-            if isinstance(target, list):
-                target = torch.tensor([int(i) for i in target]).cuda()
-            else:
-                target = int(target)
-            if len(v) == 0:
-                continue
-
-            search_results, search_scores = metric._sort_return_id_and_value(v)
-            if True in torch.isin(search_results[1], target):
-                hybrid_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                          'r@1': True in torch.isin(search_results[1], target),
-                                          'r@5': True in torch.isin(search_results[5], target),
-                                          'r@10': True in torch.isin(search_results[10], target)}
-            else:
-                hybrid_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
-                                        'r@1': True in torch.isin(search_results[1], target),
-                                        'r@5': True in torch.isin(search_results[5], target),
-                                        'r@10': True in torch.isin(search_results[10], target)}
-
-        os.makedirs(f'./case_study', exist_ok=True)
-        if data_args.sparse_manual:
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_sparse_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_sparse_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_dense_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_dense_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_hybrid_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_hybrid_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_wrong_dict, f)
-        else:
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(sparse_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(dense_wrong_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_correct_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_correct_dict, f)
-            with open(
-                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_wrong_results_{dist.get_rank()}.txt',
-                    'w') as f:
-                json.dump(hybrid_wrong_dict, f)
-    '''
+    if 'caption_generation' in search_args.rerank_template and search_args.query_type == 'image':
+        metric.statistical_error_data(processor, best_test_fusion_run)
 
     # 训练结束后添加同步屏障
     dist.barrier()

@@ -170,6 +170,10 @@ def get_img_valid_disassemble_tokens_values(tokenizer, disassemble_logits, vocab
     top_k_values, top_k_indices = disassemble_logits.topk(top_k, dim=-1)
     for top_k_indice_list in top_k_indices:
         word_set.update(top_k_indice_list.tolist())
+    if data_args.print_sparse:
+        for top_k_indice_list, top_k_value_list in zip(top_k_indices, top_k_values):
+            if dist.get_rank() == 0:
+                print([{vocab_dict[i]:value} for i, value in zip(top_k_indice_list.tolist(), top_k_value_list.tolist())])
     if model_args is not None and (
             model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'
             or model_args.eol_type == 'disassembleeol_separate_origin_text'
@@ -1087,6 +1091,8 @@ def main():
 
                         raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                         prompt_list = [prompt_template.replace("{}", dress_type_item) for dress_type_item in dress_type]
+                        if dist.get_rank() == 0:
+                            print(prompt_list)
                         img_inputs = processor(images=raw_images, text=prompt_list,
                                                return_tensors="pt",
                                                padding=True)
@@ -1109,6 +1115,9 @@ def main():
                     ids = img_ids
                     if 'disassembleeol' in model_args.eol_type:
                         for img_indice in range(len(ids)):
+                            if dist.get_rank() == 0:
+                                if data_args.print_sparse:
+                                    print(ids[img_indice])
                             id = ids[img_indice]
                             if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                 logit = logits[img_indice]

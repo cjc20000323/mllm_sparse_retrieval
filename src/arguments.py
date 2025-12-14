@@ -74,6 +74,7 @@ class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
     sparse_value_mean: bool = field(default=False)
     sparse_type: str = field(default='single')
     tbpr_type: str = field(default='origin_type')
+    print_sparse: bool = field(default=False)
 
 
 @dataclass
