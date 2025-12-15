@@ -45,7 +45,8 @@ from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qw
     retrieval_disassemble_image_prompts_person_retrieval_for_concat, \
     retrieval_disassemble_image_prompts_person_retrieval_for_concat_1, \
     retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, mistral_person_retrieval_img_prompt_2, \
-    person_retrieval_img_prompt_2, person_retrieval_img_prompt_for_concat_2
+    person_retrieval_img_prompt_2, person_retrieval_img_prompt_for_concat_2, \
+    retrieval_disassemble_image_prompts_fashion_iq_for_concat_1
 from utils import load_image
 
 
@@ -1081,18 +1082,30 @@ def main():
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                 prompt_template += llava_mistral_template_content_element.format(
                                     fashion_iq_img_prompt_for_concat)
-                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_fashion_iq_for_concat:
-                                content_element = llava_mistral_template_content_element.format(
-                                    llava_mistral_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
+                            if data_args.cir_type == 'type':
+                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_fashion_iq_for_concat:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            else:
+                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_fashion_iq_for_concat_1:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
                         else:
                             prompt_template = llama3_template_fashion_iq_image_prefix
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                 prompt_template += llama3_template_content_element.format(fashion_iq_img_prompt_for_concat)
-                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_fashion_iq_for_concat:
-                                content_element = llama3_template_content_element.format(
-                                    llama3_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
+                            if data_args.cir_type == 'cir':
+                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_fashion_iq_for_concat:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            else:
+                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_fashion_iq_for_concat_1:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
 
                         raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                         prompt_list = [prompt_template.replace("{}", dress_type_item) for dress_type_item in dress_type]
@@ -1113,7 +1126,10 @@ def main():
                     # print(logits.shape)
                     reps = F.normalize(reps, dim=-1)
                     if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                        prompt_length = 5
+                        if data_args.cir_type == 'type':
+                            prompt_length = 5
+                        else:
+                            prompt_length = 8
                         reps = reps.reshape(-1, prompt_length, reps.shape[1]).mean(1)
                     lookup_indices.extend(img_ids)
                     encoded.append(reps.cpu().detach().float().numpy())
@@ -1126,7 +1142,11 @@ def main():
                             id = ids[img_indice]
                             if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                 logit = logits[img_indice]
-                            length = 5
+
+                            if data_args.cir_type == 'type':
+                                length = 5
+                            else:
+                                length = 8
                             disassemble_logit = disassemble_logits[
                                                 img_indice * length:(img_indice + 1) * length]
                             vector = dict()
@@ -1157,7 +1177,10 @@ def main():
                                     vector[token] = int(v)
                             if data_args.sparse_value_mean:
                                 for token in vector.keys():
-                                    vector[token] //= 5
+                                    if data_args.cir_type == 'type':
+                                        vector[token] //= 5
+                                    else:
+                                        vector[token] //= 8
 
                             jsonl_data.append(
                                 dict(

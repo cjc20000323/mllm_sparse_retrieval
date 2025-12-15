@@ -22,7 +22,8 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     person_retrieval_text_prompt_for_concat_1, retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat, \
     retrieval_disassemble_text_prompts_person_retrieval_for_concat, \
     retrieval_disassemble_text_prompts_person_retrieval_for_concat_1, mistral_person_retrieval_text_prompt_2, \
-    person_retrieval_text_prompt_for_concat_2, person_retrieval_text_prompt_2
+    person_retrieval_text_prompt_for_concat_2, person_retrieval_text_prompt_2, \
+    retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1
 import torch.nn.functional as F
 
 
@@ -324,6 +325,9 @@ class MLLMRetrievalModel(nn.Module):
             if dist.get_rank() == 0:
                 print(prompt_list)
             '''
+            if dist.get_rank() == 0:
+                if data_args.print_sparse:
+                    print(prompt_list)
             text_inputs = processor(images=image_input, text=prompt_list,
                                     return_tensors="pt",
                                     padding=True).to(device)
@@ -1244,17 +1248,28 @@ class MLLMRetrievalModel(nn.Module):
             prompt_template = llava_mistral_template_fashion_iq_composed_image_prefix
             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                 prompt_template += llava_mistral_template_content_element.format(fashion_iq_composed_image_for_concat)
-            for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat:
-                content_element = llava_mistral_template_content_element.format(
-                    llava_mistral_retrieval_disassemble_text_prompt)
-                prompt_template += content_element
+            if data_args.cir_type == 'type':
+                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat:
+                    content_element = llava_mistral_template_content_element.format(
+                        llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            else:
+                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1:
+                    content_element = llava_mistral_template_content_element.format(
+                        llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
         else:
             prompt_template = llama3_template_fashion_iq_composed_image_prefix
             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                 prompt_template += llama3_template_content_element.format(fashion_iq_composed_image_for_concat)
-            for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
-                content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
-                prompt_template += content_element
+            if data_args.cir_type == 'type':
+                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat:
+                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            else:
+                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1:
+                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
         prompt_list = [prompt_template.replace("{}", dress_type_item) for dress_type_item in dress_type]
         for i in range(len(prompt_list)):
             prompt_list[i] = prompt_list[i].replace('<sent>', text_input[i])
@@ -1263,6 +1278,9 @@ class MLLMRetrievalModel(nn.Module):
             if dist.get_rank() == 0:
                 print(prompt_list)
             '''
+            if dist.get_rank() == 0:
+                if data_args.print_sparse:
+                    print(prompt_list)
             text_inputs = processor(images=image_input, text=prompt_list,
                                     return_tensors="pt", padding=True).to(device)
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:

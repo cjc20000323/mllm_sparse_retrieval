@@ -282,6 +282,29 @@ retrieval_disassemble_image_prompts_fashion_iq_for_concat = [
     'Describe the length characteristics of different part, such as sleeve, neck, shoulder and so on, of this {} in one word based on its style: '
 ]
 
+retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1 = [
+    'Describe the clothes type of this modified {} with one of the three clothes types: shirt, dress, and toptee in one word base on its style: ',
+    'Describe the color of this modified {} in one word based on its style: ',
+    'Describe the graphic pattern of this modified {} in one word based on its style: ',
+    'Describe the details of sleeves of this modified {} with one of the three types: long sleeves, short sleeves and sleeveless in one word based on its style: ',
+    'Describe the details of neck of this modified {} with one of the ten types: V-neck, u-neck, round, ovel, broad, scoop, crew, turtle, high, and tight in one word based on its style: ',
+    'Describe the details of shoulder strap of this modified {} with one of the five types: thick, thin, loose, one shoulder, and off-shoulder in one word based on its style: ',
+    'Describe the design style of this modified {} with one of the eight styles: elegant, sporty, formal, revealing, casual, sculptural, flowy, and sexy in one word based on its style: ',
+    'Describe the length of this modified {} with one of the two words: long and short in one word based on its style: '
+]
+
+retrieval_disassemble_image_prompts_fashion_iq_for_concat_1 = [
+    'Describe the clothes type of this {} with one of the three clothes types: shirt, dress, and toptee in one word base on its style: ',
+    'Describe the color of this {} in one word based on its style: ',
+    'Describe the graphic pattern of this {} in one word based on its style: ',
+    'Describe the details of sleeves of this {} with one of the three types: long sleeves, short sleeves and sleeveless in one word based on its style: ',
+    'Describe the details of neck of this {} with one of the ten types: V-neck, u-neck, round, ovel, broad, scoop, crew, turtle, high, and tight in one word based on its style: ',
+    'Describe the details of shoulder strap of this {} with one of the five types: thick, thin, loose, one shoulder, and off-shoulder in one word based on its style: ',
+    'Describe the design style of this {} with one of the eight styles: elegant, sporty, formal, revealing, casual, sculptural, flowy, and sexy in one word based on its style: ',
+    'Describe the length of this {} with one of the two words: long and short in one word based on its style: '
+]
+
+
 retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat = [
     'Summary the people or objects in above sentence in one word: ',
     'Summary the gender in above sentence in one word: ',

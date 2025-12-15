@@ -1318,7 +1318,10 @@ def main():
                         else:
                             query_dense_reps = F.normalize(query_dense_reps, dim=-1)
                             if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                                prompt_length = 5
+                                if data_args.cir_type == 'type':
+                                    prompt_length = 5
+                                else:
+                                    prompt_length = 8
                                 query_dense_reps = query_dense_reps.reshape(-1, prompt_length,
                                                                             query_dense_reps.shape[1]).mean(1)
                             query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
@@ -1335,7 +1338,10 @@ def main():
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         logit = query_logits[composed_indice]
                                     text = texts[composed_indice]
-                                    length = 5
+                                    if data_args.cir_type == 'type':
+                                        length = 5
+                                    else:
+                                        length = 8
                                     disassemble_logit = disassemble_logits[
                                                         composed_indice * length:(composed_indice + 1) * length]
                                     vector = dict()
@@ -1366,7 +1372,10 @@ def main():
                                             vector[token] = int(v)
                                     if data_args.sparse_value_mean:
                                         for token in vector.keys():
-                                            vector[token] //= 5
+                                            if data_args.cir_type == 'type':
+                                                vector[token] //= 5
+                                            else:
+                                                vector[token] //= 8
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         tokens, values = get_img_valid_disassemble_tokens_values(processor,
                                                                                                  disassemble_logit,
@@ -1445,7 +1454,10 @@ def main():
                                             vector[token] = int(v)
                                     if data_args.sparse_value_mean:
                                         for token in vector.keys():
-                                            vector[token] //= 5
+                                            if data_args.cir_type == 'type':
+                                                vector[token] //= 5
+                                            else:
+                                                vector[token] //= 8
                                     query = ""
                                     for token, v in vector.items():
                                         query += (' ' + token) * v
