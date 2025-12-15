@@ -1282,10 +1282,6 @@ def main():
                 for batch_idx, (texts, imgs_path, target_path, text_ids, img_ids, composed_ids, dress_type) in tqdm(
                         enumerate(test_dataloader),
                         total=len(test_dataloader)):
-                    '''
-                    if dist.get_rank() == 0:
-                        print(composed_ids)
-                    '''
                     lookup_indices.extend(composed_ids)
                     if model_args.calculate_type == 'separate':
                         raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
@@ -1511,36 +1507,40 @@ def main():
                                     get_run_dict(batch_ids, sparse_scores, sparse_rankings,
                                                  search_args.remove_query))
                             else:
-                                for _, logits, text in zip(batch_ids, query_logits, texts):
+                                for id, logit in zip(batch_ids, query_logits):
                                     vector = dict()
+                                    if dist.get_rank() == 0:
+                                        if data_args.print_sparse:
+                                            print(id)
                                     if model_args.use_output_embedding_cluster:
-                                        if 'InternVL2_5-8B' in model_args.model_name_or_path:
-                                            tokens, values = get_text_valid_tokens_values_with_cluster(text,
-                                                                                                       processor,
-                                                                                                       logits,
-                                                                                                       centroids_dict,
-                                                                                                       origin_to_centroids_dict,
-                                                                                                       data_args,
-                                                                                                       filtered_ids)
+                                        if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                            tokens, values = get_img_valid_tokens_values_with_cluster(processor, logit,
+                                                                                                      centroids_dict,
+                                                                                                      origin_to_centroids_dict,
+                                                                                                      data_args,
+                                                                                                      filtered_ids)
                                         else:
-                                            tokens, values = get_text_valid_tokens_values_with_cluster(text,
-                                                                                                       processor.tokenizer,
-                                                                                                       logits,
-                                                                                                       centroids_dict,
-                                                                                                       origin_to_centroids_dict,
-                                                                                                       data_args,
-                                                                                                       filtered_ids)
+                                            tokens, values = get_img_valid_tokens_values_with_cluster(
+                                                processor.tokenizer,
+                                                logit,
+                                                centroids_dict,
+                                                origin_to_centroids_dict,
+                                                data_args,
+                                                filtered_ids)
                                     else:
-                                        if 'InternVL2_5-8B' in model_args.model_name_or_path:
-                                            tokens, values = get_text_valid_tokens_values(text, processor, logits,
-                                                                                          vocab_dict,
-                                                                                          data_args, filtered_ids)
+                                        if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                            tokens, values = get_img_valid_tokens_values(processor, logit, vocab_dict,
+                                                                                         data_args, filtered_ids)
                                         else:
-                                            tokens, values = get_text_valid_tokens_values(text, processor.tokenizer,
-                                                                                          logits,
-                                                                                          vocab_dict,
-                                                                                          data_args,
-                                                                                          filtered_ids)
+                                            if model_args.eol_type == 'prompteol_same_length':
+                                                tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                             vocab_dict,
+                                                                                             data_args, filtered_ids,
+                                                                                             text=text)
+                                            else:
+                                                tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                             vocab_dict,
+                                                                                             data_args, filtered_ids)
                                     for token, v in zip(tokens, values):
                                         if token in vector.keys():
                                             if data_args.sparse_value_type == 'replace':
@@ -1552,7 +1552,6 @@ def main():
                                                     vector[token] = int(v)
                                         else:
                                             vector[token] = int(v)
-
                                     query = ""
                                     for token, v in vector.items():
                                         query += (' ' + token) * v

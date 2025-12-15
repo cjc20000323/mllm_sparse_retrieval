@@ -105,6 +105,10 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
     else:
         top_k = data_args.sparse_length
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
+        if dist.get_rank() == 0:
+            if data_args.print_sparse:
+                print([{vocab_dict[indice]: value} for value, indice in
+                       zip(top_k_values.tolist(), top_k_indices.tolist())])
     # print(top_k_indices)
     # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
     values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
@@ -173,6 +177,7 @@ def get_img_valid_disassemble_tokens_values(tokenizer, disassemble_logits, vocab
     if data_args.print_sparse:
         for top_k_indice_list, top_k_value_list in zip(top_k_indices, top_k_values):
             if dist.get_rank() == 0:
+                print(top_k_indice_list)
                 print([{vocab_dict[i]:value} for i, value in zip(top_k_indice_list.tolist(), top_k_value_list.tolist())])
     if model_args is not None and (
             model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'
