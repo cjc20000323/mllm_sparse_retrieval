@@ -1169,6 +1169,9 @@ def main():
                     else:
                         for id, logit, text in zip(ids, logits, texts):
                             vector = dict()
+                            if dist.get_rank() == 0:
+                                if data_args.print_sparse:
+                                    print(id)
                             if model_args.use_output_embedding_cluster:
                                 if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
                                     tokens, values = get_img_valid_tokens_values_with_cluster(processor, logit,
