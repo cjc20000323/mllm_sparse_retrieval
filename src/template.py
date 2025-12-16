@@ -87,6 +87,9 @@ mistral_fashion_iq_role_old_query_relevant_prompt = llava_mistral_template.forma
 mistral_fashion_iq_in_one_word_relevant_prompt = llava_mistral_template.format("For the following modified {} and target {}, judge whether they are relevant. Output 'Yes' or 'No'.\nModified {}: <image> change the style of this {} to <sent> Target {}: <image> Output: ")
 mistral_fashion_iq_please_relevant_prompt = llava_mistral_template.format("For the following modified {} and target {}, judge whether they are relevant. Please output 'Yes' or 'No'.\nModified {}: <image> change the style of this {} to <sent> Target {}: <image> Output: ")
 
+fashion_iq_modify_class_prompt = llama3_template.format("Given a text that aims to modify the reference image, please classify the text into one of the seven modified perspectives: {}")
+mistral_fashion_iq_modify_class_prompt = llava_mistral_template.format("Given a text that aims to modify the reference image, please classify the text into one of the seven modified perspectives: {}")
+
 person_retrieval_relevant_prompt = llama3_template.format("For the following sentence and person image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Person Image: <image> Output: ")
 person_retrieval_old_query_relevant_prompt = llama3_template.format("Query: <sent>\nCandidate: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
 person_retrieval_origin_old_query_relevant_prompt = llama3_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate: <image>\nQuery: <sent>\nDoes the candidate answer the query? Answer: ")
@@ -266,6 +269,8 @@ retrieval_disassemble_text_prompts_7_for_concat = [
     'Summary the material and decoration of main people or objects in above sentence in one word: '
 ]
 
+fashion_iq_perspective = ['color', 'pattern', 'design style', 'length']
+
 retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat = [
     'Describe the clothes type of this modified {} in one word based on its style: ',
     'Describe the color of this modified {} in one word based on its style: ',
@@ -281,6 +286,8 @@ retrieval_disassemble_image_prompts_fashion_iq_for_concat = [
     'Describe the design style of this {} in one word based on its style: ',
     'Describe the length characteristics of different part, such as sleeve, neck, shoulder and so on, of this {} in one word based on its style: '
 ]
+
+fashion_iq_perspective_1 = ['color', 'pattern', 'sleeve', 'neck', 'shoulder', 'design style', 'length']
 
 retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1 = [
     'Describe the clothes type of this modified {} with one of the three clothes types: shirt, dress, and toptee in one word base on its style: ',

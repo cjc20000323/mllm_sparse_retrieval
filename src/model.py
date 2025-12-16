@@ -23,7 +23,8 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     retrieval_disassemble_text_prompts_person_retrieval_for_concat, \
     retrieval_disassemble_text_prompts_person_retrieval_for_concat_1, mistral_person_retrieval_text_prompt_2, \
     person_retrieval_text_prompt_for_concat_2, person_retrieval_text_prompt_2, \
-    retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1
+    retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1, fashion_iq_modify_class_prompt, \
+    mistral_fashion_iq_modify_class_prompt
 import torch.nn.functional as F
 
 
@@ -1244,6 +1245,8 @@ class MLLMRetrievalModel(nn.Module):
 
 
     def encode_data_concat_for_cir(self, text_input, image_input, dress_type, input_type, processor, device, model_args, data_args):
+        if data_args.cir_type == 'classify_type':
+            pass
         if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
             prompt_template = llava_mistral_template_fashion_iq_composed_image_prefix
             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
@@ -1253,6 +1256,8 @@ class MLLMRetrievalModel(nn.Module):
                     content_element = llava_mistral_template_content_element.format(
                         llava_mistral_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
+            elif data_args.cir_type == 'classify_type':
+                pass
             else:
                 for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1:
                     content_element = llava_mistral_template_content_element.format(
@@ -1266,6 +1271,8 @@ class MLLMRetrievalModel(nn.Module):
                 for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat:
                     content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
+            elif data_args.cir_type == 'classify_type':
+                pass
             else:
                 for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1:
                     content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
@@ -1300,6 +1307,8 @@ class MLLMRetrievalModel(nn.Module):
                     else:
                         if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat) + 1) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
+                elif data_args.cir_type == 'classify_type':
+                    pass
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                         if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1) + 2) != 0:

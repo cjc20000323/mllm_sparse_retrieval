@@ -1,32 +1,29 @@
-import gc
 import glob
-import json
+import glob
 import os
 import pickle
-import time
+from contextlib import nullcontext
+from itertools import chain
 
 import faiss
+import numpy as np
+import torch
+import torch.distributed as dist
+from PIL import Image
 from tqdm import tqdm
 from transformers import (
     HfArgumentParser,
 )
-from contextlib import nullcontext
-from PIL import Image
-from itertools import chain
-
-from model import MLLMRetrievalModel
-from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
-import torch.distributed as dist
-from arguments import TrainingArguments
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
     LlavaNextForConditionalGeneration, Qwen2_5_VLForConditionalGeneration, Qwen2_5_VLProcessor, AutoProcessor, \
-    AutoModelForCausalLM, AutoModel, LlamaForCausalLM
-from encode import get_filtered_ids
-from dataset import CrossModalRetrievalDataset, ComposedTextImageRetrievalDataset, TextPersonRetrievalDataset
-from metrices import RecallMetrics
+    AutoModel
 
-import numpy as np
-import torch
+from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
+from arguments import TrainingArguments
+from dataset import CrossModalRetrievalDataset, ComposedTextImageRetrievalDataset, TextPersonRetrievalDataset
+from encode import get_filtered_ids
+from metrices import RecallMetrics
+from model import MLLMRetrievalModel
 
 torch.set_printoptions(threshold=10000)  # 数字根据你的张量尺寸调整
 import torch.nn as nn
@@ -36,24 +33,19 @@ from nltk.corpus import stopwords
 import string
 from template import img_prompt, \
     img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, task_image_prompts, \
-    llama3_template, task_text_prompts, llama3_retrieval_disassemble_image_prompts, \
-    llama3_retrieval_disassemble_text_prompts, llama3_fashion_iq_image_prompt, mistral_fashion_iq_image_prompt, \
-    llava_mistral_template_fashion_iq_composed_image_prefix, llama3_template_fashion_iq_composed_image_prefix, \
-    retrieval_disassemble_image_prompts_fashion_iq_for_concat
-from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
-    get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, get_text_valid_tokens_values_fusion, get_text_valid_disassemble_tokens_values_fusion, \
-    get_img_valid_disassemble_tokens_values, llama3_template_image_prefix, llama3_template_content_element, \
-    retrieval_disassemble_image_prompts_3_for_concat, \
+    llama3_template, task_text_prompts, llama3_retrieval_disassemble_image_prompts, llama3_template_image_prefix, \
+    llama3_template_content_element, retrieval_disassemble_image_prompts_3_for_concat, \
     retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, \
     retrieval_disassemble_image_prompts_7_for_concat, mistral_img_prompt, llava_mistral_template_image_prefix, \
-    llava_mistral_template_content_element, person_retrieval_img_prompt, mistral_person_retrieval_img_prompt, \
-    person_retrieval_img_prompt_1, mistral_person_retrieval_img_prompt_1, \
-    person_retrieval_img_prompt_for_concat, person_retrieval_img_prompt_for_concat_1, \
+    llava_mistral_template_content_element, person_retrieval_img_prompt_for_concat, person_retrieval_img_prompt_for_concat_1, \
     retrieval_disassemble_image_prompts_person_retrieval_for_concat, \
     retrieval_disassemble_image_prompts_person_retrieval_for_concat_1, \
-    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, mistral_person_retrieval_img_prompt_2, \
-    person_retrieval_img_prompt_2, person_retrieval_img_prompt_for_concat_2
-from hybrid import fuse, normalize
+    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, person_retrieval_img_prompt_for_concat_2
+from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
+    get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, \
+    get_text_valid_tokens_values_fusion, get_text_valid_disassemble_tokens_values_fusion, \
+    get_img_valid_disassemble_tokens_values
+from hybrid import fuse
 from utils import load_image
 from peft import PeftModel
 
@@ -1320,6 +1312,8 @@ def main():
                             if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                 if data_args.cir_type == 'type':
                                     prompt_length = 5
+                                elif data_args.cir_type == 'classify_type':
+                                    pass
                                 else:
                                     prompt_length = 8
                                 query_dense_reps = query_dense_reps.reshape(-1, prompt_length,
@@ -1423,6 +1417,8 @@ def main():
                                     text = texts[composed_indice]
                                     if data_args.cir_type == 'type':
                                         length = 5
+                                    elif data_args.cir_type == 'classify_type':
+                                        pass
                                     else:
                                         length = 8
                                     disassemble_logit = disassemble_logits[
@@ -1458,6 +1454,8 @@ def main():
                                         for token in vector.keys():
                                             if data_args.cir_type == 'type':
                                                 vector[token] //= 5
+                                            elif data_args.cir_type == 'classify_type':
+                                                pass
                                             else:
                                                 vector[token] //= 8
                                     query = ""
