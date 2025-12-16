@@ -1293,12 +1293,20 @@ class MLLMRetrievalModel(nn.Module):
             end_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(end_of_text_id))
             begin_col_list = []
             for i in range(len(begin_of_text_indices[1])):
-                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
-                        begin_col_list.append(begin_of_text_indices[1][i].item())
+                if data_args.cir_type == 'cir':
+                    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                        if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    else:
+                        if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
-                    if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
-                        begin_col_list.append(begin_of_text_indices[1][i].item())
+                    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                        if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    else:
+                        if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
 
@@ -1395,12 +1403,20 @@ class MLLMRetrievalModel(nn.Module):
             end_of_text_indices = torch.where(image_input['input_ids'] == torch.tensor(end_of_text_id))
             begin_col_list = []
             for i in range(len(begin_of_text_indices[1])):
-                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
-                        begin_col_list.append(begin_of_text_indices[1][i].item())
+                if data_args.cir_type == 'type':
+                    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                        if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    else:
+                        if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
-                    if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
-                        begin_col_list.append(begin_of_text_indices[1][i].item())
+                    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                        if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    else:
+                        if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
             img_inputs_embeds = self.encoder.get_input_embeddings()(image_input['input_ids'])

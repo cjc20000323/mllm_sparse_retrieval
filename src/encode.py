@@ -1096,7 +1096,7 @@ def main():
                             prompt_template = llama3_template_fashion_iq_image_prefix
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                 prompt_template += llama3_template_content_element.format(fashion_iq_img_prompt_for_concat)
-                            if data_args.cir_type == 'cir':
+                            if data_args.cir_type == 'type':
                                 for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_fashion_iq_for_concat:
                                     content_element = llama3_template_content_element.format(
                                         llama3_retrieval_disassemble_image_prompt)
@@ -1110,7 +1110,8 @@ def main():
                         raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                         prompt_list = [prompt_template.replace("{}", dress_type_item) for dress_type_item in dress_type]
                         if dist.get_rank() == 0:
-                            print(prompt_list)
+                            if data_args.print_sparse:
+                                print(prompt_list)
                         img_inputs = processor(images=raw_images, text=prompt_list,
                                                return_tensors="pt",
                                                padding=True)

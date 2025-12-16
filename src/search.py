@@ -1416,13 +1416,15 @@ def main():
                                 for composed_indice in range(len(batch_ids)):
                                     if dist.get_rank() == 0:
                                         if data_args.print_sparse:
-                                            print(composed_indice)
                                             print(batch_ids[composed_indice])
                                     id = batch_ids[composed_indice]
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         logit = query_logits[composed_indice]
                                     text = texts[composed_indice]
-                                    length = 5
+                                    if data_args.cir_type == 'type':
+                                        length = 5
+                                    else:
+                                        length = 8
                                     disassemble_logit = disassemble_logits[
                                                         composed_indice * length:(composed_indice + 1) * length]
                                     vector = dict()
