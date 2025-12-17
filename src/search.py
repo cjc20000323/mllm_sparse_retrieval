@@ -1281,14 +1281,28 @@ def main():
                                                                            model_args,
                                                                            data_args)
                     else:
-                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
-                        query_logits, query_dense_reps = model.encode_data_concat_for_cir(texts, raw_images, dress_type, 'composed', processor, device,
-                                                                                  model_args, data_args)
-                        if 'disassembleeol_concrete' in model_args.eol_type:
-                            disassemble_logits = query_logits[data_args.per_device_batch_size:]
-                            query_logits = query_logits[:data_args.per_device_batch_size]
-                        elif 'disassembleeol' in model_args.eol_type:
+                        if data_args.cir_type == 'classify_type':
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            _, query_dense_reps = model.encode_data_for_cir(texts, raw_images, dress_type,
+                                                                                       'composed', processor, device,
+                                                                                       model_args,
+                                                                                       data_args)
+                            query_logits, _ = model.encode_data_concat_for_cir(texts, raw_images,
+                                                                                              dress_type, 'composed',
+                                                                                              processor, device,
+                                                                                              model_args, data_args)
                             disassemble_logits = query_logits
+                        else:
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            query_logits, query_dense_reps = model.encode_data_concat_for_cir(texts, raw_images,
+                                                                                              dress_type, 'composed',
+                                                                                              processor, device,
+                                                                                              model_args, data_args)
+                            if 'disassembleeol_concrete' in model_args.eol_type:
+                                disassemble_logits = query_logits[data_args.per_device_batch_size:]
+                                query_logits = query_logits[:data_args.per_device_batch_size]
+                            elif 'disassembleeol' in model_args.eol_type:
+                                disassemble_logits = query_logits
                     batch_ids = composed_ids
                     if dense_retriever is not None:
                         if isinstance(query_dense_reps, list):
@@ -1312,8 +1326,6 @@ def main():
                             if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                 if data_args.cir_type == 'type':
                                     prompt_length = 5
-                                elif data_args.cir_type == 'classify_type':
-                                    pass
                                 else:
                                     prompt_length = 8
                                 query_dense_reps = query_dense_reps.reshape(-1, prompt_length,
@@ -1417,8 +1429,6 @@ def main():
                                     text = texts[composed_indice]
                                     if data_args.cir_type == 'type':
                                         length = 5
-                                    elif data_args.cir_type == 'classify_type':
-                                        pass
                                     else:
                                         length = 8
                                     disassemble_logit = disassemble_logits[
@@ -1454,8 +1464,6 @@ def main():
                                         for token in vector.keys():
                                             if data_args.cir_type == 'type':
                                                 vector[token] //= 5
-                                            elif data_args.cir_type == 'classify_type':
-                                                pass
                                             else:
                                                 vector[token] //= 8
                                     query = ""

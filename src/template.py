@@ -4,12 +4,14 @@ llama3_template_text_prefix = '<|start_header_id|>user<|end_header_id|>\n\n<sent
 llama3_template_content_element = '<|begin_of_text|>{}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n \n<|end_of_text|>'
 llama3_template_fashion_iq_composed_image_prefix = '<|start_header_id|>user<|end_header_id|>\n\n<image> change the style of this {} to <sent>\n'
 llama3_template_fashion_iq_image_prefix = '<|start_header_id|>user<|end_header_id|>\n\n<image>\n'
+llama3_template_fashion_iq_text_prefix = '<|start_header_id|>user<|end_header_id|>\n\n<sent>\n'
 llava_mistral_template = '[INST]{}[/INST]'
 llava_mistral_template_image_prefix = '[INST]<image>\n'
 llava_mistral_template_text_prefix = '[INST]<sent>\n'
 llava_mistral_template_content_element = '<s>{}[/INST]</s>'
 llava_mistral_template_fashion_iq_composed_image_prefix = '[INST]<image> change the style of this {} to <sent>\n'
 llava_mistral_template_fashion_iq_image_prefix = '[INST]<image>\n'
+llava_mistral_template_fashion_iq_text_prefix = '[INST]<sent>\n'
 llava_v1_5_template = '<s>user\n\n{}</s><s>assistant\n\n \n'
 img_prompt = llama3_template.format('<image>\n<|begin_of_text|>Summary above image in one word: ')
 text_prompt = llama3_template.format('<sent>\n<|begin_of_text|>Summary above sentence in one word: ')
@@ -87,8 +89,8 @@ mistral_fashion_iq_role_old_query_relevant_prompt = llava_mistral_template.forma
 mistral_fashion_iq_in_one_word_relevant_prompt = llava_mistral_template.format("For the following modified {} and target {}, judge whether they are relevant. Output 'Yes' or 'No'.\nModified {}: <image> change the style of this {} to <sent> Target {}: <image> Output: ")
 mistral_fashion_iq_please_relevant_prompt = llava_mistral_template.format("For the following modified {} and target {}, judge whether they are relevant. Please output 'Yes' or 'No'.\nModified {}: <image> change the style of this {} to <sent> Target {}: <image> Output: ")
 
-fashion_iq_modify_class_prompt = llama3_template.format("Given a text that aims to modify the reference image, please classify the text into one of the seven modified perspectives: {}")
-mistral_fashion_iq_modify_class_prompt = llava_mistral_template.format("Given a text that aims to modify the reference image, please classify the text into one of the seven modified perspectives: {}")
+fashion_iq_modify_class_prompt = llama3_template.format("<sent>\nGiven a text that aims to modify the reference image, please classify the text into one of the seven modified perspectives: {}")
+mistral_fashion_iq_modify_class_prompt = llava_mistral_template.format("<sent>\nGiven a text that aims to modify the reference image, please classify the text into one of the seven modified perspectives: {}")
 
 person_retrieval_relevant_prompt = llama3_template.format("For the following sentence and person image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Person Image: <image> Output: ")
 person_retrieval_old_query_relevant_prompt = llama3_template.format("Query: <sent>\nCandidate: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
@@ -269,7 +271,7 @@ retrieval_disassemble_text_prompts_7_for_concat = [
     'Summary the material and decoration of main people or objects in above sentence in one word: '
 ]
 
-fashion_iq_perspective = ['color', 'pattern', 'design style', 'length']
+fashion_iq_perspective = "\'color\', \'pattern\', \'design style\', \'length\'"
 
 retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat = [
     'Describe the clothes type of this modified {} in one word based on its style: ',
@@ -287,7 +289,7 @@ retrieval_disassemble_image_prompts_fashion_iq_for_concat = [
     'Describe the length characteristics of different part, such as sleeve, neck, shoulder and so on, of this {} in one word based on its style: '
 ]
 
-fashion_iq_perspective_1 = ['color', 'pattern', 'sleeve', 'neck', 'shoulder', 'design style', 'length']
+fashion_iq_perspective_1 = "\'color\', \'pattern\', \'sleeve\', \'neck\', \'shoulder\', \'design style\', \'length of whole clothes\'"
 
 retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1 = [
     'Describe the clothes type of this modified {} with one of the three clothes types: shirt, dress, and toptee in one word base on its style: ',
@@ -309,6 +311,17 @@ retrieval_disassemble_image_prompts_fashion_iq_for_concat_1 = [
     'Describe the details of shoulder strap of this {} with one of the six types: thick, thin, loose, one shoulder, strapless and off-shoulder in one word based on its style: ',
     'Describe the design style of this {} with one of the eight styles: elegant, sporty, formal, revealing, casual, sculptural, flowy, and sexy in one word based on its style: ',
     'Describe the length of this {} with one of the two words: long and short in one word based on its style: '
+]
+
+retrieval_disassemble_text_prompts_fashion_iq_for_concat_1 = [
+    'Describe the clothes type of this {} in above sentence with one of the three clothes types: shirt, dress, and toptee in one word base on its style: ',
+    'Describe the color of this {} in above sentence in one word based on its style: ',
+    'Describe the graphic pattern of this {} in above sentence in one word based on its style: ',
+    'Describe the details of sleeves of this {} in above sentence with one of the three types: long sleeves, short sleeves and sleeveless in one word based on its style: ',
+    'Describe the details of neck of this {} in above sentence with one of the ten types: V-neck, u-neck, round, ovel, broad, scoop, crew, turtle, high, and tight in one word based on its style: ',
+    'Describe the details of shoulder strap of this {} in above sentence with one of the six types: thick, thin, loose, one shoulder, strapless and off-shoulder in one word based on its style: ',
+    'Describe the design style of this {} in above sentence with one of the eight styles: elegant, sporty, formal, revealing, casual, sculptural, flowy, and sexy in one word based on its style: ',
+    'Describe the length of this {} in above sentence with one of the two words: long and short in one word based on its style: '
 ]
 
 

@@ -76,6 +76,8 @@ class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
     tbpr_type: str = field(default='origin_type')
     cir_type: str = field(default='type')
     print_sparse: bool = field(default=False)
+    composed_top_type: str = field(default='text')
+    composed_top_k: int = field(default=3)
 
 
 @dataclass
