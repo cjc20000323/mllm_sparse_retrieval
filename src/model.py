@@ -1300,7 +1300,7 @@ class MLLMRetrievalModel(nn.Module):
             end_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(end_of_text_id))
             begin_col_list = []
             for i in range(len(begin_of_text_indices[1])):
-                if data_args.cir_type == 'cir':
+                if data_args.cir_type == 'type':
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                         if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat) + 2) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())

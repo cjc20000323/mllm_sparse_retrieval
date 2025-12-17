@@ -178,7 +178,6 @@ def get_img_valid_disassemble_tokens_values(tokenizer, disassemble_logits, vocab
     if data_args.print_sparse:
         for top_k_indice_list, top_k_value_list in zip(top_k_indices, top_k_values):
             if dist.get_rank() == 0:
-                print(top_k_indice_list)
                 print([{vocab_dict[i]:value} for i, value in zip(top_k_indice_list.tolist(), top_k_value_list.tolist())])
     if model_args is not None and (
             model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'
