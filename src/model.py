@@ -1,3 +1,5 @@
+from typing import Dict
+
 import torch
 import sys
 torch.set_printoptions(threshold=sys.maxsize)  # 数字根据你的张量尺寸调整
@@ -40,6 +42,7 @@ class MLLMRetrievalModel(nn.Module):
                  pooling: str = 'cls',
                  normalize: bool = False,
                  temperature: float = 1.0,
+                 vocab_dict: Dict = None
                  ):
         super().__init__()
         self.config = encoder.config
@@ -52,6 +55,7 @@ class MLLMRetrievalModel(nn.Module):
         if self.is_ddp:
             self.process_rank = dist.get_rank()
             self.world_size = dist.get_world_size()
+        self.vocab_dict = vocab_dict
 
     # 这个函数中，input是输入的数据，input_type为输入的类型，指定输入是text还是image, transform是为了提供转换的函数, device
     def encode_data(self, input, input_type, processor, device, model_args, data_args):
@@ -1259,9 +1263,9 @@ class MLLMRetrievalModel(nn.Module):
 
             color_id = self.vocab_dict['color']
             pattern_id = self.vocab_dict['pattern']
-            sleeve_id = self.vocab_dict['sleeve']
+            sleeve_id = self.vocab_dict['Ġsleeve']
             neck_id = self.vocab_dict['neck']
-            shoulder_id = self.vocab_dict['shoulder']
+            shoulder_id = self.vocab_dict['Ġshoulder']
             design_id = self.vocab_dict['design']
             length_id = self.vocab_dict['length']
             class_id = [color_id, pattern_id, sleeve_id, neck_id, shoulder_id, design_id, length_id]
@@ -1334,20 +1338,19 @@ class MLLMRetrievalModel(nn.Module):
                     composed_prompt_list.append(item_prompt_template)
 
                     item_prompt_template = image_prompt_template
-                    for indice in range(1, len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1)):
+                    for indice in range(len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1)):
                         if indice - 1 not in indice_list.tolist():
                             item_prompt_template += llama3_template_content_element.format(
-                                retrieval_disassemble_image_prompts_fashion_iq_for_concat_1[indice - 1])
+                                retrieval_disassemble_image_prompts_fashion_iq_for_concat_1[indice])
 
                     image_prompt_list.append(item_prompt_template)
 
             for i in range(len(composed_prompt_list)):
-                composed_prompt_list[i] = composed_prompt_list[i].format(dress_type[i])
+                composed_prompt_list[i] = composed_prompt_list[i].replace('{}', dress_type[i])
                 composed_prompt_list[i] = composed_prompt_list[i].replace('<sent>', text_input[i])
 
             for i in range(len(image_prompt_list)):
-                image_prompt_list[i] = image_prompt_list[i].format(dress_type[i])
-                image_prompt_list[i] = image_prompt_list[i].replace('<sent>', text_input[i])
+                image_prompt_list[i] = image_prompt_list[i].replace('{}', dress_type[i])
 
             if data_args.composed_top_type == 'text':
                 composed_inputs = processor(text=composed_prompt_list, return_tensors="pt", padding=True).to(device)
@@ -1363,8 +1366,6 @@ class MLLMRetrievalModel(nn.Module):
             else:
                 begin_of_composed_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
                 end_of_composed_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
-
-
 
             begin_of_composed_indices = torch.where(composed_inputs['input_ids'] == torch.tensor(begin_of_composed_id))
             end_of_composed_indices = torch.where(composed_inputs['input_ids'] == torch.tensor(end_of_composed_id))
@@ -1443,9 +1444,9 @@ class MLLMRetrievalModel(nn.Module):
                 composed_logits = torch.log(1 + torch.relu(logits))
                 composed_embs = output.hidden_states[-1][:, end_col_list[0], :]
             else:
-                logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
+                logits = output.logits[:, end_col_list, :].reshape(batch_size * len(end_col_list), -1)
                 composed_logits = torch.log(1 + torch.relu(logits))
-                composed_embs = output.hidden_states[-1][:, end_col_list[0], :]
+                composed_embs = output.hidden_states[-1][:, end_col_list, :]
 
 
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
@@ -1456,11 +1457,11 @@ class MLLMRetrievalModel(nn.Module):
                 end_of_image_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
 
 
-            begin_of_image_indices = torch.where(composed_inputs['input_ids'] == torch.tensor(begin_of_image_id))
-            end_of_image_indices = torch.where(composed_inputs['input_ids'] == torch.tensor(end_of_image_id))
+            begin_of_image_indices = torch.where(image_inputs['input_ids'] == torch.tensor(begin_of_image_id))
+            end_of_image_indices = torch.where(image_inputs['input_ids'] == torch.tensor(end_of_image_id))
             begin_col_list = []
             for i in range(len(begin_of_image_indices[1])):
-                if i % (4 + 1) != 0:
+                if i % (5 + 1) != 0:
                     begin_col_list.append(begin_of_image_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_image_indices[1].tolist())))
@@ -1533,12 +1534,12 @@ class MLLMRetrievalModel(nn.Module):
                 image_logits = torch.log(1 + torch.relu(logits))
                 image_embs = output.hidden_states[-1][:, end_col_list[0], :]
             else:
-                logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
+                logits = output.logits[:, end_col_list, :].reshape(batch_size * len(end_col_list), -1)
                 image_logits = torch.log(1 + torch.relu(logits))
-                image_embs = output.hidden_states[-1][:, end_col_list[0], :]
+                image_embs = output.hidden_states[-1][:, end_col_list, :]
 
             return_logits = torch.cat([composed_logits, image_logits], dim=0)
-            return_embs = torch.cat([composed_embs, image_embs], dim=0)
+            return_embs = torch.cat([composed_embs, image_embs], dim=1)
             return return_logits, return_embs
 
         else:

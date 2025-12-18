@@ -297,7 +297,7 @@ def main():
     test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, batch_size=data_args.per_device_batch_size,
                                       shuffle=False)
 
-    model = MLLMRetrievalModel(encoder)
+    model = MLLMRetrievalModel(encoder, vocab_dict=processor.tokenizer.get_vocab())
     model = model.eval()
     print(model.is_ddp)
 
