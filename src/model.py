@@ -1261,13 +1261,22 @@ class MLLMRetrievalModel(nn.Module):
 
             classify_prompt = classify_prompt.format(fashion_iq_perspective_1)
 
-            color_id = self.vocab_dict['color']
-            pattern_id = self.vocab_dict['pattern']
-            sleeve_id = self.vocab_dict['Ġsleeve']
-            neck_id = self.vocab_dict['neck']
-            shoulder_id = self.vocab_dict['Ġshoulder']
-            design_id = self.vocab_dict['design']
-            length_id = self.vocab_dict['length']
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                color_id = self.vocab_dict['color']
+                pattern_id = self.vocab_dict['pattern']
+                sleeve_id = self.vocab_dict['▁sleeve']
+                neck_id = self.vocab_dict['▁neck']
+                shoulder_id = self.vocab_dict['▁shoulder']
+                design_id = self.vocab_dict['design']
+                length_id = self.vocab_dict['length']
+            else:
+                color_id = self.vocab_dict['color']
+                pattern_id = self.vocab_dict['pattern']
+                sleeve_id = self.vocab_dict['Ġsleeve']
+                neck_id = self.vocab_dict['neck']
+                shoulder_id = self.vocab_dict['Ġshoulder']
+                design_id = self.vocab_dict['design']
+                length_id = self.vocab_dict['length']
             class_id = [color_id, pattern_id, sleeve_id, neck_id, shoulder_id, design_id, length_id]
 
             classify_input = [classify_prompt.replace('<sent>', text) for text in text_input]
