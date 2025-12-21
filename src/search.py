@@ -41,7 +41,8 @@ from template import img_prompt, \
     retrieval_disassemble_image_prompts_person_retrieval_for_concat, \
     retrieval_disassemble_image_prompts_person_retrieval_for_concat_1, \
     retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, person_retrieval_img_prompt_for_concat_2, \
-    img_prompt_qwen_v3
+    img_prompt_qwen_v3, qwen2_5_img_prompt, qwen3_img_prompt, qwen2_5_template_image_prefix, \
+    qwen3_template_image_prefix, qwen2_5_template_content_element, qwen3_template_content_element
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
     get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, \
     get_text_valid_tokens_values_fusion, get_text_valid_disassemble_tokens_values_fusion, \
@@ -177,23 +178,23 @@ def main():
     if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
         encoder = LlavaForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
                                                                 device_map=device_map,
-                                                                torch_dtype=torch_type)
+                                                                dtype=torch_type)
         processor = LlavaProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
         encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
                                                                      device_map=device_map,
-                                                                     torch_dtype=torch_type)
+                                                                     dtype=torch_type)
         processor = Qwen2_5_VLProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
         encoder = Qwen3VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
                                                                      device_map=device_map,
-                                                                     torch_dtype=torch_type)
+                                                                     dtype=torch_type)
         processor = Qwen3VLProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'InternVL2_5-8B' in model_args.model_name_or_path:
         # device_map = split_model('InternVL2_5-8B')
         encoder = AutoModel.from_pretrained(model_args.model_name_or_path,
                                             device_map=device_map,
-                                            torch_dtype=torch_type,
+                                            dtype=torch_type,
                                             trust_remote_code=True,
                                             use_flash_attn=True,
                                             low_cpu_mem_usage=True, )
@@ -202,7 +203,7 @@ def main():
     else:
         encoder = LlavaNextForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
                                                                     device_map=device_map,
-                                                                    torch_dtype=torch_type)
+                                                                    dtype=torch_type)
         processor = LlavaNextProcessor.from_pretrained(model_args.model_name_or_path)
         if 'royokong-e5-v' in model_args.model_name_or_path:
             setattr(processor, "patch_size", 14)  # hack for pass
@@ -1988,9 +1989,9 @@ def main():
                     if model_args.model_name_or_path == './checkpoints/llava-hf-llava-1.5-7b-hf' or model_args.model_name_or_path == './checkpoints/llava-hf-llava-v1.6-vicuna-7b-hf':
                         prompt = img_prompt_no_special_llava_v1_5
                     elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-                        prompt = img_prompt_qwen_v2_5
+                        prompt = qwen2_5_img_prompt
                     elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-                        prompt = img_prompt_qwen_v3
+                        prompt = qwen3_img_prompt
                     elif 'InternVL2_5-8B' in model_args.model_name_or_path:
                         prompt = img_prompt_intern_vl_v2_5
                     elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
@@ -2295,9 +2296,63 @@ def main():
                             else:
                                 pass
                         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
-                            pass
+                            if data_args.prompt_type == 'prompt_5':
+                                prompt_template = qwen2_5_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += qwen2_5_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for qwen2_5_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
+                                    content_element = qwen2_5_template_content_element.format(
+                                        qwen2_5_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                prompt_template = qwen2_5_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += qwen2_5_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for qwen2_5_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
+                                    content_element = qwen2_5_template_content_element.format(
+                                        qwen2_5_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                prompt_template = qwen2_5_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += qwen2_5_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for qwen2_5_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
+                                    content_element = qwen2_5_template_content_element.format(
+                                        qwen2_5_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
                         elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-                            pass
+                            if data_args.prompt_type == 'prompt_5':
+                                prompt_template = qwen3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += qwen3_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for qwen3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
+                                    content_element = qwen3_template_content_element.format(
+                                        qwen3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                prompt_template = qwen3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += qwen3_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for qwen3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
+                                    content_element = qwen3_template_content_element.format(
+                                        qwen3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                prompt_template = qwen3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += qwen3_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for qwen3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
+                                    content_element = qwen3_template_content_element.format(
+                                        qwen3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            else:
+                                pass
                         else:
                             if data_args.prompt_type == 'prompt_5':
                                 prompt_template = llama3_template_image_prefix

@@ -12,11 +12,24 @@ llava_mistral_template_content_element = '<s>{}[/INST]</s>'
 llava_mistral_template_fashion_iq_composed_image_prefix = '[INST]<image> change the style of this {} to <sent>\n'
 llava_mistral_template_fashion_iq_image_prefix = '[INST]<image>\n'
 llava_mistral_template_fashion_iq_text_prefix = '[INST]<sent>\n'
+
+qwen2_5_template = '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant'
+qwen2_5_template_image_prefix = '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>\n'
+qwen2_5_template_text_prefix = '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n<sent>\n'
+qwen2_5_template_content_element = '<tool_call>{}<|im_end|>\n<|im_start|>assistant</tool_call>'
+qwen3_template = '<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant'
+qwen3_template_image_prefix = '<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>\n'
+qwen3_template_text_prefix = '<|im_start|>user\n<sent>\n'
+qwen3_template_content_element = '<think>{}<|im_end|>\n<|im_start|>assistant</think>'
 llava_v1_5_template = '<s>user\n\n{}</s><s>assistant\n\n \n'
 img_prompt = llama3_template.format('<image>\n<|begin_of_text|>Summary above image in one word: ')
 text_prompt = llama3_template.format('<sent>\n<|begin_of_text|>Summary above sentence in one word: ')
 mistral_img_prompt = llava_mistral_template.format('<image>\n<s>Summary above image in one word: ')
 mistral_text_prompt = llava_mistral_template.format('<sent>\n<s>Summary above sentence in one word: ')
+qwen2_5_img_prompt = qwen2_5_template.format('<image>\n<tool_call>Summary above image in one word: ')
+qwen2_5_text_prompt = qwen2_5_template.format('<sent>\n</tool_call>Summary above sentence in one word: ')
+qwen3_img_prompt = qwen3_template.format('<image>\n<think>Summary above image in one word: ')
+qwen3_text_prompt = qwen3_template.format('<sent>\n<think>Summary above sentence in one word: ')
 
 person_retrieval_img_prompt = llama3_template.format('<image>\n<|begin_of_text|>Summary the person in above image in one word: ')
 person_retrieval_text_prompt = llama3_template.format('<sent>\n<|begin_of_text|>Summary the person in above sentence in one word: ')
@@ -76,6 +89,48 @@ mistral_role_precise_caption_prompt = llava_mistral_template.format("You are Ran
 mistral_role_old_text_query_relevant_prompt = llava_mistral_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nQuery: <sent>\nCandidate: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
 mistral_role_old_image_query_relevant_prompt = llava_mistral_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nQuery: <image>\nCandidate: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
 
+qwen2_5_relevant_prompt = qwen2_5_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
+qwen2_5_in_one_word_relevant_prompt = qwen2_5_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output in one word: ")
+qwen2_5_please_relevant_prompt = qwen2_5_template.format("For the following sentence and image, judge whether they are relevant. Please output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
+qwen2_5_text_query_relevant_prompt = qwen2_5_template.format("For the following query sentence and candidate image, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Sentence: <sent> Candidate Image: <image> Output: ")
+qwen2_5_image_query_relevant_prompt = qwen2_5_template.format("For the following query image and candidate sentence, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Image: <image> Candidate Sentence: <sent> Output: ")
+qwen2_5_old_text_query_relevant_prompt = qwen2_5_template.format("Query: <sent>\nCandidate: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+qwen2_5_old_image_query_relevant_prompt = qwen2_5_template.format("Query: <image>\nCandidate: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+qwen2_5_old_text_reverse_query_relevant_prompt = qwen2_5_template.format("Candidate: <image>\nQuery: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+qwen2_5_old_image_reverse_query_relevant_prompt = qwen2_5_template.format("Candidate: <sent>\nQuery: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+qwen2_5_origin_old_text_query_relevant_prompt = qwen2_5_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate: <image>\nQuery: <sent>\nDoes the candidate answer the query? Answer: ")
+qwen2_5_origin_old_image_query_relevant_prompt = qwen2_5_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate: <sent>\nQuery: <image>\nDoes the candidate answer the query? Answer: ")
+qwen2_5_origin_old_image_reverse_query_relevant_prompt = qwen2_5_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nQuery: <image>\nCandidate: <sent>\nDoes the candidate answer the query? Answer: ")
+qwen2_5_origin_old_text_reverse_query_relevant_prompt = qwen2_5_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nQuery: <sent>\nCandidate: <image>\nDoes the candidate answer the query? Answer: ")
+qwen2_5_precise_caption_prompt = qwen2_5_template.format("For the following sentence and image, judge whether the sentence is the precise caption of the image. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
+qwen2_5_first_precise_caption_prompt = qwen2_5_template.format("Sentence: <sent>\n Image: <image>\n For the following sentence and image, judge whether the sentence is the precise caption of the image. Output 'Yes' or 'No'. Output: ")
+qwen2_5_role_relevant_prompt = qwen2_5_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \n For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
+qwen2_5_role_precise_caption_prompt = qwen2_5_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \n For the following sentence and image, judge whether the sentence is the precise caption of the image. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
+qwen2_5_role_old_text_query_relevant_prompt = qwen2_5_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nQuery: <sent>\nCandidate: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+qwen2_5_role_old_image_query_relevant_prompt = qwen2_5_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nQuery: <image>\nCandidate: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+
+
+qwen3_relevant_prompt = qwen3_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
+qwen3_in_one_word_relevant_prompt = qwen3_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output in one word: ")
+qwen3_please_relevant_prompt = qwen3_template.format("For the following sentence and image, judge whether they are relevant. Please output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
+qwen3_text_query_relevant_prompt = qwen3_template.format("For the following query sentence and candidate image, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Sentence: <sent> Candidate Image: <image> Output: ")
+qwen3_image_query_relevant_prompt = qwen3_template.format("For the following query image and candidate sentence, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Image: <image> Candidate Sentence: <sent> Output: ")
+qwen3_old_text_query_relevant_prompt = qwen3_template.format("Query: <sent>\nCandidate: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+qwen3_old_image_query_relevant_prompt = qwen3_template.format("Query: <image>\nCandidate: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+qwen3_old_text_reverse_query_relevant_prompt = qwen3_template.format("Candidate: <image>\nQuery: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+qwen3_old_image_reverse_query_relevant_prompt = qwen3_template.format("Candidate: <sent>\nQuery: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+qwen3_origin_old_text_query_relevant_prompt = qwen3_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate: <image>\nQuery: <sent>\nDoes the candidate answer the query? Answer: ")
+qwen3_origin_old_image_query_relevant_prompt = qwen3_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate: <sent>\nQuery: <image>\nDoes the candidate answer the query? Answer: ")
+qwen3_origin_old_image_reverse_query_relevant_prompt = qwen3_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nQuery: <image>\nCandidate: <sent>\nDoes the candidate answer the query? Answer: ")
+qwen3_origin_old_text_reverse_query_relevant_prompt = qwen3_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nQuery: <sent>\nCandidate: <image>\nDoes the candidate answer the query? Answer: ")
+qwen3_precise_caption_prompt = qwen3_template.format("For the following sentence and image, judge whether the sentence is the precise caption of the image. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
+qwen3_first_precise_caption_prompt = qwen3_template.format("Sentence: <sent>\n Image: <image>\n For the following sentence and image, judge whether the sentence is the precise caption of the image. Output 'Yes' or 'No'. Output: ")
+qwen3_role_relevant_prompt = qwen3_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \n For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
+qwen3_role_precise_caption_prompt = qwen3_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \n For the following sentence and image, judge whether the sentence is the precise caption of the image. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
+qwen3_role_old_text_query_relevant_prompt = qwen3_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nQuery: <sent>\nCandidate: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+qwen3_role_old_image_query_relevant_prompt = qwen3_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nQuery: <image>\nCandidate: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+
+
 fashion_iq_relevant_prompt = llama3_template.format("For the following modified {} and target {}, judge whether they are relevant. Output 'Yes' or 'No'.\nModified {}: <image> change the style of this {} to <sent> Target {}: <image> Output: ")
 fashion_iq_old_query_relevant_prompt = llama3_template.format("Query Modified {}: <image> change the style of this {} to <sent>\nCandidate {}: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
 fashion_iq_origin_old_query_relevant_prompt = llama3_template.format("Given a candidate {} and a query modified {}, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate {}: <image>\nQuery Modified {}: <image> change the style of this {} to <sent>\nDoes the candidate answer the query? Answer: ")
@@ -103,8 +158,12 @@ mistral_person_retrieval_query_relevant_prompt = llava_mistral_template.format("
 
 mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image: <image>\nPlease write a caption based on this image.")
 query_generation_paradigm_prompt = llama3_template.format("Image: <image>\nPlease write a caption based on this image.")
+qwen2_5_query_generation_paradigm_prompt = qwen2_5_template.format("Image: <image>\nPlease write a caption based on this image.")
+qwen3_query_generation_paradigm_prompt = qwen3_template.format("Image: <image>\nPlease write a caption based on this image.")
 mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Image: <image>\nWhat is the caption of the above image?")
 query_generation_paradigm_prompt_1 = llama3_template.format("Image: <image>\nWhat is the caption of the above image?")
+qwen2_5_query_generation_paradigm_prompt_1 = qwen2_5_template.format("Image: <image>\nWhat is the caption of the above image?")
+qwen3_query_generation_paradigm_prompt_1 = qwen3_template.format("Image: <image>\nWhat is the caption of the above image?")
 mistral_query_generation_paradigm_prompt_2 = llava_mistral_template.format("<image>\nPlease write a caption based on this image.")
 query_generation_paradigm_prompt_2 = llama3_template.format("<image>\nPlease write a caption based on this image.")
 mistral_query_generation_paradigm_prompt_3 = llava_mistral_template.format("<image>\nWhat is the caption of the above image?")

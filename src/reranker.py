@@ -1,8 +1,14 @@
-import torch.distributed as dist
-import torch
-from tqdm import tqdm
 import random
-import pandas as pd
+from contextlib import nullcontext
+
+import torch
+import torch.distributed as dist
+import torch.nn.functional as F
+import torch.utils.data as Data
+from PIL import Image
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
 from template import relevant_prompt, in_one_word_relevant_prompt, text_query_relevant_prompt, \
     image_query_relevant_prompt, precise_caption_prompt, please_relevant_prompt, old_text_query_relevant_prompt, \
     old_image_query_relevant_prompt, origin_old_text_query_relevant_prompt, origin_old_image_query_relevant_prompt, \
@@ -38,14 +44,24 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     mistral_origin_old_text_reverse_query_relevant_prompt, origin_old_image_reverse_query_relevant_prompt, \
     origin_old_text_reverse_query_relevant_prompt, mistral_old_text_reverse_query_relevant_prompt, \
     mistral_old_image_reverse_query_relevant_prompt, old_text_reverse_query_relevant_prompt, \
-    old_image_reverse_query_relevant_prompt
-
-from PIL import Image
-import torch.nn.functional as F
-from contextlib import nullcontext
-
-from torch.utils.data import DataLoader
-import torch.utils.data as Data
+    old_image_reverse_query_relevant_prompt, qwen2_5_relevant_prompt, qwen2_5_old_text_query_relevant_prompt, \
+    qwen2_5_old_image_query_relevant_prompt, qwen2_5_text_query_relevant_prompt, qwen2_5_image_query_relevant_prompt, \
+    qwen2_5_origin_old_text_query_relevant_prompt, qwen2_5_origin_old_image_query_relevant_prompt, \
+    qwen2_5_query_generation_paradigm_prompt_1, qwen3_query_generation_paradigm_prompt_1, \
+    qwen2_5_query_generation_paradigm_prompt, qwen3_query_generation_paradigm_prompt, qwen3_relevant_prompt, \
+    qwen3_old_image_query_relevant_prompt, qwen3_old_text_query_relevant_prompt, \
+    qwen3_origin_old_image_query_relevant_prompt, qwen3_origin_old_text_query_relevant_prompt, \
+    qwen3_image_query_relevant_prompt, qwen3_text_query_relevant_prompt, qwen3_please_relevant_prompt, \
+    qwen3_in_one_word_relevant_prompt, qwen3_precise_caption_prompt, \
+    qwen3_origin_old_image_reverse_query_relevant_prompt, qwen3_origin_old_text_reverse_query_relevant_prompt, \
+    qwen3_role_relevant_prompt, qwen3_role_precise_caption_prompt, qwen3_role_old_image_query_relevant_prompt, \
+    qwen3_role_old_text_query_relevant_prompt, qwen3_first_precise_caption_prompt, \
+    qwen3_old_image_reverse_query_relevant_prompt, qwen3_old_text_reverse_query_relevant_prompt, \
+    qwen2_5_old_image_reverse_query_relevant_prompt, qwen2_5_old_text_reverse_query_relevant_prompt, \
+    qwen2_5_please_relevant_prompt, qwen2_5_in_one_word_relevant_prompt, qwen2_5_precise_caption_prompt, \
+    qwen2_5_origin_old_image_reverse_query_relevant_prompt, qwen2_5_origin_old_text_reverse_query_relevant_prompt, \
+    qwen2_5_role_relevant_prompt, qwen2_5_role_precise_caption_prompt, qwen2_5_role_old_image_query_relevant_prompt, \
+    qwen2_5_role_old_text_query_relevant_prompt, qwen2_5_first_precise_caption_prompt
 
 flickr_length_dict = {3: 3, 4: 5, 5: 26, 6: 83, 7: 196, 8: 316, 9: 376, 10: 447, 11: 446, 12: 455, 13: 399, 14: 403,
                       15: 343, 16: 287, 17: 213, 18: 179, 19: 134, 20: 127, 21: 82, 22: 78, 23: 83, 24: 45, 25: 40,
@@ -180,7 +196,7 @@ class Reranker:
                             rerank_prompt_template = mistral_old_image_query_relevant_prompt
                         else:
                             rerank_prompt_template = mistral_old_text_query_relevant_prompt
-                    elif rerank_prompt_type == 'old_relevant':
+                    elif rerank_prompt_type == 'reverse_old_relevant':
                         if self.query_type == 'image':
                             rerank_prompt_template = mistral_old_image_reverse_query_relevant_prompt
                         else:
@@ -220,9 +236,99 @@ class Reranker:
                     else:
                         rerank_prompt_template = mistral_relevant_prompt
                 elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
-                    pass
+                    if rerank_prompt_type == 'relevant':
+                        rerank_prompt_template = qwen2_5_relevant_prompt
+                    elif rerank_prompt_type == 'old_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = qwen2_5_old_image_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = qwen2_5_old_text_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_old_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = qwen2_5_old_image_reverse_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = qwen2_5_old_text_reverse_query_relevant_prompt
+                    elif rerank_prompt_type == 'please_relevant':
+                        rerank_prompt_template = qwen2_5_please_relevant_prompt
+                    elif rerank_prompt_type == 'in_one_word_relevant':
+                        rerank_prompt_template = qwen2_5_in_one_word_relevant_prompt
+                    elif rerank_prompt_type == 'precise_caption':
+                        rerank_prompt_template = qwen2_5_precise_caption_prompt
+                    elif rerank_prompt_type == 'query_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = qwen2_5_image_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = qwen2_5_text_query_relevant_prompt
+                    elif rerank_prompt_type == 'origin_old_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = qwen2_5_origin_old_image_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = qwen2_5_origin_old_text_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_origin_old_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = qwen2_5_origin_old_image_reverse_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = qwen2_5_origin_old_text_reverse_query_relevant_prompt
+                    elif rerank_prompt_type == 'role_relevant':
+                        rerank_prompt_template = qwen2_5_role_relevant_prompt
+                    elif rerank_prompt_type == 'role_precise_caption':
+                        rerank_prompt_template = qwen2_5_role_precise_caption_prompt
+                    elif rerank_prompt_type == 'role_old_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = qwen2_5_role_old_image_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = qwen2_5_role_old_text_query_relevant_prompt
+                    elif rerank_prompt_type == 'first_precise_caption':
+                        rerank_prompt_template = qwen2_5_first_precise_caption_prompt
+                    else:
+                        rerank_prompt_template = qwen2_5_relevant_prompt
                 elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-                    pass
+                    if rerank_prompt_type == 'relevant':
+                        rerank_prompt_template = qwen3_relevant_prompt
+                    elif rerank_prompt_type == 'old_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = qwen3_old_image_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = qwen3_old_text_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_old_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = qwen3_old_image_reverse_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = qwen3_old_text_reverse_query_relevant_prompt
+                    elif rerank_prompt_type == 'please_relevant':
+                        rerank_prompt_template = qwen3_please_relevant_prompt
+                    elif rerank_prompt_type == 'in_one_word_relevant':
+                        rerank_prompt_template = qwen3_in_one_word_relevant_prompt
+                    elif rerank_prompt_type == 'precise_caption':
+                        rerank_prompt_template = qwen3_precise_caption_prompt
+                    elif rerank_prompt_type == 'query_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = qwen3_image_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = qwen3_text_query_relevant_prompt
+                    elif rerank_prompt_type == 'origin_old_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = qwen3_origin_old_image_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = qwen3_origin_old_text_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_origin_old_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = qwen3_origin_old_image_reverse_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = qwen3_origin_old_text_reverse_query_relevant_prompt
+                    elif rerank_prompt_type == 'role_relevant':
+                        rerank_prompt_template = qwen3_role_relevant_prompt
+                    elif rerank_prompt_type == 'role_precise_caption':
+                        rerank_prompt_template = qwen3_role_precise_caption_prompt
+                    elif rerank_prompt_type == 'role_old_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = qwen3_role_old_image_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = qwen3_role_old_text_query_relevant_prompt
+                    elif rerank_prompt_type == 'first_precise_caption':
+                        rerank_prompt_template = qwen3_first_precise_caption_prompt
+                    else:
+                        rerank_prompt_template = qwen3_relevant_prompt
                 else:
                     if rerank_prompt_type == 'relevant':
                         rerank_prompt_template = relevant_prompt
@@ -231,7 +337,7 @@ class Reranker:
                             rerank_prompt_template = old_image_query_relevant_prompt
                         else:
                             rerank_prompt_template = old_text_query_relevant_prompt
-                    elif rerank_prompt_type == 'old_relevant':
+                    elif rerank_prompt_type == 'reverse_old_relevant':
                         if self.query_type == 'image':
                             rerank_prompt_template = old_image_reverse_query_relevant_prompt
                         else:
@@ -533,9 +639,15 @@ class Reranker:
                 else:
                     rerank_prompt_template = mistral_query_generation_paradigm_prompt
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
-            pass
+            if rerank_prompt_type == 'caption_generation':
+                rerank_prompt_template = qwen2_5_query_generation_paradigm_prompt
+            elif rerank_prompt_type == 'what_caption_generation':
+                rerank_prompt_template = qwen2_5_query_generation_paradigm_prompt_1
         elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-            pass
+            if rerank_prompt_type == 'caption_generation':
+                rerank_prompt_template = qwen3_query_generation_paradigm_prompt
+            elif rerank_prompt_type == 'what_caption_generation':
+                rerank_prompt_template = qwen3_query_generation_paradigm_prompt_1
         else:
             if training_args.task_type == 'tbpr':
                 if rerank_prompt_type == 'caption_generation':
@@ -945,8 +1057,6 @@ class Reranker:
 
                         for img_id, nll in zip(img_id_list, sharded_nll_list):
                             rerank_run[img_id] = -float(nll)
-                    if dist.get_rank() == 0:
-                        print(rerank_run)
                     sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
                     if dist.get_rank() == 0:
                         print(sorted_by_value_rerank_run)

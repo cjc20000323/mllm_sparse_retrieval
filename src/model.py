@@ -30,7 +30,8 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     fashion_iq_modify_class_prompt, mistral_fashion_iq_modify_class_prompt, llama3_template_fashion_iq_text_prefix, \
     llava_mistral_template_fashion_iq_text_prefix, llama3_template_fashion_iq_image_prefix, \
     llava_mistral_template_fashion_iq_image_prefix, retrieval_disassemble_text_prompts_fashion_iq_for_concat_1, \
-    retrieval_disassemble_image_prompts_fashion_iq_for_concat_1, text_prompt_qwen_v3
+    retrieval_disassemble_image_prompts_fashion_iq_for_concat_1, text_prompt_qwen_v3, qwen3_text_prompt, \
+    qwen2_5_text_prompt, qwen3_template_content_element, qwen2_5_template_content_element, qwen3_template_text_prefix, qwen2_5_template_text_prefix
 import torch.nn.functional as F
 
 
@@ -70,15 +71,9 @@ class MLLMRetrievalModel(nn.Module):
         if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
             prompt = text_prompt_no_special_llava_v1_5
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-            prompt = text_prompt_qwen_v2_5
-            prompt = processor.apply_chat_template(
-                prompt, tokenize=False, add_generation_prompt=True
-            )
+            prompt = qwen2_5_text_prompt
         elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-            prompt = text_prompt_qwen_v3
-            prompt = processor.apply_chat_template(
-                prompt, tokenize=False, add_generation_prompt=True
-            )
+            prompt = qwen3_text_prompt
         elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
             prompt = text_prompt_intern_vl_v2_5
             prompt = processor.apply_chat_template(
@@ -276,6 +271,7 @@ class MLLMRetrievalModel(nn.Module):
                 # 这里对应原文的log+relu操作
                 logits = torch.log(1 + torch.relu(logits))
             else:
+                '''
                 length = len(input.pixel_values)
                 # print('length is ', length)
                 for key in input.keys():
@@ -285,6 +281,7 @@ class MLLMRetrievalModel(nn.Module):
                     for key in input.keys():
                         input[key] = input[key].unsqueeze(0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
                         # print(input[key].shape)
+                '''
                 output = self.encoder(**input, output_hidden_states=True, return_dict=True, use_cache=True)
                 if data_args.reps_loc == 'after_pad':
                     logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
@@ -365,6 +362,7 @@ class MLLMRetrievalModel(nn.Module):
 
             return logits, embs
         elif input_type == 'image':
+            '''
             length = len(image_input.pixel_values)
             # print('length is ', length)
             for key in image_input.keys():
@@ -374,6 +372,7 @@ class MLLMRetrievalModel(nn.Module):
                 for key in image_input.keys():
                     image_input[key] = image_input[key].unsqueeze(0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
                     # print(input[key].shape)
+            '''
             output = self.encoder(**image_input, output_hidden_states=True, return_dict=True, use_cache=True)
             if data_args.reps_loc == 'after_pad':
                 logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
@@ -468,6 +467,7 @@ class MLLMRetrievalModel(nn.Module):
         elif input_type == 'image':
             length = len(input.pixel_values)
             # print('length is ', length)
+            '''
             for key in input.keys():
                 input[key] = input[key].squeeze()  # 数据集读取的时候，是直接多了一个维度计数，因此会有一个维度是1，把这个维度去掉
                 # print(input[key].shape)
@@ -475,6 +475,7 @@ class MLLMRetrievalModel(nn.Module):
                 for key in input.keys():
                     input[key] = input[key].unsqueeze(0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
                     # print(input[key].shape)
+            '''
             output = self.encoder(**input, output_hidden_states=True, return_dict=True, use_cache=True)
             if data_args.reps_loc == 'after_pad':
                 logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
@@ -1004,9 +1005,63 @@ class MLLMRetrievalModel(nn.Module):
             else:
                 pass
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
-            pass
+            if data_args.prompt_type == 'prompt_5':
+                prompt_template = qwen2_5_template_text_prefix
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += qwen2_5_template_content_element.format(
+                        text_prompt_for_concat)
+                for qwen2_5_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_for_concat:
+                    content_element = qwen2_5_template_content_element.format(
+                        qwen2_5_retrieval_disassemble_image_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_3':
+                prompt_template = qwen2_5_template_text_prefix
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += qwen2_5_template_content_element.format(
+                        text_prompt_for_concat)
+                for qwen2_5_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_3_for_concat:
+                    content_element = qwen2_5_template_content_element.format(
+                        qwen2_5_retrieval_disassemble_image_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_7':
+                prompt_template = qwen2_5_template_text_prefix
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += qwen2_5_template_content_element.format(
+                        text_prompt_for_concat)
+                for qwen2_5_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_7_for_concat:
+                    content_element = qwen2_5_template_content_element.format(
+                        qwen2_5_retrieval_disassemble_image_prompt)
+                    prompt_template += content_element
         elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-            pass
+            if data_args.prompt_type == 'prompt_5':
+                prompt_template = qwen3_template_text_prefix
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += qwen3_template_content_element.format(
+                        text_prompt_for_concat)
+                for qwen3_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_for_concat:
+                    content_element = qwen3_template_content_element.format(
+                        qwen3_retrieval_disassemble_image_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_3':
+                prompt_template = qwen3_template_text_prefix
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += qwen3_template_content_element.format(
+                        text_prompt_for_concat)
+                for qwen3_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_3_for_concat:
+                    content_element = qwen3_template_content_element.format(
+                        qwen3_retrieval_disassemble_image_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_7':
+                prompt_template = qwen3_template_text_prefix
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += qwen3_template_content_element.format(
+                        text_prompt_for_concat)
+                for qwen3_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_7_for_concat:
+                    content_element = qwen3_template_content_element.format(
+                        qwen3_retrieval_disassemble_image_prompt)
+                    prompt_template += content_element
+            else:
+                pass
         else:
             prompt_template = llama3_template_text_prefix
             if data_args.prompt_type == 'prompt_5':
@@ -1036,11 +1091,11 @@ class MLLMRetrievalModel(nn.Module):
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</s>']
             elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
-                begin_of_text_id = processor.tokenizer.get_vocab()['<|im_start|>']
-                end_of_text_id = processor.tokenizer.get_vocab()['<|im_end|>']
+                begin_of_text_id = processor.tokenizer.get_vocab()['<tool_call>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</tool_call>']
             elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-                begin_of_text_id = processor.tokenizer.get_vocab()['<|im_start|>']
-                end_of_text_id = processor.tokenizer.get_vocab()['<|im_end|>']
+                begin_of_text_id = processor.tokenizer.get_vocab()['<think>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</think>']
             else:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
                 end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
@@ -1048,32 +1103,60 @@ class MLLMRetrievalModel(nn.Module):
             end_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(end_of_text_id))
             begin_col_list = []
             for i in range(len(begin_of_text_indices[1])):
-                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    if data_args.prompt_type == 'prompt_5':
-                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
-                    elif data_args.prompt_type == 'prompt_3':
-                        if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 2) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
-                    elif data_args.prompt_type == 'prompt_7':
-                        if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                if 'Qwen' in model_args.model_name_or_path:
+                    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                        if data_args.prompt_type == 'prompt_5':
+                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_3':
+                            if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_7':
+                            if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        else:
+                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
-                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                        if data_args.prompt_type == 'prompt_5':
+                            if i % len(retrieval_disassemble_text_prompts_for_concat) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_3':
+                            if i % len(retrieval_disassemble_text_prompts_3_for_concat) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_7':
+                            if i % len(retrieval_disassemble_text_prompts_7_for_concat) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        else:
+                            if i % len(retrieval_disassemble_text_prompts_for_concat) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
-                    if data_args.prompt_type == 'prompt_5':
-                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
-                    elif data_args.prompt_type == 'prompt_3':
-                        if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
-                    elif data_args.prompt_type == 'prompt_7':
-                        if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                        if data_args.prompt_type == 'prompt_5':
+                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_3':
+                            if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_7':
+                            if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        else:
+                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
-                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                        if data_args.prompt_type == 'prompt_5':
+                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_3':
+                            if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_7':
+                            if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        else:
+                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
 
@@ -1146,6 +1229,7 @@ class MLLMRetrievalModel(nn.Module):
                 embs = output.hidden_states[-1][:, end_col_list[0], :]
             return logits, embs
         elif input_type == 'image':
+            '''
             length = len(input.pixel_values)
             # print('length is ', length)
             for key in input.keys():
@@ -1155,16 +1239,17 @@ class MLLMRetrievalModel(nn.Module):
                 for key in input.keys():
                     input[key] = input[key].unsqueeze(0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
                     # print(input[key].shape)
+            '''
 
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</s>']
             elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
-                begin_of_text_id = processor.tokenizer.get_vocab()['<|im_start|>']
-                end_of_text_id = processor.tokenizer.get_vocab()['<|im_end|>']
+                begin_of_text_id = processor.tokenizer.get_vocab()['<tool_call>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</tool_call>']
             elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-                begin_of_text_id = processor.tokenizer.get_vocab()['<|im_start|>']
-                end_of_text_id = processor.tokenizer.get_vocab()['<|im_end|>']
+                begin_of_text_id = processor.tokenizer.get_vocab()['<think>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<think>']
             else:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
                 end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
@@ -1172,32 +1257,60 @@ class MLLMRetrievalModel(nn.Module):
             end_of_text_indices = torch.where(input['input_ids'] == torch.tensor(end_of_text_id))
             begin_col_list = []
             for i in range(len(begin_of_text_indices[1])):
-                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    if data_args.prompt_type == 'prompt_5':
-                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
-                    elif data_args.prompt_type == 'prompt_3':
-                        if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 2) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
-                    elif data_args.prompt_type == 'prompt_7':
-                        if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                if 'Qwen' in model_args.model_name_or_path:
+                    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                        if data_args.prompt_type == 'prompt_5':
+                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_3':
+                            if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_7':
+                            if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        else:
+                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
-                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                        if data_args.prompt_type == 'prompt_5':
+                            if i % len(retrieval_disassemble_text_prompts_for_concat) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_3':
+                            if i % len(retrieval_disassemble_text_prompts_3_for_concat) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_7':
+                            if i % len(retrieval_disassemble_text_prompts_7_for_concat) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        else:
+                            if i % len(retrieval_disassemble_text_prompts_for_concat) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
-                    if data_args.prompt_type == 'prompt_5':
-                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
-                    elif data_args.prompt_type == 'prompt_3':
-                        if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
-                    elif data_args.prompt_type == 'prompt_7':
-                        if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                        if data_args.prompt_type == 'prompt_5':
+                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_3':
+                            if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_7':
+                            if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        else:
+                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
-                        if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                        if data_args.prompt_type == 'prompt_5':
+                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_3':
+                            if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_7':
+                            if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        else:
+                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
             img_inputs_embeds = self.encoder.get_input_embeddings()(input['input_ids'])
@@ -1719,6 +1832,7 @@ class MLLMRetrievalModel(nn.Module):
                     embs = output.hidden_states[-1][:, end_col_list[0], :]
                 return logits, embs
             elif input_type == 'image':
+                '''
                 length = len(image_input.pixel_values)
                 # print('length is ', length)
                 for key in image_input.keys():
@@ -1729,6 +1843,7 @@ class MLLMRetrievalModel(nn.Module):
                         image_input[key] = image_input[key].unsqueeze(
                             0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
                         # print(input[key].shape)
+                '''
 
                 if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                     begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
@@ -1983,6 +2098,7 @@ class MLLMRetrievalModel(nn.Module):
             return logits, embs
 
         elif input_type == 'image':
+            '''
             length = len(input.pixel_values)
             # print('length is ', length)
             for key in input.keys():
@@ -1992,6 +2108,7 @@ class MLLMRetrievalModel(nn.Module):
                 for key in input.keys():
                     input[key] = input[key].unsqueeze(0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
                     # print(input[key].shape)
+            '''
 
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
