@@ -16,7 +16,7 @@ from transformers import (
 )
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
     LlavaNextForConditionalGeneration, Qwen2_5_VLForConditionalGeneration, Qwen2_5_VLProcessor, AutoProcessor, \
-    AutoModel
+    AutoModel, Qwen3VLProcessor, Qwen3VLForConditionalGeneration
 
 from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
 from arguments import TrainingArguments
@@ -44,7 +44,8 @@ from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, ge
     llava_mistral_template_content_element, person_retrieval_img_prompt_for_concat, person_retrieval_img_prompt_for_concat_1, \
     retrieval_disassemble_image_prompts_person_retrieval_for_concat, \
     retrieval_disassemble_image_prompts_person_retrieval_for_concat_1, \
-    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, person_retrieval_img_prompt_for_concat_2
+    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, person_retrieval_img_prompt_for_concat_2, \
+    img_prompt_qwen_v3
 from hybrid import fuse
 from utils import load_image
 from peft import PeftModel
@@ -184,6 +185,11 @@ def main():
                                                                      device_map=device_map,
                                                                      torch_dtype=torch_type)
         processor = Qwen2_5_VLProcessor.from_pretrained(model_args.model_name_or_path)
+    elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+        encoder = Qwen3VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
+                                                                     device_map=device_map,
+                                                                     torch_dtype=torch_type)
+        processor = Qwen3VLProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'InternVL2_5-8B' in model_args.model_name_or_path:
         # device_map = split_model('InternVL2_5-8B')
         encoder = AutoModel.from_pretrained(model_args.model_name_or_path,
@@ -1945,6 +1951,8 @@ def main():
                         prompt = img_prompt_no_special_llava_v1_5
                     elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
                         prompt = img_prompt_qwen_v2_5
+                    elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                        prompt = img_prompt_qwen_v3
                     elif 'InternVL2_5-8B' in model_args.model_name_or_path:
                         prompt = img_prompt_intern_vl_v2_5
                     elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
@@ -1989,6 +1997,10 @@ def main():
                                     if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
                                         prompt = processor.apply_chat_template(
                                             img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
+                                        )
+                                    elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                                        prompt = processor.apply_chat_template(
+                                            img_prompt_qwen_v3, tokenize=False, add_generation_prompt=True
                                         )
                                     raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                                     img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
@@ -2238,6 +2250,12 @@ def main():
                                     prompt_template += content_element
                             else:
                                 pass
+
+                        elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
+                            pass
+
+                        elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                            pass
                         else:
                             if data_args.prompt_type == 'prompt_5':
                                 prompt_template = llama3_template_image_prefix

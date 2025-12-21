@@ -219,6 +219,10 @@ class Reranker:
                         rerank_prompt_template = mistral_first_precise_caption_prompt
                     else:
                         rerank_prompt_template = mistral_relevant_prompt
+                elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
+                    pass
+                elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                    pass
                 else:
                     if rerank_prompt_type == 'relevant':
                         rerank_prompt_template = relevant_prompt
@@ -280,6 +284,8 @@ class Reranker:
             ]
             prompt = self.processor.apply_chat_template(conversation, add_generation_prompt=True)
             '''
+            if dist.get_rank() == 0:
+                print(rerank_prompt_template)
             if rerank_type == 'pointwise':
                 if training_args.task_type == 'cir':
                     for k, v in tqdm(fusion_run.items()):
@@ -335,9 +341,7 @@ class Reranker:
                             no_id = self.vocab_dict['No']
                             if log_likelihood:
                                 logits = torch.log_softmax(logits, dim=-1)
-                            logit_tensor = torch.cat(
-                                [logits[:, yes_id].unsqueeze(0), logits[:, no_id].unsqueeze(0)],
-                                dim=-1)
+                            logit_tensor = torch.stack([logits[:, yes_id], logits[:, no_id]], dim=1)
                             output_probs = F.softmax(logit_tensor, dim=1)  # 同样指定dim=1
                             yes_prob = output_probs.squeeze()[0]
                             rerank_run[img_id] = float(yes_prob)
@@ -382,9 +386,7 @@ class Reranker:
                             no_id = self.vocab_dict['No']
                             if log_likelihood:
                                 logits = torch.log_softmax(logits, dim=-1)
-                            logit_tensor = torch.cat(
-                                [logits[:, yes_id].unsqueeze(0), logits[:, no_id].unsqueeze(0)],
-                                dim=-1)
+                            logit_tensor = torch.stack([logits[:, yes_id], logits[:, no_id]], dim=1)
                             output_probs = F.softmax(logit_tensor, dim=1)  # 同样指定dim=1
                             yes_prob = output_probs.squeeze()[0]
                             rerank_run[img_id] = float(yes_prob)
@@ -440,9 +442,7 @@ class Reranker:
                                 no_id = self.vocab_dict['No']
                                 if log_likelihood:
                                     logits = torch.log_softmax(logits, dim=-1)
-                                logit_tensor = torch.cat(
-                                    [logits[:, yes_id].unsqueeze(0), logits[:, no_id].unsqueeze(0)],
-                                    dim=-1)
+                                logit_tensor = torch.stack([logits[:, yes_id], logits[:, no_id]], dim=1)
                                 output_probs = F.softmax(logit_tensor, dim=1)  # 同样指定dim=1
                                 yes_prob = output_probs.squeeze()[0]
                                 rerank_run[text_id] = float(yes_prob)
@@ -476,9 +476,12 @@ class Reranker:
                                 no_id = self.vocab_dict['No']
                                 if log_likelihood:
                                     logits = torch.log_softmax(logits, dim=-1)
+                                '''
                                 logit_tensor = torch.cat(
                                     [logits[:, yes_id].unsqueeze(0), logits[:, no_id].unsqueeze(0)],
                                     dim=-1)
+                                '''
+                                logit_tensor = torch.stack([logits[:, yes_id], logits[:, no_id]], dim=1)
                                 output_probs = F.softmax(logit_tensor, dim=1)  # 同样指定dim=1
                                 yes_prob = output_probs.squeeze()[0]
                                 rerank_run[img_id] = float(yes_prob)
@@ -529,6 +532,10 @@ class Reranker:
                     rerank_prompt_template = mistral_query_generation_paradigm_prompt_7
                 else:
                     rerank_prompt_template = mistral_query_generation_paradigm_prompt
+        elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
+            pass
+        elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+            pass
         else:
             if training_args.task_type == 'tbpr':
                 if rerank_prompt_type == 'caption_generation':
@@ -857,7 +864,6 @@ class Reranker:
                             # 去掉label的第一个起始符
                             labels = [[-100] * (max_inputs_sum - len(label[1:])) + label[1:] for label in labels]
                             labels_view = torch.tensor(labels).to(self.model.device)
-
                             output = self.model(**inputs, output_hidden_states=True, return_dict=True)
                             logits = output.logits
                             shift_logits = logits[..., :-1, :].contiguous()
@@ -939,6 +945,8 @@ class Reranker:
 
                         for img_id, nll in zip(img_id_list, sharded_nll_list):
                             rerank_run[img_id] = -float(nll)
+                    if dist.get_rank() == 0:
+                        print(rerank_run)
                     sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
                     if dist.get_rank() == 0:
                         print(sorted_by_value_rerank_run)

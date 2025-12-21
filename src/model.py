@@ -1,7 +1,8 @@
+import sys
 from typing import Dict
 
 import torch
-import sys
+
 torch.set_printoptions(threshold=sys.maxsize)  # 数字根据你的张量尺寸调整
 import torch.distributed as dist
 from torch import nn
@@ -25,12 +26,11 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     retrieval_disassemble_text_prompts_person_retrieval_for_concat, \
     retrieval_disassemble_text_prompts_person_retrieval_for_concat_1, mistral_person_retrieval_text_prompt_2, \
     person_retrieval_text_prompt_for_concat_2, person_retrieval_text_prompt_2, \
-    retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1, fashion_iq_modify_class_prompt, \
-    mistral_fashion_iq_modify_class_prompt, fashion_iq_perspective_1, fashion_iq_perspective,\
+    retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1, fashion_iq_perspective_1, \
     fashion_iq_modify_class_prompt, mistral_fashion_iq_modify_class_prompt, llama3_template_fashion_iq_text_prefix, \
     llava_mistral_template_fashion_iq_text_prefix, llama3_template_fashion_iq_image_prefix, \
     llava_mistral_template_fashion_iq_image_prefix, retrieval_disassemble_text_prompts_fashion_iq_for_concat_1, \
-    retrieval_disassemble_image_prompts_fashion_iq_for_concat_1
+    retrieval_disassemble_image_prompts_fashion_iq_for_concat_1, text_prompt_qwen_v3
 import torch.nn.functional as F
 
 
@@ -71,6 +71,11 @@ class MLLMRetrievalModel(nn.Module):
             prompt = text_prompt_no_special_llava_v1_5
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
             prompt = text_prompt_qwen_v2_5
+            prompt = processor.apply_chat_template(
+                prompt, tokenize=False, add_generation_prompt=True
+            )
+        elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+            prompt = text_prompt_qwen_v3
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
@@ -998,6 +1003,10 @@ class MLLMRetrievalModel(nn.Module):
                     prompt_template += content_element
             else:
                 pass
+        elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
+            pass
+        elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+            pass
         else:
             prompt_template = llama3_template_text_prefix
             if data_args.prompt_type == 'prompt_5':
@@ -1026,6 +1035,12 @@ class MLLMRetrievalModel(nn.Module):
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|im_start|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|im_end|>']
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|im_start|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|im_end|>']
             else:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
                 end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
@@ -1144,6 +1159,12 @@ class MLLMRetrievalModel(nn.Module):
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|im_start|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|im_end|>']
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|im_start|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|im_end|>']
             else:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
                 end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']

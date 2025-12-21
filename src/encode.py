@@ -2,6 +2,7 @@ import json
 import os
 import pickle
 import string
+import sys
 from contextlib import nullcontext
 
 import numpy as np
@@ -10,7 +11,6 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data as Data
-import sys
 
 torch.set_printoptions(threshold=sys.maxsize)
 from PIL import Image
@@ -23,7 +23,7 @@ from transformers import (
 )
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
     LlavaNextForConditionalGeneration, Qwen2_5_VLProcessor, Qwen2_5_VLForConditionalGeneration, AutoModel, \
-    AutoProcessor, LlamaForCausalLM, GPTJForCausalLM, CLIPProcessor, CLIPModel
+    AutoProcessor, Qwen3VLProcessor, Qwen3VLForConditionalGeneration
 
 from arguments import PromptRepsLLMDataArguments, ModelArguments
 from arguments import TrainingArguments
@@ -31,14 +31,12 @@ from dataset import CrossModalRetrievalDataset, ComposedTextImageRetrievalDatase
 from model import MLLMRetrievalModel
 from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, \
     img_prompt_intern_vl_v2_5, llama3_template, task_text_prompts_copy, task_image_prompts_copy, \
-    llama3_retrieval_disassemble_image_prompts, llama3_retrieval_disassemble_text_prompts, \
-    llama3_template_image_prefix, llama3_template_content_element, retrieval_disassemble_image_prompts_3_for_concat, \
+    llama3_retrieval_disassemble_image_prompts, llama3_template_image_prefix, llama3_template_content_element, retrieval_disassemble_image_prompts_3_for_concat, \
     retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, \
     retrieval_disassemble_image_prompts_7_for_concat, mistral_img_prompt, llava_mistral_template_image_prefix, \
-    llava_mistral_template_text_prefix, llava_mistral_template_content_element, \
+    llava_mistral_template_content_element, \
     llava_mistral_template_fashion_iq_image_prefix, llama3_template_fashion_iq_image_prefix, \
-    retrieval_disassemble_image_prompts_fashion_iq_for_concat, fashion_iq_composed_image_for_concat, \
-    fashion_iq_img_prompt_for_concat, llama3_fashion_iq_image_prompt, mistral_fashion_iq_image_prompt, \
+    retrieval_disassemble_image_prompts_fashion_iq_for_concat, fashion_iq_img_prompt_for_concat, llama3_fashion_iq_image_prompt, mistral_fashion_iq_image_prompt, \
     person_retrieval_img_prompt, mistral_person_retrieval_img_prompt, \
     person_retrieval_img_prompt_1, mistral_person_retrieval_img_prompt_1, \
     person_retrieval_img_prompt_for_concat, person_retrieval_img_prompt_for_concat_1, \
@@ -46,7 +44,7 @@ from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qw
     retrieval_disassemble_image_prompts_person_retrieval_for_concat_1, \
     retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, mistral_person_retrieval_img_prompt_2, \
     person_retrieval_img_prompt_2, person_retrieval_img_prompt_for_concat_2, \
-    retrieval_disassemble_image_prompts_fashion_iq_for_concat_1
+    retrieval_disassemble_image_prompts_fashion_iq_for_concat_1, img_prompt_qwen_v3
 from utils import load_image
 
 
@@ -775,6 +773,12 @@ def main():
                                                                      device_map=device_map,
                                                                      torch_dtype=torch_type)
         processor = Qwen2_5_VLProcessor.from_pretrained(model_args.model_name_or_path)
+
+    elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+        encoder = Qwen3VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
+                                                                     device_map=device_map,
+                                                                     torch_dtype=torch_type)
+        processor = Qwen3VLProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
         # device_map = split_model('InternVL2_5-8B')
         encoder = AutoModel.from_pretrained(model_args.model_name_or_path,
@@ -966,6 +970,8 @@ def main():
                 prompt = img_prompt_no_special_llava_v1_5
             elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
                 prompt = img_prompt_qwen_v2_5
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                prompt = img_prompt_qwen_v3
             elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
                 prompt = img_prompt_intern_vl_v2_5
                 if dist.get_rank() == 0:
@@ -993,6 +999,8 @@ def main():
                 prompt = img_prompt_no_special_llava_v1_5
             elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
                 prompt = img_prompt_qwen_v2_5
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                prompt = img_prompt_qwen_v3
             elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
                 prompt = img_prompt_intern_vl_v2_5
                 if dist.get_rank() == 0:
@@ -1038,6 +1046,8 @@ def main():
                 prompt = img_prompt_no_special_llava_v1_5
             elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
                 prompt = img_prompt_qwen_v2_5
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                prompt = img_prompt_qwen_v3
             elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
                 prompt = img_prompt_intern_vl_v2_5
                 if dist.get_rank() == 0:
@@ -1494,10 +1504,21 @@ def main():
                                         prompt = processor.apply_chat_template(
                                             img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
                                         )
+                                        if dist.get_rank() == 0:
+                                            print(prompt)
+                                    elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                                        prompt = processor.apply_chat_template(
+                                            img_prompt_qwen_v3, tokenize=False, add_generation_prompt=True
+                                        )
+                                        if dist.get_rank() == 0:
+                                            print(prompt)
                                     raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                                     img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
                                                            return_tensors="pt",
                                                            padding=True)
+                                    if dist.get_rank() == 0:
+                                        print(prompt)
+                                        print(img_inputs['input_ids'])
                                     imgs = img_inputs.to(device)
                                     logits, reps = model.encode_data(imgs, 'image', processor, device, model_args,
                                                                      data_args)
@@ -1614,6 +1635,11 @@ def main():
                                     prompt_template += content_element
                             else:
                                 pass
+
+                        elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
+                            pass
+                        elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                            pass
                         else:
                             if data_args.prompt_type == 'prompt_5':
                                 prompt_template = llama3_template_image_prefix

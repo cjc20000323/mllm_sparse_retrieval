@@ -157,7 +157,7 @@ img_prompt_qwen_v2_5 = [
                 "type": "image",
                 "image": '{}',
             },
-            {"type": "text", "text": '\nSummary above image in one word: '},
+            {"type": "text", "text": '\n<|im_start|>Summary above image in one word: '},
         ],
     }
 ]
@@ -169,7 +169,32 @@ text_prompt_qwen_v2_5 = [
                 "type": "text",
                 "text": '<sent>',
             },
-            {"type": "text", "text": '\nSummary above sentence in one word: '},
+            {"type": "text", "text": '\n<|im_start|>Summary above sentence in one word: '},
+        ],
+    }
+]
+img_prompt_qwen_v3 = [
+    {
+        "role": "user",
+        "content": [
+            {
+                "type": "image",
+                "image": '{}',
+            },
+            {"type": "text", "text": '\n<|im_start|>Summary above image in one word: '},
+        ],
+    }
+]
+
+text_prompt_qwen_v3 = [
+    {
+        "role": "user",
+        "content": [
+            {
+                "type": "text",
+                "text": '<sent>',
+            },
+            {"type": "text", "text": '\n<|im_start|>Summary above sentence in one word: '},
         ],
     }
 ]
