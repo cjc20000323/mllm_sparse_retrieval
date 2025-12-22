@@ -1010,27 +1010,27 @@ class MLLMRetrievalModel(nn.Module):
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                     prompt_template += qwen2_5_template_content_element.format(
                         text_prompt_for_concat)
-                for qwen2_5_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_for_concat:
+                for qwen2_5_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
                     content_element = qwen2_5_template_content_element.format(
-                        qwen2_5_retrieval_disassemble_image_prompt)
+                        qwen2_5_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_3':
                 prompt_template = qwen2_5_template_text_prefix
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                     prompt_template += qwen2_5_template_content_element.format(
                         text_prompt_for_concat)
-                for qwen2_5_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_3_for_concat:
+                for qwen2_5_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_3_for_concat:
                     content_element = qwen2_5_template_content_element.format(
-                        qwen2_5_retrieval_disassemble_image_prompt)
+                        qwen2_5_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_7':
                 prompt_template = qwen2_5_template_text_prefix
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                     prompt_template += qwen2_5_template_content_element.format(
                         text_prompt_for_concat)
-                for qwen2_5_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_7_for_concat:
+                for qwen2_5_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
                     content_element = qwen2_5_template_content_element.format(
-                        qwen2_5_retrieval_disassemble_image_prompt)
+                        qwen2_5_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
         elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
             if data_args.prompt_type == 'prompt_5':
@@ -1038,27 +1038,27 @@ class MLLMRetrievalModel(nn.Module):
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                     prompt_template += qwen3_template_content_element.format(
                         text_prompt_for_concat)
-                for qwen3_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_for_concat:
+                for qwen3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
                     content_element = qwen3_template_content_element.format(
-                        qwen3_retrieval_disassemble_image_prompt)
+                        qwen3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_3':
                 prompt_template = qwen3_template_text_prefix
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                     prompt_template += qwen3_template_content_element.format(
                         text_prompt_for_concat)
-                for qwen3_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_3_for_concat:
+                for qwen3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_3_for_concat:
                     content_element = qwen3_template_content_element.format(
-                        qwen3_retrieval_disassemble_image_prompt)
+                        qwen3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_7':
                 prompt_template = qwen3_template_text_prefix
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                     prompt_template += qwen3_template_content_element.format(
                         text_prompt_for_concat)
-                for qwen3_retrieval_disassemble_image_prompt in retrieval_disassemble_text_prompts_7_for_concat:
+                for qwen3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
                     content_element = qwen3_template_content_element.format(
-                        qwen3_retrieval_disassemble_image_prompt)
+                        qwen3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             else:
                 pass
@@ -1104,6 +1104,8 @@ class MLLMRetrievalModel(nn.Module):
             begin_col_list = []
             for i in range(len(begin_of_text_indices[1])):
                 if 'Qwen' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
+                    '''
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                         if data_args.prompt_type == 'prompt_5':
                             if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
@@ -1130,6 +1132,7 @@ class MLLMRetrievalModel(nn.Module):
                         else:
                             if i % len(retrieval_disassemble_text_prompts_for_concat) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
+                    '''
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                         if data_args.prompt_type == 'prompt_5':
@@ -1249,7 +1252,7 @@ class MLLMRetrievalModel(nn.Module):
                 end_of_text_id = processor.tokenizer.get_vocab()['</tool_call>']
             elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<think>']
-                end_of_text_id = processor.tokenizer.get_vocab()['<think>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</think>']
             else:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
                 end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
@@ -1258,6 +1261,8 @@ class MLLMRetrievalModel(nn.Module):
             begin_col_list = []
             for i in range(len(begin_of_text_indices[1])):
                 if 'Qwen' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
+                    '''
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                         if data_args.prompt_type == 'prompt_5':
                             if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
@@ -1284,6 +1289,7 @@ class MLLMRetrievalModel(nn.Module):
                         else:
                             if i % len(retrieval_disassemble_text_prompts_for_concat) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
+                    '''
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                         if data_args.prompt_type == 'prompt_5':
@@ -1354,6 +1360,15 @@ class MLLMRetrievalModel(nn.Module):
             )
 
             input['attention_mask'] = causal_mask
+
+            '''
+            if dist.get_rank() == 1:
+                print(input['attention_mask'])
+                print(input['attention_mask'].shape)
+                print(input['input_ids'])
+                print(input['input_ids'].shape)
+            '''
+
 
             output = self.encoder(**input, output_hidden_states=True, return_dict=True, use_cache=True)
             # 这里对应原文的log+relu操作

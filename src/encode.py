@@ -1520,6 +1520,11 @@ def main():
                                     img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
                                                            return_tensors="pt",
                                                            padding=True)
+                                    '''
+                                    if dist.get_rank() == 0:
+                                        print(prompt)
+                                        print(img_inputs['input_ids'])
+                                    '''
                                     imgs = img_inputs.to(device)
                                     logits, reps = model.encode_data(imgs, 'image', processor, device, model_args,
                                                                      data_args)
