@@ -46,7 +46,7 @@ from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qw
     person_retrieval_img_prompt_2, person_retrieval_img_prompt_for_concat_2, \
     retrieval_disassemble_image_prompts_fashion_iq_for_concat_1, img_prompt_qwen_v3, qwen3_img_prompt, \
     qwen2_5_img_prompt, qwen2_5_template_image_prefix, qwen3_template_image_prefix, qwen3_template_content_element, \
-    qwen2_5_template_content_element
+    qwen2_5_template_content_element, qwen3_person_retrieval_img_prompt
 from utils import load_image
 
 
@@ -1002,7 +1002,7 @@ def main():
             elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
                 prompt = img_prompt_qwen_v2_5
             elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-                prompt = img_prompt_qwen_v3
+                prompt = qwen3_person_retrieval_img_prompt
             elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
                 prompt = img_prompt_intern_vl_v2_5
                 if dist.get_rank() == 0:
@@ -1253,10 +1253,12 @@ def main():
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
                 if model_args.calculate_type == 'separate':
+                    '''
                     if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
                         prompt = processor.apply_chat_template(
                             img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
                         )
+                    '''
                     raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                     img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
                                            return_tensors="pt",
@@ -1309,6 +1311,15 @@ def main():
                                 content_element = llava_mistral_template_content_element.format(
                                     llava_mistral_retrieval_disassemble_image_prompt)
                                 prompt_template += content_element
+                    elif 'Qwen-Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                        prompt_template = qwen3_template_image_prefix
+                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                            prompt_template += qwen3_template_content_element.format(
+                                person_retrieval_img_prompt_for_concat)
+                        for qwen3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat:
+                            content_element = qwen3_template_content_element.format(
+                                qwen3_retrieval_disassemble_image_prompt)
+                            prompt_template += content_element
                     else:
                         if data_args.tbpr_type == 'origin_type':
                             prompt_template = llama3_template_image_prefix

@@ -43,6 +43,8 @@ person_retrieval_img_prompt_2 = llama3_template.format('<image>\n<|begin_of_text
 person_retrieval_text_prompt_2 = llama3_template.format('<sent>\n<|begin_of_text|>Describe wearing style of this person in one word based on the sentence: ')
 mistral_person_retrieval_img_prompt_2 = llava_mistral_template.format('<image>\n<s>Describe wearing style of this person in one word based on the image: ')
 mistral_person_retrieval_text_prompt_2 = llava_mistral_template.format('<sent>\n<s>Describe wearing style of this person in one word based on the sentence: ')
+qwen3_person_retrieval_img_prompt = qwen3_template.format('<|vision_start|><|image_pad|><|vision_end|>\n<think>Summary the person in above image in one word: ')
+qwen3_person_retrieval_text_prompt = qwen3_template.format('<sent>\n<think>Summary the person in above sentence in one word: ')
 
 
 llama3_fashion_iq_composed_image_prompt = llama3_template.format('<image> change the style of this {} to <sent>\n<|begin_of_text|>Describe this modified {} in one word based on its style: ')
@@ -155,6 +157,11 @@ mistral_person_retrieval_relevant_prompt = llava_mistral_template.format("For th
 mistral_person_retrieval_old_query_relevant_prompt = llava_mistral_template.format("Query: <sent>\nCandidate: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
 mistral_person_retrieval_origin_old_query_relevant_prompt = llava_mistral_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate: <image>\nQuery: <sent>\nDoes the candidate answer the query? Answer: ")
 mistral_person_retrieval_query_relevant_prompt = llava_mistral_template.format("For the following query sentence and candidate image, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Sentence: <sent> Candidate Image: <image> Output: ")
+qwen3_person_retrieval_relevant_prompt = qwen3_template.format("For the following sentence and person image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Person Image: <|vision_start|><|image_pad|><|vision_end|> Output: ")
+qwen3_person_retrieval_old_query_relevant_prompt = qwen3_template.format("Query: <sent>\nCandidate: <|vision_start|><|image_pad|><|vision_end|>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+qwen3_person_retrieval_origin_old_query_relevant_prompt = qwen3_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate: <|vision_start|><|image_pad|><|vision_end|>\nQuery: <sent>\nDoes the candidate answer the query? Answer: ")
+qwen3_person_retrieval_query_relevant_prompt = qwen3_template.format("For the following query sentence and candidate person image, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Sentence: <sent> Candidate Person Image: <|vision_start|><|image_pad|><|vision_end|> Output: ")
+
 
 mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image: <image>\nPlease write a caption based on this image.")
 query_generation_paradigm_prompt = llama3_template.format("Image: <image>\nPlease write a caption based on this image.")
@@ -192,6 +199,8 @@ person_retrieval_mistral_query_generation_paradigm_prompt_1 = llava_mistral_temp
 person_retrieval_query_generation_paradigm_prompt_1 = llama3_template.format("Person Image: <image>\nWhat is the caption of the above person image?")
 person_retrieval_mistral_query_generation_paradigm_prompt_2 = llava_mistral_template.format("Person Image: <image>\nPlease describe this person write a caption for this person image.")
 person_retrieval_query_generation_paradigm_prompt_2 = llama3_template.format("Person Image: <image>\nPlease describe this person write a caption for this person image.")
+person_retrieval_qwen3_query_generation_paradigm_prompt = qwen3_template.format("Person Image: <|vision_start|><|image_pad|><|vision_end|>\nPlease write a caption based on this person image.")
+person_retrieval_qwen3_query_generation_paradigm_prompt_1 = qwen3_template.format("Person Image: <|vision_start|><|image_pad|><|vision_end|>\nWhat is the caption of the above person image?")
 
 img_prompt_for_concat = 'Summary above image in one word: '
 text_prompt_for_concat = 'Summary above sentence in one word: '

@@ -61,7 +61,10 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     qwen2_5_please_relevant_prompt, qwen2_5_in_one_word_relevant_prompt, qwen2_5_precise_caption_prompt, \
     qwen2_5_origin_old_image_reverse_query_relevant_prompt, qwen2_5_origin_old_text_reverse_query_relevant_prompt, \
     qwen2_5_role_relevant_prompt, qwen2_5_role_precise_caption_prompt, qwen2_5_role_old_image_query_relevant_prompt, \
-    qwen2_5_role_old_text_query_relevant_prompt, qwen2_5_first_precise_caption_prompt
+    qwen2_5_role_old_text_query_relevant_prompt, qwen2_5_first_precise_caption_prompt, \
+    qwen3_person_retrieval_query_relevant_prompt, qwen3_person_retrieval_old_query_relevant_prompt, \
+    qwen3_person_retrieval_relevant_prompt, qwen3_person_retrieval_origin_old_query_relevant_prompt, \
+    person_retrieval_qwen3_query_generation_paradigm_prompt, person_retrieval_qwen3_query_generation_paradigm_prompt_1
 
 flickr_length_dict = {3: 3, 4: 5, 5: 26, 6: 83, 7: 196, 8: 316, 9: 376, 10: 447, 11: 446, 12: 455, 13: 399, 14: 403,
                       15: 343, 16: 287, 17: 213, 18: 179, 19: 134, 20: 127, 21: 82, 22: 78, 23: 83, 24: 45, 25: 40,
@@ -175,7 +178,18 @@ class Reranker:
                     elif rerank_prompt_type == 'origin_old_relevant':
                         rerank_prompt_template = mistral_person_retrieval_origin_old_query_relevant_prompt
                     else:
-                        rerank_prompt_template = mistral_fashion_iq_relevant_prompt
+                        rerank_prompt_template = mistral_person_retrieval_relevant_prompt
+                elif 'Qwen-Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                    if rerank_prompt_type == 'relevant':
+                        rerank_prompt_template = qwen3_person_retrieval_relevant_prompt
+                    elif rerank_prompt_type == 'old_relevant':
+                        rerank_prompt_template = qwen3_person_retrieval_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'query_relevant':
+                        rerank_prompt_template = qwen3_person_retrieval_query_relevant_prompt
+                    elif rerank_prompt_type == 'origin_old_relevant':
+                        rerank_prompt_template = qwen3_person_retrieval_origin_old_query_relevant_prompt
+                    else:
+                        rerank_prompt_template = qwen3_person_retrieval_relevant_prompt
                 else:
                     if rerank_prompt_type == 'relevant':
                         rerank_prompt_template = person_retrieval_relevant_prompt
@@ -644,6 +658,11 @@ class Reranker:
             elif rerank_prompt_type == 'what_caption_generation':
                 rerank_prompt_template = qwen2_5_query_generation_paradigm_prompt_1
         elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+            if training_args.task_type == 'tbpr':
+                if rerank_prompt_type == 'caption_generation':
+                    rerank_prompt_template = person_retrieval_qwen3_query_generation_paradigm_prompt
+                elif rerank_prompt_type == 'what_caption_generation':
+                    rerank_prompt_template = person_retrieval_qwen3_query_generation_paradigm_prompt_1
             if rerank_prompt_type == 'caption_generation':
                 rerank_prompt_template = qwen3_query_generation_paradigm_prompt
             elif rerank_prompt_type == 'what_caption_generation':

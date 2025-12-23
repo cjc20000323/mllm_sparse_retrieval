@@ -31,7 +31,8 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     llava_mistral_template_fashion_iq_text_prefix, llama3_template_fashion_iq_image_prefix, \
     llava_mistral_template_fashion_iq_image_prefix, retrieval_disassemble_text_prompts_fashion_iq_for_concat_1, \
     retrieval_disassemble_image_prompts_fashion_iq_for_concat_1, text_prompt_qwen_v3, qwen3_text_prompt, \
-    qwen2_5_text_prompt, qwen3_template_content_element, qwen2_5_template_content_element, qwen3_template_text_prefix, qwen2_5_template_text_prefix
+    qwen2_5_text_prompt, qwen3_template_content_element, qwen2_5_template_content_element, qwen3_template_text_prefix, \
+    qwen2_5_template_text_prefix, qwen3_person_retrieval_text_prompt
 import torch.nn.functional as F
 
 
@@ -398,6 +399,8 @@ class MLLMRetrievalModel(nn.Module):
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
+        elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+            prompt = qwen3_person_retrieval_text_prompt
         elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
             prompt = text_prompt_intern_vl_v2_5
             prompt = processor.apply_chat_template(
@@ -1992,6 +1995,15 @@ class MLLMRetrievalModel(nn.Module):
                     prompt_template += content_element
             else:
                 pass
+        elif 'Qwen-Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+            prompt_template = qwen3_template_text_prefix
+            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                prompt_template += qwen3_template_content_element.format(
+                    person_retrieval_text_prompt_for_concat)
+            for qwen3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat:
+                content_element = qwen3_template_content_element.format(
+                    qwen3_retrieval_disassemble_text_prompt)
+                prompt_template += content_element
         else:
             prompt_template = llama3_template_text_prefix
             if data_args.tbpr_type == 'origin_type':
@@ -2027,6 +2039,9 @@ class MLLMRetrievalModel(nn.Module):
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<think>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</think>']
             else:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
                 end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
@@ -2034,12 +2049,15 @@ class MLLMRetrievalModel(nn.Module):
             end_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(end_of_text_id))
             begin_col_list = []
             for i in range(len(begin_of_text_indices[1])):
-                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    if i % (len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 2) != 0:
-                        begin_col_list.append(begin_of_text_indices[1][i].item())
+                if 'Qwen' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
-                    if i % (len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 1) != 0:
-                        begin_col_list.append(begin_of_text_indices[1][i].item())
+                    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                        if i % (len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    else:
+                        if i % (len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
 
@@ -2128,6 +2146,9 @@ class MLLMRetrievalModel(nn.Module):
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<think>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</think>']
             else:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
                 end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
@@ -2135,12 +2156,15 @@ class MLLMRetrievalModel(nn.Module):
             end_of_text_indices = torch.where(input['input_ids'] == torch.tensor(end_of_text_id))
             begin_col_list = []
             for i in range(len(begin_of_text_indices[1])):
-                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    if i % (len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 2) != 0:
-                        begin_col_list.append(begin_of_text_indices[1][i].item())
+                if 'Qwen' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
-                    if i % (len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 1) != 0:
-                        begin_col_list.append(begin_of_text_indices[1][i].item())
+                    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                        if i % (len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    else:
+                        if i % (len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
             img_inputs_embeds = self.encoder.get_input_embeddings()(input['input_ids'])
