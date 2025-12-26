@@ -2905,7 +2905,7 @@ def main():
             fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
             if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
                 max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
-                best_weight = float(i / 10)
+                best_weight = float((i+1) / 10)
         else:
             fusion_recalls = {
                 dress: {k: sum(metric.fusion_recall_lists[dress][k]) for k in metric.recall_k_setting_list} for dress in
@@ -2916,7 +2916,7 @@ def main():
                 max_val_fusion_metric = (fusion_recalls['dress'][10] + fusion_recalls['dress'][50] +
                                          fusion_recalls['shirt'][10] + fusion_recalls['shirt'][50] +
                                          fusion_recalls['toptee'][10] + fusion_recalls['toptee'][50]) / 6
-                best_weight = float(i / 10)
+                best_weight = float((i+1) / 10)
         metric.print_recall(output_path)
 
     best_test_fusion_run = {}
@@ -2927,8 +2927,10 @@ def main():
         )
     )
 
+    '''
     if dist.get_rank() == 0:
         print(best_test_fusion_run)
+    '''
 
     if 'caption_generation' in search_args.rerank_template:
         rerank_best_test_fusion_run = ranker.caption_generation_rerank(best_test_fusion_run, search_args.rerank_type,
@@ -2940,8 +2942,10 @@ def main():
                                         training_args, model_args, rerank_prompt_type=search_args.rerank_template)
 
 
+    '''
     if dist.get_rank() == 0:
         print(rerank_best_test_fusion_run)
+    '''
     if training_args.task_type == 'tbpr':
         output_path = os.path.join(
             f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
