@@ -1,52 +1,48 @@
+import gc
 import glob
-import json
 import os
 import pickle
+import string
+from contextlib import nullcontext
+from itertools import chain
+
 import faiss
+import numpy as np
+import torch
+import torch.distributed as dist
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.utils.data as Data
+from PIL import Image
+from nltk.corpus import stopwords
+from peft import PeftModel
 from tqdm import tqdm
 from transformers import (
     HfArgumentParser,
 )
-from contextlib import nullcontext
-from PIL import Image
-from itertools import chain
-
-from model import MLLMRetrievalModel
-from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
-import torch.distributed as dist
-from arguments import TrainingArguments
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
     LlavaNextForConditionalGeneration, Qwen2_5_VLForConditionalGeneration, Qwen2_5_VLProcessor, AutoProcessor, \
-    AutoModelForCausalLM, AutoModel, LlamaForCausalLM, Qwen3VLForConditionalGeneration, Qwen3VLProcessor
-from encode import get_filtered_ids
-from dataset import CrossModalRetrievalDataset, ComposedTextImageRetrievalDataset, TextPersonRetrievalDataset
-from metrices import RecallMetrics
+    AutoModel, Qwen3VLForConditionalGeneration, Qwen3VLProcessor
 
-import numpy as np
-import torch
-import torch.nn as nn
-import torch.utils.data as Data
-import torch.nn.functional as F
-from nltk.corpus import stopwords
-import string
-from template import img_prompt, \
-    img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, task_image_prompts, \
-    llama3_template, task_text_prompts, llama3_retrieval_disassemble_image_prompts, \
-    llama3_retrieval_disassemble_text_prompts
-from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
-    get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, \
+from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
+from arguments import TrainingArguments
+from dataset import CrossModalRetrievalDataset, ComposedTextImageRetrievalDataset, TextPersonRetrievalDataset
+from encode import get_filtered_ids
+from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_text_valid_tokens_values_with_cluster, \
+    get_text_valid_disassemble_tokens_values, \
     get_img_valid_disassemble_tokens_values, llama3_template_image_prefix, llama3_template_content_element, \
     retrieval_disassemble_image_prompts_3_for_concat, \
     retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, \
     retrieval_disassemble_image_prompts_7_for_concat, get_text_valid_disassemble_tokens_values_fusion, \
     get_text_valid_tokens_values_fusion, mistral_img_prompt, llava_mistral_template_content_element, \
     llava_mistral_template_image_prefix
-from hybrid import fuse, normalize
-from utils import load_image
-from peft import PeftModel
-from search import pickle_load, search_queries, sparse_search, get_run_dict, search_queries_two_stage
-import time
-import gc
+from hybrid import fuse
+from metrices import RecallMetrics
+from model import MLLMRetrievalModel
+from search import pickle_load, sparse_search, get_run_dict, search_queries_two_stage
+from template import img_prompt, \
+    img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, \
+    llama3_retrieval_disassemble_image_prompts
 
 # from cuml.cluster import KMeans
 

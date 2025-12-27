@@ -30,7 +30,7 @@ import torch.nn.functional as F
 from nltk.corpus import stopwords
 import string
 
-from src.reranker import Reranker
+from reranker import Reranker
 from template import img_prompt, \
     img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, task_image_prompts, \
     llama3_template, task_text_prompts, llama3_retrieval_disassemble_image_prompts, \
@@ -317,7 +317,6 @@ def main():
                         prompt_length = 5
                         query_dense_reps = query_dense_reps.reshape(-1, prompt_length,
                                                                     query_dense_reps.shape[1]).mean(1)
-                    query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
 
                     batch_ids = text_ids
 
