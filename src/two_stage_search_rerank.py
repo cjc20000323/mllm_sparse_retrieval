@@ -29,6 +29,8 @@ import torch.utils.data as Data
 import torch.nn.functional as F
 from nltk.corpus import stopwords
 import string
+
+from src.reranker import Reranker
 from template import img_prompt, \
     img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, task_image_prompts, \
     llama3_template, task_text_prompts, llama3_retrieval_disassemble_image_prompts, \
