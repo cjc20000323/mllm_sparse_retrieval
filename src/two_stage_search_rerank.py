@@ -1378,6 +1378,25 @@ def main():
     max_val_fusion_metric = 0
     best_weight = 0.5
 
+    if training_args.task_type == 'cir':
+        choice_dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'train', search_args.query_type)
+    elif training_args.task_type == 'tbpr':
+        choice_dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'train',
+                                                           'full')
+    else:
+        choice_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'train', 'full')
+
+    if training_args.task_type == 'cir':
+        ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict, None,
+                          dataset.img_dict, processor.tokenizer.get_vocab(), dataset)
+    else:
+        if data_args.dataset_name == 'coco':
+            ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict,
+                              dataset.img2filepath, dataset.img_dict, processor.tokenizer.get_vocab(), choice_dataset)
+        else:
+            ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict,
+                              None, dataset.img_dict, processor.tokenizer.get_vocab(), choice_dataset)
+
     if data_args.is_filtered:
         filtered = "filter"
     else:
@@ -1402,7 +1421,7 @@ def main():
         fusion_run[i].update(
             fuse(
                 runs=[dense_run, sparse_run],
-                weights=[float((i+1)/10), 1-float((i+1)/10)]
+                weights=[float((i + 1) / 10), 1 - float((i + 1) / 10)]
             )
         )
         if training_args.task_type == 'cir':
@@ -1461,20 +1480,25 @@ def main():
         )
     )
 
-    if training_args.task_type == 'cir':
+    if 'caption_generation' in search_args.rerank_template:
+        rerank_best_test_fusion_run = ranker.caption_generation_rerank(best_test_fusion_run, search_args.rerank_type,
+                                                    search_args.rerank_num, data_args,
+                                                    training_args, model_args, search_args,
+                                                    rerank_prompt_type=search_args.rerank_template)
+    else:
+        rerank_best_test_fusion_run = ranker.rerank(best_test_fusion_run, search_args.rerank_type, search_args.rerank_num, data_args,
+                                        training_args, model_args, rerank_prompt_type=search_args.rerank_template)
+
+    if training_args.task_type == 'tbpr':
         output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-            f'best.xlsx')
-    elif training_args.task_type == 'tbpr':
-        output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
             f'best.xlsx')
     else:
         output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
             f'best.xlsx')
 
-    metric = RecallMetrics(dataset, dense_run, sparse_run, best_test_fusion_run, look_up, lookup_indices, search_args)
+    metric = RecallMetrics(dataset, dense_run, sparse_run, rerank_best_test_fusion_run, look_up, lookup_indices, search_args)
 
     metric.sort_and_count()
 
