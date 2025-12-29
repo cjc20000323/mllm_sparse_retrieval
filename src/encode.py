@@ -46,7 +46,9 @@ from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qw
     person_retrieval_img_prompt_2, person_retrieval_img_prompt_for_concat_2, \
     retrieval_disassemble_image_prompts_fashion_iq_for_concat_1, img_prompt_qwen_v3, qwen3_img_prompt, \
     qwen2_5_img_prompt, qwen2_5_template_image_prefix, qwen3_template_image_prefix, qwen3_template_content_element, \
-    qwen2_5_template_content_element, qwen3_person_retrieval_img_prompt
+    qwen2_5_template_content_element, qwen3_person_retrieval_img_prompt, \
+    retrieval_disassemble_image_prompts_1_for_concat, retrieval_disassemble_image_prompts_2_for_concat, \
+    retrieval_disassemble_image_prompts_4_for_concat, retrieval_disassemble_image_prompts_6_for_concat
 from utils import load_image
 
 
@@ -1632,12 +1634,48 @@ def main():
                                     content_element = llava_mistral_template_content_element.format(
                                         llava_mistral_retrieval_disassemble_image_prompt)
                                     prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_1':
+                                prompt_template = llava_mistral_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_mistral_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_1_for_concat:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_2':
+                                prompt_template = llava_mistral_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_mistral_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_2_for_concat:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
                             elif data_args.prompt_type == 'prompt_3':
                                 prompt_template = llava_mistral_template_image_prefix
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                     prompt_template += llava_mistral_template_content_element.format(
                                         img_prompt_for_concat)
                                 for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_4':
+                                prompt_template = llava_mistral_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_mistral_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_4_for_concat:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_6':
+                                prompt_template = llava_mistral_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_mistral_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_6_for_concat:
                                     content_element = llava_mistral_template_content_element.format(
                                         llava_mistral_retrieval_disassemble_image_prompt)
                                     prompt_template += content_element
@@ -1720,11 +1758,43 @@ def main():
                                     content_element = llama3_template_content_element.format(
                                         llama3_retrieval_disassemble_image_prompt)
                                     prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_1':
+                                prompt_template = llama3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_1_for_concat:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_2':
+                                prompt_template = llama3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_2_for_concat:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
                             elif data_args.prompt_type == 'prompt_3':
                                 prompt_template = llama3_template_image_prefix
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                     prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
                                 for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_4':
+                                prompt_template = llama3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_4_for_concat:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_6':
+                                prompt_template = llama3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_6_for_concat:
                                     content_element = llama3_template_content_element.format(
                                         llama3_retrieval_disassemble_image_prompt)
                                     prompt_template += content_element
@@ -1766,8 +1836,16 @@ def main():
                         if model_args.calculate_type == 'concat':
                             if data_args.prompt_type == 'prompt_5':
                                 prompt_length = 5
+                            elif data_args.prompt_type == 'prompt_1':
+                                prompt_length = 1
+                            elif data_args.prompt_type == 'prompt_2':
+                                prompt_length = 2
                             elif data_args.prompt_type == 'prompt_3':
                                 prompt_length = 3
+                            elif data_args.prompt_type == 'prompt_4':
+                                prompt_length = 4
+                            elif data_args.prompt_type == 'prompt_6':
+                                prompt_length = 6
                             elif data_args.prompt_type == 'prompt_7':
                                 prompt_length = 7
                             else:
@@ -1793,8 +1871,16 @@ def main():
                                     text = texts[text_indice]
                                     if data_args.prompt_type == 'prompt_5':
                                         length = 5
+                                    elif data_args.prompt_type == 'prompt_1':
+                                        length = 1
+                                    elif data_args.prompt_type == 'prompt_2':
+                                        length = 2
                                     elif data_args.prompt_type == 'prompt_3':
                                         length = 3
+                                    elif data_args.prompt_type == 'prompt_4':
+                                        length = 4
+                                    elif data_args.prompt_type == 'prompt_6':
+                                        length = 6
                                     elif data_args.prompt_type == 'prompt_7':
                                         length = 7
                                     else:
@@ -1836,8 +1922,16 @@ def main():
                                         for token in vector.keys():
                                             if data_args.prompt_type == 'prompt_5':
                                                 vector[token] //= 5
+                                            elif data_args.prompt_type == 'prompt_1':
+                                                vector[token] //= 1
+                                            elif data_args.prompt_type == 'prompt_2':
+                                                vector[token] //= 2
                                             elif data_args.prompt_type == 'prompt_3':
                                                 vector[token] //= 3
+                                            elif data_args.prompt_type == 'prompt_4':
+                                                vector[token] //= 4
+                                            elif data_args.prompt_type == 'prompt_6':
+                                                vector[token] //= 6
                                             else:
                                                 vector[token] //= 7
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
@@ -1886,8 +1980,16 @@ def main():
                                     text = texts[text_indice]
                                     if data_args.prompt_type == 'prompt_5':
                                         length = 5
+                                    elif data_args.prompt_type == 'prompt_1':
+                                        length = 1
+                                    elif data_args.prompt_type == 'prompt_2':
+                                        length = 2
                                     elif data_args.prompt_type == 'prompt_3':
                                         length = 3
+                                    elif data_args.prompt_type == 'prompt_4':
+                                        length = 4
+                                    elif data_args.prompt_type == 'prompt_6':
+                                        length = 6
                                     elif data_args.prompt_type == 'prompt_7':
                                         length = 7
                                     else:
@@ -1927,8 +2029,16 @@ def main():
                                         for token in vector.keys():
                                             if data_args.prompt_type == 'prompt_5':
                                                 vector[token] //= 5
+                                            elif data_args.prompt_type == 'prompt_1':
+                                                vector[token] //= 1
+                                            elif data_args.prompt_type == 'prompt_2':
+                                                vector[token] //= 2
                                             elif data_args.prompt_type == 'prompt_3':
                                                 vector[token] //= 3
+                                            elif data_args.prompt_type == 'prompt_4':
+                                                vector[token] //= 4
+                                            elif data_args.prompt_type == 'prompt_6':
+                                                vector[token] //= 6
                                             else:
                                                 vector[token] //= 7
                                     jsonl_data.append(
@@ -1946,8 +2056,16 @@ def main():
                                 text = texts[img_indice]
                                 if data_args.prompt_type == 'prompt_5':
                                     length = 5
+                                elif data_args.prompt_type == 'prompt_1':
+                                    length = 1
+                                elif data_args.prompt_type == 'prompt_2':
+                                    length = 2
                                 elif data_args.prompt_type == 'prompt_3':
                                     length = 3
+                                elif data_args.prompt_type == 'prompt_4':
+                                    length = 4
+                                elif data_args.prompt_type == 'prompt_6':
+                                    length = 6
                                 elif data_args.prompt_type == 'prompt_7':
                                     length = 7
                                 else:
@@ -1984,10 +2102,18 @@ def main():
                                     for token in vector.keys():
                                         if data_args.prompt_type == 'prompt_5':
                                             vector[token] //= 5
-                                        elif data_args.prompt_type == 'prompt_7':
-                                            vector[token] //= 7
-                                        else:
+                                        elif data_args.prompt_type == 'prompt_1':
+                                            vector[token] //= 1
+                                        elif data_args.prompt_type == 'prompt_2':
+                                            vector[token] //= 2
+                                        elif data_args.prompt_type == 'prompt_3':
                                             vector[token] //= 3
+                                        elif data_args.prompt_type == 'prompt_4':
+                                            vector[token] //= 4
+                                        elif data_args.prompt_type == 'prompt_6':
+                                            vector[token] //= 6
+                                        else:
+                                            vector[token] //= 7
                                 jsonl_data.append(
                                     dict(
                                         id=id,

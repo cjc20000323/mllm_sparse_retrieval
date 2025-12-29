@@ -32,7 +32,9 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     llava_mistral_template_fashion_iq_image_prefix, retrieval_disassemble_text_prompts_fashion_iq_for_concat_1, \
     retrieval_disassemble_image_prompts_fashion_iq_for_concat_1, text_prompt_qwen_v3, qwen3_text_prompt, \
     qwen2_5_text_prompt, qwen3_template_content_element, qwen2_5_template_content_element, qwen3_template_text_prefix, \
-    qwen2_5_template_text_prefix, qwen3_person_retrieval_text_prompt
+    qwen2_5_template_text_prefix, qwen3_person_retrieval_text_prompt, retrieval_disassemble_text_prompts_1_for_concat, \
+    retrieval_disassemble_text_prompts_2_for_concat, retrieval_disassemble_text_prompts_4_for_concat, \
+    retrieval_disassemble_text_prompts_6_for_concat
 import torch.nn.functional as F
 
 
@@ -993,10 +995,28 @@ class MLLMRetrievalModel(nn.Module):
                 for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
                     content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_1':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
+                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_1_for_concat:
+                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
             elif data_args.prompt_type == 'prompt_3':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                     prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
                 for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_3_for_concat:
+                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_4':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
+                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_4_for_concat:
+                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_6':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
+                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_6_for_concat:
                     content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_7':
@@ -1073,10 +1093,34 @@ class MLLMRetrievalModel(nn.Module):
                 for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
                     content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_1':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_1_for_concat:
+                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_2':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_2_for_concat:
+                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
             elif data_args.prompt_type == 'prompt_3':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                     prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
                 for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_3_for_concat:
+                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_4':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_4_for_concat:
+                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_6':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_6_for_concat:
                     content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_7':
@@ -1141,8 +1185,20 @@ class MLLMRetrievalModel(nn.Module):
                         if data_args.prompt_type == 'prompt_5':
                             if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_1':
+                            if i % (len(retrieval_disassemble_text_prompts_1_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_2':
+                            if i % (len(retrieval_disassemble_text_prompts_2_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_3':
                             if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_4':
+                            if i % (len(retrieval_disassemble_text_prompts_4_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_6':
+                            if i % (len(retrieval_disassemble_text_prompts_6_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_7':
                             if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
@@ -1154,8 +1210,20 @@ class MLLMRetrievalModel(nn.Module):
                         if data_args.prompt_type == 'prompt_5':
                             if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_1':
+                            if i % (len(retrieval_disassemble_text_prompts_1_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_2':
+                            if i % (len(retrieval_disassemble_text_prompts_2_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_3':
                             if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_4':
+                            if i % (len(retrieval_disassemble_text_prompts_4_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_6':
+                            if i % (len(retrieval_disassemble_text_prompts_6_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_7':
                             if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:
@@ -1298,8 +1366,20 @@ class MLLMRetrievalModel(nn.Module):
                         if data_args.prompt_type == 'prompt_5':
                             if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_1':
+                            if i % (len(retrieval_disassemble_text_prompts_1_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_2':
+                            if i % (len(retrieval_disassemble_text_prompts_2_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_3':
                             if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_4':
+                            if i % (len(retrieval_disassemble_text_prompts_4_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_6':
+                            if i % (len(retrieval_disassemble_text_prompts_6_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_7':
                             if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
@@ -1311,8 +1391,20 @@ class MLLMRetrievalModel(nn.Module):
                         if data_args.prompt_type == 'prompt_5':
                             if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_1':
+                            if i % (len(retrieval_disassemble_text_prompts_1_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_2':
+                            if i % (len(retrieval_disassemble_text_prompts_2_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_3':
                             if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_4':
+                            if i % (len(retrieval_disassemble_text_prompts_4_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_6':
+                            if i % (len(retrieval_disassemble_text_prompts_6_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_7':
                             if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:

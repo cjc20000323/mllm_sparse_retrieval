@@ -348,10 +348,35 @@ retrieval_disassemble_text_prompts_3 = [
     '<sent>\nSummary the actions or movements of main people or objects in above sentence in one word: ',
 ]
 
+retrieval_disassemble_text_prompts_1_for_concat = [
+    'Summary the people or objects in above sentence in one word: ',
+]
+
+retrieval_disassemble_text_prompts_2_for_concat = [
+    'Summary the people or objects in above sentence in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word: ',
+]
+
 retrieval_disassemble_text_prompts_3_for_concat = [
     'Summary the people or objects in above sentence in one word: ',
     'Summary the environment, weather or places in above sentence in one word: ',
     'Summary the actions or movements of main people or objects in above sentence in one word: ',
+]
+
+retrieval_disassemble_text_prompts_4_for_concat = [
+    'Summary the people or objects in above sentence in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word: ',
+    'Summary the environment, weather or places in above sentence in one word: ',
+    'Summary the actions or movements of main people or objects in above sentence in one word: ',
+]
+
+retrieval_disassemble_text_prompts_6_for_concat = [
+    'Summary the people or objects in above sentence in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word: ',
+    'Summary the environment, weather or places in above sentence in one word: ',
+    'Summary the actions or movements of main people or objects in above sentence in one word: ',
+    'Summary the color of main people or objects in above sentence in one word: ',
+    'Summary the reason why main people or objects might be in this position and doing this thing in above sentence in one word: ',
 ]
 
 retrieval_disassemble_text_prompts_7_for_concat = [
@@ -488,10 +513,35 @@ retrieval_disassemble_image_prompts_3 = [
     '<image>\nSummary the actions or movements of main people or objects in above image in one word: ',
 ]
 
+retrieval_disassemble_image_prompts_1_for_concat = [
+    'Summary the people or objects in above image in one word: ',
+]
+
+retrieval_disassemble_image_prompts_2_for_concat = [
+    'Summary the people or objects in above image in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above image in one word: ',
+]
+
 retrieval_disassemble_image_prompts_3_for_concat = [
     'Summary the people or objects in above image in one word: ',
     'Summary the environment, weather or places in above image in one word: ',
     'Summary the actions or movements of main people or objects in above image in one word: ',
+]
+
+retrieval_disassemble_image_prompts_4_for_concat = [
+    'Summary the people or objects in above image in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above image in one word: ',
+    'Summary the environment, weather or places in above image in one word: ',
+    'Summary the actions or movements of main people or objects in above image in one word: ',
+]
+
+retrieval_disassemble_image_prompts_6_for_concat = [
+    'Summary the people or objects in above image in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above image in one word: ',
+    'Summary the environment, weather or places in above image in one word: ',
+    'Summary the actions or movements of main people or objects in above image in one word: ',
+    'Summary the color of main people or objects in above image in one word: ',
+    'Summary the reason why main people or objects might be in this position and doing this thing in above image in one word:  ',
 ]
 
 retrieval_disassemble_image_prompts_7_for_concat = [
