@@ -748,9 +748,9 @@ def main():
     if ddp:
         device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)}
         # gradient_accumulation_steps = gradient_accumulation_steps // world_size
-
+        rank, world_size = torch.distributed.get_rank(), torch.distributed.get_world_size()
         if not dist.is_initialized():
-            torch.distributed.init_process_group("nccl")
+            torch.distributed.init_process_group("nccl", rank=rank, device_id=rank)
         rank, world_size = torch.distributed.get_rank(), torch.distributed.get_world_size()
         device_id = rank % torch.cuda.device_count()
         device = torch.device(device_id)
