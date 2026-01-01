@@ -48,7 +48,10 @@ from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qw
     qwen2_5_img_prompt, qwen2_5_template_image_prefix, qwen3_template_image_prefix, qwen3_template_content_element, \
     qwen2_5_template_content_element, qwen3_person_retrieval_img_prompt, \
     retrieval_disassemble_image_prompts_1_for_concat, retrieval_disassemble_image_prompts_2_for_concat, \
-    retrieval_disassemble_image_prompts_4_for_concat, retrieval_disassemble_image_prompts_6_for_concat
+    retrieval_disassemble_image_prompts_4_for_concat, retrieval_disassemble_image_prompts_6_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_1_for_concat, retrieval_disassemble_image_prompts_person_retrieval_2_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_3_for_concat, retrieval_disassemble_image_prompts_person_retrieval_4_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_6_for_concat, retrieval_disassemble_image_prompts_person_retrieval_7_for_concat
 from utils import load_image
 
 
@@ -1284,10 +1287,41 @@ def main():
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                 prompt_template += llava_mistral_template_content_element.format(
                                     person_retrieval_img_prompt_for_concat)
-                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat:
-                                content_element = llava_mistral_template_content_element.format(
-                                    llava_mistral_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
+                            if data_args.prompt_type == 'prompt_5':
+                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_1':
+                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_1_for_concat:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_2':
+                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_2_for_concat:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_3_for_concat:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_4':
+                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_4_for_concat:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_6':
+                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_6_for_concat:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_7_for_concat:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
                         elif data_args.tbpr_type == 'type_1':
                             prompt_template = llava_mistral_template_image_prefix
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
@@ -1335,10 +1369,41 @@ def main():
                             prompt_template = llama3_template_image_prefix
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                 prompt_template += llama3_template_content_element.format(person_retrieval_img_prompt_for_concat)
-                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat:
-                                content_element = llama3_template_content_element.format(
-                                    llama3_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
+                            if data_args.prompt_type == 'prompt_5':
+                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_1':
+                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_1_for_concat:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_2':
+                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_2_for_concat:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_3_for_concat:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_4':
+                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_4_for_concat:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_6':
+                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_6_for_concat:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_7_for_concat:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
                         elif data_args.tbpr_type == 'type_1':
                             prompt_template = llama3_template_image_prefix
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
@@ -1396,7 +1461,20 @@ def main():
                         if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                             logit = logits[img_indice]
                         text = texts[img_indice]
-                        length = 5
+                        if data_args.prompt_type == 'prompt_5':
+                            length = 5
+                        elif data_args.prompt_type == 'prompt_1':
+                            length = 1
+                        elif data_args.prompt_type == 'prompt_2':
+                            length = 2
+                        elif data_args.prompt_type == 'prompt_3':
+                            length = 3
+                        elif data_args.prompt_type == 'prompt_4':
+                            length = 4
+                        elif data_args.prompt_type == 'prompt_6':
+                            length = 6
+                        else:
+                            length = 7
                         disassemble_logit = disassemble_logits[
                                             img_indice * length:(img_indice + 1) * length]
                         vector = dict()
@@ -1427,7 +1505,20 @@ def main():
                                 vector[token] = int(v)
                         if data_args.sparse_value_mean:
                             for token in vector.keys():
-                                vector[token] //= 5
+                                if data_args.prompt_type == 'prompt_5':
+                                    vector[token] //= 5
+                                elif data_args.prompt_type == 'prompt_1':
+                                    vector[token] //= 1
+                                elif data_args.prompt_type == 'prompt_2':
+                                    vector[token] //= 2
+                                elif data_args.prompt_type == 'prompt_3':
+                                    vector[token] //= 3
+                                elif data_args.prompt_type == 'prompt_4':
+                                    vector[token] //= 4
+                                elif data_args.prompt_type == 'prompt_6':
+                                    vector[token] //= 6
+                                else:
+                                    vector[token] //= 7
                         jsonl_data.append(
                             dict(
                                 id=id,
