@@ -505,7 +505,7 @@ retrieval_disassemble_text_prompts_person_retrieval_7_for_concat = [
     'Summary the wearing of person in above sentence in one word: ',
     'Summary the appearance and decoration details of person, such as color, pattern and so on, in above sentence in one word: ',
     'Summary the reason why main people might be in this position and doing this thing in above sentence in one word:  ',
-    'Summary the material and decoration of main people or objects in above sentence in one word: '
+    'Summary the environment, weather or places in above image in one word: ',
 ]
 
 retrieval_disassemble_image_prompts_person_retrieval_for_concat = [
@@ -557,7 +557,7 @@ retrieval_disassemble_image_prompts_person_retrieval_7_for_concat = [
     'Summary the wearing of person in above image in one word: ',
     'Summary the appearance and decoration details of person, such as color, pattern and so on, in above image in one word: '
     'Summary the reason why main people might be in this position and doing this thing in above image in one word:  ',
-    'Summary the material and decoration of main people or objects in above image in one word: '
+    'Summary the environment, weather or places in above image in one word: ',
 ]
 
 

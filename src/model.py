@@ -2359,11 +2359,63 @@ class MLLMRetrievalModel(nn.Module):
                     begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                        if i % (len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 2) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                        if data_args.prompt_type == 'prompt_5':
+                            if i % (
+                                    len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_1':
+                            if i % (
+                                    len(retrieval_disassemble_text_prompts_person_retrieval_1_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_2':
+                            if i % (
+                                    len(retrieval_disassemble_text_prompts_person_retrieval_2_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_3':
+                            if i % (
+                                    len(retrieval_disassemble_text_prompts_person_retrieval_3_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_4':
+                            if i % (
+                                    len(retrieval_disassemble_text_prompts_person_retrieval_4_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_6':
+                            if i % (
+                                    len(retrieval_disassemble_text_prompts_person_retrieval_6_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        else:
+                            if i % (
+                                    len(retrieval_disassemble_text_prompts_person_retrieval_7_for_concat) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
-                        if i % (len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 1) != 0:
-                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                        if data_args.prompt_type == 'prompt_5':
+                            if i % (
+                                    len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_1':
+                            if i % (
+                                    len(retrieval_disassemble_text_prompts_person_retrieval_1_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_2':
+                            if i % (
+                                    len(retrieval_disassemble_text_prompts_person_retrieval_2_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_3':
+                            if i % (
+                                    len(retrieval_disassemble_text_prompts_person_retrieval_3_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_4':
+                            if i % (
+                                    len(retrieval_disassemble_text_prompts_person_retrieval_4_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_6':
+                            if i % (
+                                    len(retrieval_disassemble_text_prompts_person_retrieval_6_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        else:
+                            if i % (
+                                    len(retrieval_disassemble_text_prompts_person_retrieval_7_for_concat) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
             img_inputs_embeds = self.encoder.get_input_embeddings()(input['input_ids'])

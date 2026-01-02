@@ -1651,7 +1651,20 @@ def main():
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         logit = query_logits[text_indice]
                                     text = texts[text_indice]
-                                    length = 5
+                                    if data_args.prompt_type == 'prompt_5':
+                                        length = 5
+                                    elif data_args.prompt_type == 'prompt_1':
+                                        length = 1
+                                    elif data_args.prompt_type == 'prompt_2':
+                                        length = 2
+                                    elif data_args.prompt_type == 'prompt_3':
+                                        length = 3
+                                    elif data_args.prompt_type == 'prompt_4':
+                                        length = 4
+                                    elif data_args.prompt_type == 'prompt_6':
+                                        length = 6
+                                    else:
+                                        length = 7
                                     disassemble_logit = disassemble_logits[
                                                         text_indice * length:(text_indice + 1) * length]
                                     vector = dict()
@@ -1689,7 +1702,20 @@ def main():
                                             vector[token] = int(v)
                                     if data_args.sparse_value_mean:
                                         for token in vector.keys():
-                                            vector[token] //= 5
+                                            if data_args.prompt_type == 'prompt_5':
+                                                vector[token] //= 5
+                                            elif data_args.prompt_type == 'prompt_1':
+                                                vector[token] //= 1
+                                            elif data_args.prompt_type == 'prompt_2':
+                                                vector[token] //= 2
+                                            elif data_args.prompt_type == 'prompt_3':
+                                                vector[token] //= 3
+                                            elif data_args.prompt_type == 'prompt_4':
+                                                vector[token] //= 4
+                                            elif data_args.prompt_type == 'prompt_6':
+                                                vector[token] //= 6
+                                            elif data_args.prompt_type == 'prompt_7':
+                                                vector[token] //= 7
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         tokens, values = get_text_valid_disassemble_tokens_values_fusion(text,
                                                                                                          processor.tokenizer,
@@ -1738,7 +1764,20 @@ def main():
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         logit = query_logits[text_indice]
                                     text = texts[text_indice]
-                                    length = 5
+                                    if data_args.prompt_type == 'prompt_5':
+                                        length = 5
+                                    elif data_args.prompt_type == 'prompt_1':
+                                        length = 1
+                                    elif data_args.prompt_type == 'prompt_2':
+                                        length = 2
+                                    elif data_args.prompt_type == 'prompt_3':
+                                        length = 3
+                                    elif data_args.prompt_type == 'prompt_4':
+                                        length = 4
+                                    elif data_args.prompt_type == 'prompt_6':
+                                        length = 6
+                                    else:
+                                        length = 7
                                     disassemble_logit = disassemble_logits[
                                                         text_indice * length:(text_indice + 1) * length]
                                     vector = dict()
@@ -1774,7 +1813,20 @@ def main():
                                             vector[token] = int(v)
                                     if data_args.sparse_value_mean:
                                         for token in vector.keys():
-                                            vector[token] //= 5
+                                            if data_args.prompt_type == 'prompt_5':
+                                                vector[token] //= 5
+                                            elif data_args.prompt_type == 'prompt_1':
+                                                vector[token] //= 1
+                                            elif data_args.prompt_type == 'prompt_2':
+                                                vector[token] //= 2
+                                            elif data_args.prompt_type == 'prompt_3':
+                                                vector[token] //= 3
+                                            elif data_args.prompt_type == 'prompt_4':
+                                                vector[token] //= 4
+                                            elif data_args.prompt_type == 'prompt_6':
+                                                vector[token] //= 6
+                                            elif data_args.prompt_type == 'prompt_7':
+                                                vector[token] //= 7
                                     query = ""
                                     for token, v in vector.items():
                                         query += (' ' + token) * v
