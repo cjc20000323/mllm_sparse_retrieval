@@ -33,9 +33,9 @@ fig, ax = plt.subplots(1, 1, figsize=(10, 8))
 
 colors = ["#f57c6e", "#f2b56f", "#fae69e", "#84c3b7", "#88d8db", "#71b7ed", "#b8aeeb", " #f2a7da"]
 
-ax.plot(length, hybrid_recall_t2i, marker='o', label='t2i', color=colors[0], linestyle='-', linewidth=3, markersize=8)
-ax.plot(length, hybrid_recall_i2t, marker='o', label='i2t', color=colors[1], linestyle='-', linewidth=3, markersize=8)
-ax.plot(length, hybrid_recall_mean, marker='o', label='mean', color=colors[3], linestyle='-', linewidth=3, markersize=8)
+ax.plot(length, hybrid_recall_t2i, marker='o', label='t2i', color=colors[5], linestyle='-', linewidth=3, markersize=8)
+ax.plot(length, hybrid_recall_i2t, marker='o', label='i2t', color=colors[4], linestyle='-', linewidth=3, markersize=8)
+ax.plot(length, hybrid_recall_mean, marker='o', label='mean', color=colors[1], linestyle='-', linewidth=3, markersize=8)
 
 ax.set_xlabel('Length', fontsize=25)
 ax.set_ylabel('r@5', fontsize=25)
@@ -57,7 +57,7 @@ fig1, ax1 = plt.subplots(1, 1, figsize=(10, 8))
 
 colors = ["#f57c6e", "#f2b56f", "#fae69e", "#84c3b7", "#88d8db", "#71b7ed", "#b8aeeb", " #f2a7da"]
 
-ax1.plot(length, hybrid_recall_t2i, marker='o', label='t2i', color=colors[3], linestyle='-', linewidth=3, markersize=8)
+ax1.plot(length, hybrid_recall_t2i, marker='o', label='t2i', color=colors[5], linestyle='-', linewidth=3, markersize=8)
 
 ax1.set_xlabel('Length', fontsize=25)
 ax1.set_ylabel('r@5', fontsize=25)

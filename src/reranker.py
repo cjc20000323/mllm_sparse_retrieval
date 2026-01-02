@@ -952,6 +952,8 @@ class Reranker:
                         print(sorted_by_value_rerank_run)
                     rerank_fusion_run[k] = sorted_by_value_rerank_run
             else:
+                token_sum = 0
+                data_sum = 0
                 for k, v in tqdm(fusion_run.items()):
                     # k是查询的id，v是一个字典，key是候选的id，value是查询和候选的相似度
                     sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
@@ -990,6 +992,8 @@ class Reranker:
                             inputs = self.processor(images=image_shard, text=text_input, return_tensors="pt").to(
                                 self.model.device)
                             max_inputs_sum = inputs['input_ids'].shape[1]
+                            data_sum += rerank_batch_size
+                            token_sum += max_inputs_sum
                             labels = [self.processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist() for
                                       text in text_shard]
                             # 去掉label的第一个起始符
@@ -1081,4 +1085,8 @@ class Reranker:
                         print(sorted_by_value_rerank_run)
                     rerank_fusion_run[k] = sorted_by_value_rerank_run
 
+        if dist.get_rank() == 0:
+            print(data_sum)
+            print(token_sum)
+            print(token_sum / data_sum)
         return rerank_fusion_run
