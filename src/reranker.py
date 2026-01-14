@@ -66,7 +66,10 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     qwen3_person_retrieval_relevant_prompt, qwen3_person_retrieval_origin_old_query_relevant_prompt, \
     person_retrieval_qwen3_query_generation_paradigm_prompt, person_retrieval_qwen3_query_generation_paradigm_prompt_1,\
     text_reverse_query_relevant_prompt, image_reverse_query_relevant_prompt, mistral_text_reverse_query_relevant_prompt, \
-    mistral_image_reverse_query_relevant_prompt
+    mistral_image_reverse_query_relevant_prompt, person_retrieval_reverse_query_relevant_prompt, \
+    person_retrieval_reverse_old_query_relevant_prompt, person_retrieval_reverse_origin_old_query_relevant_prompt, \
+    mistral_person_retrieval_reverse_old_query_relevant_prompt, mistral_person_retrieval_reverse_query_relevant_prompt, \
+    mistral_person_retrieval_reverse_origin_old_query_relevant_prompt
 
 flickr_length_dict = {3: 3, 4: 5, 5: 26, 6: 83, 7: 196, 8: 316, 9: 376, 10: 447, 11: 446, 12: 455, 13: 399, 14: 403,
                       15: 343, 16: 287, 17: 213, 18: 179, 19: 134, 20: 127, 21: 82, 22: 78, 23: 83, 24: 45, 25: 40,
@@ -179,6 +182,12 @@ class Reranker:
                         rerank_prompt_template = mistral_person_retrieval_query_relevant_prompt
                     elif rerank_prompt_type == 'origin_old_relevant':
                         rerank_prompt_template = mistral_person_retrieval_origin_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_old_relevant':
+                        rerank_prompt_template = mistral_person_retrieval_reverse_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_query_relevant':
+                        rerank_prompt_template = mistral_person_retrieval_reverse_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_origin_old_relevant':
+                        rerank_prompt_template = mistral_person_retrieval_reverse_origin_old_query_relevant_prompt
                     else:
                         rerank_prompt_template = mistral_person_retrieval_relevant_prompt
                 elif 'Qwen-Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
@@ -201,6 +210,12 @@ class Reranker:
                         rerank_prompt_template = person_retrieval_query_relevant_prompt
                     elif rerank_prompt_type == 'origin_old_relevant':
                         rerank_prompt_template = person_retrieval_origin_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_old_relevant':
+                        rerank_prompt_template = person_retrieval_reverse_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_query_relevant':
+                        rerank_prompt_template = person_retrieval_reverse_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_origin_old_relevant':
+                        rerank_prompt_template = person_retrieval_reverse_origin_old_query_relevant_prompt
                     else:
                         rerank_prompt_template = person_retrieval_relevant_prompt
             else:
