@@ -3147,6 +3147,12 @@ def main():
     metric.all_gather_object()
     metric.print_recall(output_path)
 
+    if dist.get_rank() == 0:
+        print(metric.right_set)
+        print(metric.right_dict)
+        print(metric.wrong_set)
+        print(metric.wrong_dict)
+
     '''
     if not model_args.lora and not model_args.use_output_embedding_cluster:
         sparse_correct_dict = {}

@@ -7,7 +7,8 @@ caption_list = []
 test_count = 0
 val_count = 0
 caption_count = 0
-with open('D:\数据集\文本行人识别\ICFG-PDES\ICFG-PEDES/ICFG-PEDES.json') as file:
+train_count = 0
+with open('D:\数据集\文本行人识别\RSTPReid/data_captions.json') as file:
     cuhk_pedes_dataset = json.load(file)
     print(cuhk_pedes_dataset)
     for item in cuhk_pedes_dataset:
@@ -18,10 +19,13 @@ with open('D:\数据集\文本行人识别\ICFG-PDES\ICFG-PEDES/ICFG-PEDES.json'
             caption_count += len(item['captions'])
         elif item['split'] == 'val':
             val_count += 1
+        elif item['split'] == 'train':
+            train_count += 1
 
     print(len(cuhk_pedes_dataset))
     print(test_count)
     print(val_count)
+    print(train_count)
     print(caption_count)
 
 text_img_prompt = "Image of: <sent>"

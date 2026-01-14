@@ -113,6 +113,7 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
         if dist.get_rank() == 0:
             if data_args.print_sparse:
+                print()
                 print([{vocab_dict[indice]: value} for value, indice in
                        zip(top_k_values.tolist(), top_k_indices.tolist())])
     # print(top_k_indices)
@@ -536,6 +537,11 @@ def get_text_valid_disassemble_tokens_values(text, tokenizer, disassemble_logits
                         else:
                             if int(indice.item()) < len(vocab_dict):
                                 word_values[vocab_dict[int(indice.item())]] = value
+
+    if data_args.print_sparse:
+        for top_k_indice_list, top_k_value_list in zip(top_k_indices, top_k_values):
+            if dist.get_rank() == 2:
+                print([{vocab_dict[i]:value} for i, value in zip(top_k_indice_list.tolist(), top_k_value_list.tolist())])
 
     '''
     for disassemble_logit in disassemble_logits:
@@ -1952,6 +1958,8 @@ def main():
                     encoded.append(reps.cpu().detach().float().numpy())
 
                     ids = text_ids if training_args.encode_type == 'text' else img_ids
+                    if dist.get_rank() == 2:
+                        print(ids)
                     if 'disassembleeol' in model_args.eol_type:
                         if training_args.encode_type == 'text':
                             if data_args.sparse_type == 'fusion':

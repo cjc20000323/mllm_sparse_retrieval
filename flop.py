@@ -30,7 +30,7 @@ y3 = 150 * 2 * x + 4096 * 2 * 200 + 2 * 5 * 8000000000 * 2000
 # 设置大字体
 plt.rcParams.update({'font.size': 12})
 
-fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+fig, ax = plt.subplots(1, 1, figsize=(13, 5))
 
 colors = ["#f57c6e", "#f2b56f", "#fae69e", "#84c3b7", "#88d8db", "#71b7ed", "#b8aeeb", " #f2a7da"]
 
@@ -44,7 +44,7 @@ ax.grid(True)
 
 ax.legend(['CLIP', 'three pipelines'], loc='lower right', fontsize=25)
 # plt.tight_layout(rect=[0, 0, 1, 0.95])  # 调整整体布局以防止重叠
-plt.savefig('flop_rerank.pdf', format='pdf')
+plt.savefig('flop_rerank.pdf', format='pdf', bbox_inches='tight', pad_inches=0.05)
 
 x = np.linspace(0, 9000)
 y1 = 1436 * x  # 绘制二次函数 y = x^2
@@ -65,4 +65,4 @@ ax.grid(True)
 
 ax.legend(['CLIP', 'sparse+hybrid'], loc='lower right', fontsize=25)
 # plt.tight_layout(rect=[0, 0, 1, 0.95])  # 调整整体布局以防止重叠
-plt.savefig('flop_retriever.pdf', format='pdf')
+plt.savefig('flop_retriever.pdf', format='pdf', bbox_inches='tight', pad_inches=0.05)

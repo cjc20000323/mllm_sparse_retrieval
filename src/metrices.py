@@ -59,6 +59,11 @@ class RecallMetrics:
         self.lookup_indices = lookup_indices
         self.search_args = search_args
 
+        self.right_set = set()
+        self.right_dict = {}
+        self.wrong_set = set()
+        self.wrong_dict = {}
+
     def _sort(self, dictionary):
         if self.dataset.data_name == 'coco' or self.dataset.data_name == 'flickr':
             sorted_by_value = sorted(dictionary.items(), key=lambda x: x[1], reverse=True)
@@ -166,6 +171,12 @@ class RecallMetrics:
                         continue
 
                     search_results = self._sort(v)
+                    if True in torch.isin(search_results[1], target):
+                        self.right_set.add(k)
+                        self.right_dict[k] = search_results[1]
+                    else:
+                        self.wrong_set.add(k)
+                        self.wrong_dict[k] = search_results[1]
                     self._count('fusion', search_results, target)
                 elif self.dataset.data_name == 'fashion-iq':
                     target = self.dataset.get_target(k)
