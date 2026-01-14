@@ -64,7 +64,9 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     qwen2_5_role_old_text_query_relevant_prompt, qwen2_5_first_precise_caption_prompt, \
     qwen3_person_retrieval_query_relevant_prompt, qwen3_person_retrieval_old_query_relevant_prompt, \
     qwen3_person_retrieval_relevant_prompt, qwen3_person_retrieval_origin_old_query_relevant_prompt, \
-    person_retrieval_qwen3_query_generation_paradigm_prompt, person_retrieval_qwen3_query_generation_paradigm_prompt_1
+    person_retrieval_qwen3_query_generation_paradigm_prompt, person_retrieval_qwen3_query_generation_paradigm_prompt_1,\
+    text_reverse_query_relevant_prompt, image_reverse_query_relevant_prompt, mistral_text_reverse_query_relevant_prompt, \
+    mistral_image_reverse_query_relevant_prompt
 
 flickr_length_dict = {3: 3, 4: 5, 5: 26, 6: 83, 7: 196, 8: 316, 9: 376, 10: 447, 11: 446, 12: 455, 13: 399, 14: 403,
                       15: 343, 16: 287, 17: 213, 18: 179, 19: 134, 20: 127, 21: 82, 22: 78, 23: 83, 24: 45, 25: 40,
@@ -226,6 +228,11 @@ class Reranker:
                             rerank_prompt_template = mistral_image_query_relevant_prompt
                         else:
                             rerank_prompt_template = mistral_text_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_query_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = mistral_image_reverse_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = mistral_text_reverse_query_relevant_prompt
                     elif rerank_prompt_type == 'origin_old_relevant':
                         if self.query_type == 'image':
                             rerank_prompt_template = mistral_origin_old_image_query_relevant_prompt
@@ -367,6 +374,11 @@ class Reranker:
                             rerank_prompt_template = image_query_relevant_prompt
                         else:
                             rerank_prompt_template = text_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_query_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = image_reverse_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = text_reverse_query_relevant_prompt
                     elif rerank_prompt_type == 'origin_old_relevant':
                         if self.query_type == 'image':
                             rerank_prompt_template = origin_old_image_query_relevant_prompt
