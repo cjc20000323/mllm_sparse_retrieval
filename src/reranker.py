@@ -735,6 +735,7 @@ class Reranker:
             pin_memory=True  # 加速GPU数据传输（如果使用GPU）
         )
 
+        '''
         if search_args.modify_type != 'no':
             if dist.get_rank() == 0:
                 length_count_dict = {}  # 统计每个长度有多少句
@@ -922,6 +923,7 @@ class Reranker:
                 object_list = [None]
             dist.broadcast_object_list(object_list, src=0)
             received_nll_sum_dict = object_list[0]
+        '''
         with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             if training_args.task_type == 'tbpr':
                 for k, v in tqdm(fusion_run.items()):
@@ -1011,6 +1013,7 @@ class Reranker:
                             sim_score_list.append(sim_score)
 
                         sharded_nll_list = []
+                        single_sharded_nll_list = []
 
                         for indice in tqdm(range(0, len(text_id_list), rerank_batch_size)):
                             text_shard = text_list[indice: indice + rerank_batch_size]
@@ -1038,22 +1041,50 @@ class Reranker:
                             valid_tokens = (labels_view != -100).sum(dim=1).float()
                             avg_nll /= valid_tokens
 
-                            sharded_nll_list.extend(avg_nll.tolist())
+                            if search_args.modify_type == 'modify_single':
+                                text_inputs = self.processor(text=text_input, return_tensors="pt").to(self.model.device)
+                                text_max_inputs_sum = text_inputs['input_ids'].shape[1]
+                                text_labels = [
+                                    self.processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist() for
+                                    text in text_shard]
+                                # 去掉label的第一个起始符
+                                text_labels = [[-100] * (text_max_inputs_sum - len(label[1:])) + label[1:] for label in
+                                               text_labels]
+                                text_labels_view = torch.tensor(text_labels).to(self.model.device)
+                                text_output = self.model(**text_inputs, output_hidden_states=True, return_dict=True)
+                                text_logits = text_output.logits
+                                text_shift_logits = text_logits[..., :-1, :].contiguous()
+                                text_shift_labels = text_labels_view[..., 1:].contiguous()
+                                text_nll = loss_func(text_shift_logits.view(-1, text_shift_logits.size(-1)), text_shift_labels.view(-1))
+                                text_nll = text_nll.view(text_shift_labels.size())
+                                text_avg_nll = torch.sum(text_nll, dim=1)
+                                text_valid_tokens = (text_labels_view != -100).sum(dim=1).float()
+                                text_avg_nll /= text_valid_tokens
 
-                        for text_id, nll in zip(text_id_list, sharded_nll_list):
-                            rerank_run[text_id] = -float(nll)
-                            text_token_length = len(self.processor(text=self.text_map[text_id], return_tensors="pt")[
-                                                        'input_ids'].squeeze().tolist()[1:])
-                            if search_args.modify_type != 'no':
-                                for key in received_nll_sum_dict.keys():
-                                    if text_token_length in key:
-                                        if search_args.modify_type == 'division':
-                                            rerank_run[text_id] /= received_nll_sum_dict[key]
-                                        elif search_args.modify_type == 'sub':
-                                            value = rerank_run[text_id] + received_nll_sum_dict[key]
-                                            if dist.get_rank() == 0:
-                                                print(rerank_run[text_id], received_nll_sum_dict[key], value)
-                                            rerank_run[text_id] = value
+                            sharded_nll_list.extend(avg_nll.tolist())
+                            if search_args.modify_type == 'modify_single':
+                                single_sharded_nll_list.extend(text_avg_nll.tolist())
+
+                        if search_args.modify_type == 'modify_single':
+                            for text_id, nll, single_nll in zip(text_id_list, sharded_nll_list, single_sharded_nll_list):
+                                rerank_run[text_id] = -float(nll) + float(single_nll)
+                        else:
+                            for text_id, nll in zip(text_id_list, sharded_nll_list):
+                                rerank_run[text_id] = -float(nll)
+                                '''
+                                text_token_length = len(self.processor(text=self.text_map[text_id], return_tensors="pt")[
+                                                'input_ids'].squeeze().tolist()[1:])
+                                if search_args.modify_type != 'no':
+                                    for key in received_nll_sum_dict.keys():
+                                        if text_token_length in key:
+                                            if search_args.modify_type == 'division':
+                                                rerank_run[text_id] /= received_nll_sum_dict[key]
+                                            elif search_args.modify_type == 'sub':
+                                                value = rerank_run[text_id] + received_nll_sum_dict[key]
+                                                if dist.get_rank() == 0:
+                                                    print(rerank_run[text_id], received_nll_sum_dict[key], value)
+                                                rerank_run[text_id] = value
+                                '''
 
 
                     else:
