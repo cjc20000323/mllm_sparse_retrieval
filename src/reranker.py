@@ -648,6 +648,8 @@ class Reranker:
     def caption_generation_rerank(self, fusion_run, rerank_type, rerank_num, data_args, training_args, model_args,
                                   search_args, rerank_batch_size=1, rerank_prompt_type='caption_generation'):
         rerank_fusion_run = {}
+        single_nll_rerank_fusion_run = {}
+        nll_rerank_fusion_run = {}
         if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
             if training_args.task_type == 'tbpr':
                 if rerank_prompt_type == 'caption_generation':
@@ -988,6 +990,8 @@ class Reranker:
                     sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
                     candidate_pool = dict(sorted_by_value[:rerank_num])
                     rerank_run = {}
+                    nll_rerank_run = {}
+                    single_nll_rerank_run = {}
                     if dist.get_rank() == 0:
                         print(k)
                         print(candidate_pool)
@@ -1068,6 +1072,8 @@ class Reranker:
                         if search_args.modify_type == 'modify_single':
                             for text_id, nll, single_nll in zip(text_id_list, sharded_nll_list, single_sharded_nll_list):
                                 rerank_run[text_id] = -float(nll) + float(single_nll)
+                                single_nll_rerank_run[text_id] = -float(single_nll)
+                                nll_rerank_run[text_id] = -float(nll)
                         else:
                             for text_id, nll in zip(text_id_list, sharded_nll_list):
                                 rerank_run[text_id] = -float(nll)
@@ -1139,9 +1145,15 @@ class Reranker:
                         for img_id, nll in zip(img_id_list, sharded_nll_list):
                             rerank_run[img_id] = -float(nll)
                     sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
+                    if search_args.modify_type == 'modify_single':
+                        sorted_by_value_single_nll_rerank_run = dict(sorted(single_nll_rerank_run.items(), key=lambda x: x[1], reverse=True))
+                        sorted_by_value_nll_rerank_run = dict(sorted(nll_rerank_run.items(), key=lambda x: x[1], reverse=True))
                     if dist.get_rank() == 0:
                         print(sorted_by_value_rerank_run)
                     rerank_fusion_run[k] = sorted_by_value_rerank_run
+                    if search_args.modify_type == 'modify_single':
+                        single_nll_rerank_fusion_run[k] = sorted_by_value_single_nll_rerank_run
+                        nll_rerank_fusion_run[k] = sorted_by_value_nll_rerank_run
 
         if dist.get_rank() == 0:
             print(data_sum)
