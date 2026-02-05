@@ -1155,8 +1155,10 @@ class Reranker:
                         single_nll_rerank_fusion_run[k] = sorted_by_value_single_nll_rerank_run
                         nll_rerank_fusion_run[k] = sorted_by_value_nll_rerank_run
 
+        '''
         if dist.get_rank() == 0:
             print(data_sum)
             print(token_sum)
             print(token_sum / data_sum)
+        '''
         return rerank_fusion_run
