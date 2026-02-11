@@ -401,6 +401,8 @@ retrieval_disassemble_text_prompts_7_for_concat = [
 
 fashion_iq_perspective = "\'color\', \'pattern\', \'design style\', \'length\'"
 
+cir_five_aspects = '1. clothes type\n2. color\n3. pattern\n4. design style\n5. length characteristics'
+
 retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat = [
     'Describe the clothes type of this modified {} in one word based on its style: ',
     'Describe the color of this modified {} in one word based on its style: ',
@@ -418,6 +420,7 @@ retrieval_disassemble_image_prompts_fashion_iq_for_concat = [
 ]
 
 fashion_iq_perspective_1 = "\'color\', \'pattern\', \'sleeve\', \'neck\', \'shoulder\', \'design style\', \'length of whole clothes\'"
+cir_eight_aspects = '1. clothes type\n2. color\n3. graphic pattern\n4. details of sleeves\n5. details of neck\n6. details of shoulder\n7. design style\n8. length'
 
 retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1 = [
     'Describe the clothes type of this modified {} with one of the three clothes types: shirt, dress, and toptee in one word base on its style: ',
@@ -1125,7 +1128,8 @@ mistral_prompt_generation_text_modal_only_prompt_4 = llava_mistral_template.form
     'Proper aspects or perspectives:\n'
 )
 
-five_aspects = '1. people or objects\n2. relations\n3. environment\n4. actions\n5. appearance\n'
+itr_five_aspects = '1. people or objects\n2. relations\n3. environment\n4. actions\n5. appearance\n'
+tbpr_five_aspects = '1. gender\n2. actions\n3. objects\n4. wearing\n5. appearance and decoration details\n'
 
 prompt_schema_generation_text_prompt = llama3_template.format(
     'You are an experienced knowledge engineer and you are modeling schemas for knowledge graph construction. '
@@ -1162,6 +1166,26 @@ prompt_schema_generation_text_prompt_1 = llama3_template.format(
     'Your answer:'
 )
 
+prompt_schema_generation_text_prompt_2 = llama3_template.format(
+    'You are an experienced knowledge engineer and you are modeling schemas for knowledge graph construction. '
+    'Given a set of sentences, you need to give several proper words or phrases for the abstract schemas of entities, relations and events in these sentences.'
+    'You must return your answer in the following format: 1. phrases1\n2.phrases2\n3.phrases3\n...'
+    'You can\'t return anything other than answers.'
+    'These abstract intention words should fulfill the following requirements.'
+    '1. The abstract schemas phrases can well represent the entities, relations and events, and it could be the type of the entities, relations and events or the related concepts of the entities, relations and events.'
+    '2. Strictly follow the provided format, do not add extra characters or words.'
+    '3. Write 3 to 7 words or phrases at the highest possible abstract level if possible.'
+    '4. Do not repeat the same word and the input in the answer.'
+    '5. Stop immediately if you can\'t think of any more phrases, and no explanation is needed.'
+
+    'Input sentences: <sent>\n'
+    'Your answer: <sent>\n'
+    'Input sentences: <sent>\n'
+    'Your answer: <sent>\n'
+    'Input sentences: <sent>\n'
+    'Your answer:'
+)
+
 mistral_prompt_schema_generation_text_prompt = llava_mistral_template.format(
     'You are an experienced knowledge engineer and you are modeling schemas for knowledge graph construction. '
     'Given a set of sentences, you need to give several proper words or phrases for the abstract schemas of entities, relations and events in these sentences.'
@@ -1177,3 +1201,42 @@ mistral_prompt_schema_generation_text_prompt = llava_mistral_template.format(
     'Input sentences: <sent>\n'
     'Your answer:'
 )
+
+mistral_prompt_schema_generation_text_prompt_1 = llava_mistral_template.format(
+    'You are an experienced knowledge engineer and you are modeling schemas for knowledge graph construction. '
+    'Given a set of sentences, you need to give several proper words or phrases for the abstract schemas of entities, relations and events in these sentences.'
+    'You must return your answer in the following format: 1. phrases1\n2.phrases2\n3.phrases3\n...'
+    'You can\'t return anything other than answers.'
+    'These abstract intention words should fulfill the following requirements.'
+    '1. The abstract schemas phrases can well represent the entities, relations and events, and it could be the type of the entities, relations and events or the related concepts of the entities, relations and events.'
+    '2. Strictly follow the provided format, do not add extra characters or words.'
+    '3. Write 3 to 7 words or phrases at the highest possible abstract level if possible.'
+    '4. Do not repeat the same word and the input in the answer.'
+    '5. Stop immediately if you can\'t think of any more phrases, and no explanation is needed.'
+
+    'Input sentences: <sent>\n'
+    'Your answer: <sent>\n'
+    'Input sentences: <sent>\n'
+    'Your answer:'
+)
+
+mistral_prompt_schema_generation_text_prompt_2 = llava_mistral_template.format(
+    'You are an experienced knowledge engineer and you are modeling schemas for knowledge graph construction. '
+    'Given a set of sentences, you need to give several proper words or phrases for the abstract schemas of entities, relations and events in these sentences.'
+    'You must return your answer in the following format: 1. phrases1\n2.phrases2\n3.phrases3\n...'
+    'You can\'t return anything other than answers.'
+    'These abstract intention words should fulfill the following requirements.'
+    '1. The abstract schemas phrases can well represent the entities, relations and events, and it could be the type of the entities, relations and events or the related concepts of the entities, relations and events.'
+    '2. Strictly follow the provided format, do not add extra characters or words.'
+    '3. Write 3 to 7 words or phrases at the highest possible abstract level if possible.'
+    '4. Do not repeat the same word and the input in the answer.'
+    '5. Stop immediately if you can\'t think of any more phrases, and no explanation is needed.'
+
+    'Input sentences: <sent>\n'
+    'Your answer: <sent>\n'
+    'Input sentences: <sent>\n'
+    'Your answer: <sent>\n'
+    'Input Sentences: <sent>\n'
+    'Your answer:'
+)
+

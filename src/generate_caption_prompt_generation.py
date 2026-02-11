@@ -24,7 +24,10 @@ from template import new_prompt_generation_from_pair_prompt, new_prompt_generati
     llama_prompt_generation_text_modal_only_prompt_2, llama_prompt_generation_text_modal_only_prompt_3, \
     llama_prompt_generation_text_modal_only_prompt_4, mistral_prompt_generation_text_modal_only_prompt, \
     mistral_prompt_generation_text_modal_only_prompt_1, mistral_prompt_generation_text_modal_only_prompt_2, \
-    mistral_prompt_generation_text_modal_only_prompt_3, mistral_prompt_generation_text_modal_only_prompt_4
+    mistral_prompt_generation_text_modal_only_prompt_3, mistral_prompt_generation_text_modal_only_prompt_4, \
+    prompt_schema_generation_text_prompt, prompt_schema_generation_text_prompt_1, \
+    mistral_prompt_schema_generation_text_prompt, mistral_prompt_schema_generation_text_prompt_1, itr_five_aspects, \
+    tbpr_five_aspects
 
 
 def main():
