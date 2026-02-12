@@ -96,7 +96,7 @@ def main():
         tbpr_icfg_pedes_dataset = TextPersonRetrievalDataset('ICFG-PEDES', tokenizer, 'test', 'full')
         itr_flickr_dataset = CrossModalRetrievalDataset('flickr', tokenizer, 'test', 'single')
         itr_coco_dataset = CrossModalRetrievalDataset('coco', tokenizer, 'test', 'single')
-        cir_dataset = ComposedTextImageRetrievalDataset('fashion-iq', tokenizer, 'val', search_args.query_type)
+        cir_dataset = ComposedTextImageRetrievalDataset('fashion-iq', tokenizer, 'val', 'composed')
 
         tbpr_cuhk_pedes_dataloader = Data.DataLoader(dataset=tbpr_cuhk_pedes_dataset, batch_size=1, shuffle=False)
         tbpr_icfg_pedes_dataloader = Data.DataLoader(dataset=tbpr_icfg_pedes_dataset, batch_size=1, shuffle=False)
@@ -112,72 +112,72 @@ def main():
         cir_demonstration = ''
         for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(tbpr_cuhk_pedes_dataloader),
                                                                      total=len(tbpr_cuhk_pedes_dataloader)):
-            print(texts)
-            counter += 1
+            # print(texts)
 
-            tbpr_cuhk_pedes_demonstration += f'{counter}. '
+            # tbpr_cuhk_pedes_demonstration += f'{counter}. '
             tbpr_cuhk_pedes_demonstration += texts[0]
             tbpr_cuhk_pedes_demonstration += '\n'
 
             if counter == prompt_generation_args.demonstration_num:
                 break
+            counter += 1
 
         counter = 0
         for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(tbpr_icfg_pedes_dataloader),
                                                                      total=len(tbpr_icfg_pedes_dataloader)):
-            print(texts)
-            counter += 1
+            # print(texts)
 
-            tbpr_icfg_pedes_demonstration += f'{counter}. '
+            # tbpr_icfg_pedes_demonstration += f'{counter}. '
             tbpr_icfg_pedes_demonstration += texts[0]
             tbpr_icfg_pedes_demonstration += '\n'
 
             if counter == prompt_generation_args.demonstration_num:
                 break
+            counter += 1
 
         counter = 0
         for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(itr_flickr_dataloader),
                                                                      total=len(itr_flickr_dataloader)):
-            print(texts)
-            counter += 1
+            # print(texts)
 
-            itr_flickr_demonstration += f'{counter}. '
+            # itr_flickr_demonstration += f'{counter}. '
             itr_flickr_demonstration += texts[0]
             itr_flickr_demonstration += '\n'
 
             if counter == prompt_generation_args.demonstration_num:
                 break
-        print(itr_flickr_demonstration)
+            counter += 1
+        # print(itr_flickr_demonstration)
 
         counter = 0
         for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(itr_coco_dataloader),
                                                                      total=len(itr_coco_dataloader)):
-            print(texts)
+            # print(texts)
             counter += 1
 
-            itr_coco_demonstration += f'{counter}. '
+            # itr_coco_demonstration += f'{counter}. '
             itr_coco_demonstration += texts[0]
             itr_coco_demonstration += '\n'
 
             if counter == prompt_generation_args.demonstration_num:
                 break
-        print(itr_flickr_demonstration)
+        # print(itr_flickr_demonstration)
 
         counter = 0
         for batch_idx, (texts, imgs_path, target_path, text_ids, img_ids, composed_ids, dress_type) in tqdm(
                 enumerate(cir_dataloader),
                 total=len(cir_dataloader)):
-            print(texts)
-            counter += 1
+            # print(texts)
 
-            cir_demonstration += f'{counter}. '
+            # cir_demonstration += f'{counter}. '
             cir_demonstration += texts[0]
             cir_demonstration += '\n'
 
             if counter == prompt_generation_args.demonstration_num:
                 break
+            counter += 1
 
-        print(cir_demonstration)
+        # print(cir_demonstration)
 
         if prompt_generation_args.prompt_generation_type == 'prompt_schema':
             text_input = prompt.replace('<sent>', itr_flickr_demonstration, 1)
@@ -192,7 +192,7 @@ def main():
             text_input = text_input.replace('<sent>', itr_five_aspects, 1)
             text_input = text_input.replace('<sent>', itr_flickr_demonstration, 1)
         inputs = tokenizer(text_input, return_tensors="pt").to(model.device)
-        output = model.generate(**inputs, max_new_tokens=500)
+        output = model.generate(**inputs, max_new_tokens=100)
 
         print('Here is the original output')
         print(tokenizer.decode(output[0], skip_special_tokens=True))
@@ -212,7 +212,7 @@ def main():
             text_input = text_input.replace('<sent>', tbpr_five_aspects, 1)
             text_input = text_input.replace('<sent>', tbpr_icfg_pedes_demonstration, 1)
         inputs = tokenizer(text_input, return_tensors="pt").to(model.device)
-        output = model.generate(**inputs, max_new_tokens=500)
+        output = model.generate(**inputs, max_new_tokens=100)
 
         print('Here is the original output')
         print(tokenizer.decode(output[0], skip_special_tokens=True))
