@@ -37,7 +37,10 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     retrieval_disassemble_text_prompts_6_for_concat, retrieval_disassemble_text_prompts_person_retrieval_1_for_concat, \
     retrieval_disassemble_text_prompts_person_retrieval_2_for_concat, retrieval_disassemble_text_prompts_person_retrieval_3_for_concat, \
     retrieval_disassemble_text_prompts_person_retrieval_4_for_concat, retrieval_disassemble_text_prompts_person_retrieval_6_for_concat, \
-    retrieval_disassemble_text_prompts_person_retrieval_7_for_concat
+    retrieval_disassemble_text_prompts_person_retrieval_7_for_concat, retrieval_disassemble_text_prompts_for_concat_llama_generation, \
+    retrieval_disassemble_text_prompts_for_concat_mistral_generation, vicuna_text_prompt, llava_vicuna_template_content_element,\
+    llava_vicuna_template_text_prefix, vicuna_person_retrieval_text_prompt, vicuna_person_retrieval_text_prompt_1, \
+    vicuna_person_retrieval_text_prompt_2
 import torch.nn.functional as F
 
 
@@ -74,7 +77,7 @@ class MLLMRetrievalModel(nn.Module):
         :param device: 指定数据所在的硬件设备
         :return:
         '''
-        if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
+        if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
             prompt = text_prompt_no_special_llava_v1_5
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
             prompt = qwen2_5_text_prompt
@@ -87,18 +90,20 @@ class MLLMRetrievalModel(nn.Module):
             )
         elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
             prompt = mistral_text_prompt
+        elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+            prompt = vicuna_text_prompt
         else:
             prompt = text_prompt
 
         if 'disassembleeol' in model_args.eol_type:
-            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
+            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
                 prompts = llama3_retrieval_disassemble_text_prompts
             elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                 prompts = llama3_retrieval_disassemble_text_prompts
             else:
                 prompts = llama3_retrieval_disassemble_text_prompts
         else:
-            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
+            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
                 prompts = llama3_retrieval_disassemble_text_prompts
             elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                 prompts = llama3_retrieval_disassemble_text_prompts
@@ -397,8 +402,19 @@ class MLLMRetrievalModel(nn.Module):
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
 
     def encode_data_for_tbpr(self, input, input_type, processor, device, model_args, data_args):
-        if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
+        if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
             prompt = text_prompt_no_special_llava_v1_5
+        elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+            if data_args.tbpr_type == 'origin_type':
+                prompt = vicuna_text_prompt
+            elif data_args.tbpr_type == 'type':
+                prompt = vicuna_person_retrieval_text_prompt
+            elif data_args.tbpr_type == 'type_1':
+                prompt = vicuna_person_retrieval_text_prompt_1
+            elif data_args.tbpr_type == 'type_2':
+                prompt = vicuna_person_retrieval_text_prompt_2
+            else:
+                prompt = vicuna_text_prompt
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
             prompt = text_prompt_qwen_v2_5
             prompt = processor.apply_chat_template(
@@ -435,14 +451,14 @@ class MLLMRetrievalModel(nn.Module):
                 prompt = mistral_text_prompt
 
         if 'disassembleeol' in model_args.eol_type:
-            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
+            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
                 prompts = llama3_retrieval_disassemble_text_prompts
             elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                 prompts = llama3_retrieval_disassemble_text_prompts
             else:
                 prompts = llama3_retrieval_disassemble_text_prompts
         else:
-            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
+            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
                 prompts = llama3_retrieval_disassemble_text_prompts
             elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                 prompts = llama3_retrieval_disassemble_text_prompts
@@ -1025,9 +1041,76 @@ class MLLMRetrievalModel(nn.Module):
             elif data_args.prompt_type == 'prompt_7':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                     prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
-                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
-                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                if data_args.prompt_generation:
+                    if data_args.prompt_generation_model == 'llama':
+                        for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat_llama_generation:
+                            content_element = llava_mistral_template_content_element.format(
+                                llava_mistral_retrieval_disassemble_text_prompt)
+                            prompt_template += content_element
+                    else:
+                        for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat_mistral_generation:
+                            content_element = llava_mistral_template_content_element.format(
+                                llava_mistral_retrieval_disassemble_text_prompt)
+                            prompt_template += content_element
+                else:
+                    for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
+                        content_element = llava_mistral_template_content_element.format(
+                            llava_mistral_retrieval_disassemble_text_prompt)
+                        prompt_template += content_element
+            else:
+                pass
+
+        elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+            prompt_template = llava_vicuna_template_text_prefix
+            if data_args.prompt_type == 'prompt_5':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_vicuna_template_content_element.format(text_prompt_for_concat)
+                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
+                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_1':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_vicuna_template_content_element.format(text_prompt_for_concat)
+                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_1_for_concat:
+                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_3':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_vicuna_template_content_element.format(text_prompt_for_concat)
+                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_3_for_concat:
+                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_4':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_vicuna_template_content_element.format(text_prompt_for_concat)
+                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_4_for_concat:
+                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_6':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_vicuna_template_content_element.format(text_prompt_for_concat)
+                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_6_for_concat:
+                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_7':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_vicuna_template_content_element.format(text_prompt_for_concat)
+                if data_args.prompt_generation:
+                    if data_args.prompt_generation_model == 'llama':
+                        for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat_llama_generation:
+                            content_element = llava_vicuna_template_content_element.format(
+                                llava_vicuna_retrieval_disassemble_text_prompt)
+                            prompt_template += content_element
+                    else:
+                        for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat_mistral_generation:
+                            content_element = llava_vicuna_template_content_element.format(
+                                llava_vicuna_retrieval_disassemble_text_prompt)
+                            prompt_template += content_element
+                else:
+                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
+                        content_element = llava_vicuna_template_content_element.format(
+                            llava_vicuna_retrieval_disassemble_text_prompt)
+                        prompt_template += content_element
             else:
                 pass
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
@@ -1129,15 +1212,30 @@ class MLLMRetrievalModel(nn.Module):
             elif data_args.prompt_type == 'prompt_7':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                     prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
-                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
-                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
-                    prompt_template += content_element
+                if data_args.prompt_generation:
+                    if data_args.prompt_generation_model == 'llama':
+                        for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat_llama_generation:
+                            content_element = llama3_template_content_element.format(
+                                llava_mistral_retrieval_disassemble_text_prompt)
+                            prompt_template += content_element
+                    else:
+                        for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat_mistral_generation:
+                            content_element = llama3_template_content_element.format(
+                                llava_mistral_retrieval_disassemble_text_prompt)
+                            prompt_template += content_element
+                else:
+                    for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
+                        content_element = llama3_template_content_element.format(
+                            llama3_retrieval_disassemble_text_prompt)
+                        prompt_template += content_element
             else:
                 pass
         if input_type == 'text':
             text_inputs = processor(text=[prompt_template.replace('<sent>', text) for text in input],
                                     return_tensors="pt", padding=True).to(device)
-            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-mistral-13b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</s>']
             elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
@@ -2122,6 +2220,68 @@ class MLLMRetrievalModel(nn.Module):
                     prompt_template += content_element
             else:
                 pass
+
+        elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+            prompt_template = llava_vicuna_template_text_prefix
+            if data_args.tbpr_type == 'origin_type':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_vicuna_template_content_element.format(text_prompt_for_concat)
+                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat:
+                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.tbpr_type == 'type':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_vicuna_template_content_element.format(person_retrieval_text_prompt_for_concat)
+                if data_args.prompt_type == 'prompt_5':
+                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat:
+                        content_element = llava_vicuna_template_content_element.format(
+                            llava_vicuna_retrieval_disassemble_text_prompt)
+                        prompt_template += content_element
+                elif data_args.prompt_type == 'prompt_1':
+                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_1_for_concat:
+                        content_element = llava_vicuna_template_content_element.format(
+                            llava_vicuna_retrieval_disassemble_text_prompt)
+                        prompt_template += content_element
+                elif data_args.prompt_type == 'prompt_2':
+                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_2_for_concat:
+                        content_element = llava_vicuna_template_content_element.format(
+                            llava_vicuna_retrieval_disassemble_text_prompt)
+                        prompt_template += content_element
+                elif data_args.prompt_type == 'prompt_3':
+                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_3_for_concat:
+                        content_element = llava_vicuna_template_content_element.format(
+                            llava_vicuna_retrieval_disassemble_text_prompt)
+                        prompt_template += content_element
+                elif data_args.prompt_type == 'prompt_4':
+                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_4_for_concat:
+                        content_element = llava_vicuna_template_content_element.format(
+                            llava_vicuna_retrieval_disassemble_text_prompt)
+                        prompt_template += content_element
+                elif data_args.prompt_type == 'prompt_6':
+                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_6_for_concat:
+                        content_element = llava_vicuna_template_content_element.format(
+                            llava_vicuna_retrieval_disassemble_text_prompt)
+                        prompt_template += content_element
+                elif data_args.prompt_type == 'prompt_7':
+                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_7_for_concat:
+                        content_element = llava_vicuna_template_content_element.format(
+                            llava_vicuna_retrieval_disassemble_text_prompt)
+                        prompt_template += content_element
+            elif data_args.tbpr_type == 'type_1':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_vicuna_template_content_element.format(person_retrieval_text_prompt_for_concat_1)
+                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
+                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.tbpr_type == 'type_2':
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_vicuna_template_content_element.format(person_retrieval_text_prompt_for_concat_2)
+                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
+                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            else:
+                pass
+
         elif 'Qwen-Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
             prompt_template = qwen3_template_text_prefix
             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
@@ -2195,7 +2355,9 @@ class MLLMRetrievalModel(nn.Module):
         if input_type == 'text':
             text_inputs = processor(text=[prompt_template.replace('<sent>', text) for text in input],
                                     return_tensors="pt", padding=True).to(device)
-            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</s>']
             elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
@@ -2342,7 +2504,9 @@ class MLLMRetrievalModel(nn.Module):
                     # print(input[key].shape)
             '''
 
-            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</s>']
             elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:

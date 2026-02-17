@@ -34,7 +34,8 @@ from nltk.corpus import stopwords
 import string
 from template import img_prompt, \
     img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5, task_image_prompts, \
-    llama3_template, task_text_prompts, llama3_retrieval_disassemble_image_prompts
+    llama3_template, task_text_prompts, llama3_retrieval_disassemble_image_prompts, vicuna_img_prompt, \
+    llava_vicuna_template_image_prefix, llava_vicuna_template_content_element
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
     get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, get_text_valid_tokens_values_fusion, get_text_valid_disassemble_tokens_values_fusion, \
     get_img_valid_disassemble_tokens_values, llama3_template_image_prefix, llama3_template_content_element, \
@@ -1563,97 +1564,6 @@ def main():
                                                                                     model_args,
                                                                                     data_args)
                     else:
-                        if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-                            if data_args.tbpr_type == 'origin_type':
-                                prompt_template = llava_mistral_template_image_prefix
-                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                    prompt_template += llava_mistral_template_content_element.format(
-                                        img_prompt_for_concat)
-                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat:
-                                    content_element = llava_mistral_template_content_element.format(
-                                        llava_mistral_retrieval_disassemble_image_prompt)
-                                    prompt_template += content_element
-                            elif data_args.tbpr_type == 'type':
-                                prompt_template = llava_mistral_template_image_prefix
-                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                    prompt_template += llava_mistral_template_content_element.format(
-                                        person_retrieval_img_prompt_for_concat)
-                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat:
-                                    content_element = llava_mistral_template_content_element.format(
-                                        llava_mistral_retrieval_disassemble_image_prompt)
-                                    prompt_template += content_element
-                            elif data_args.tbpr_type == 'type_1':
-                                prompt_template = llava_mistral_template_image_prefix
-                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                    prompt_template += llava_mistral_template_content_element.format(
-                                        person_retrieval_img_prompt_for_concat_1)
-                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
-                                    content_element = llava_mistral_template_content_element.format(
-                                        llava_mistral_retrieval_disassemble_image_prompt)
-                                    prompt_template += content_element
-                            elif data_args.tbpr_type == 'type_2':
-                                prompt_template = llava_mistral_template_image_prefix
-                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                    prompt_template += llava_mistral_template_content_element.format(
-                                        person_retrieval_img_prompt_for_concat_2)
-                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
-                                    content_element = llava_mistral_template_content_element.format(
-                                        llava_mistral_retrieval_disassemble_image_prompt)
-                                    prompt_template += content_element
-                            else:
-                                prompt_template = llava_mistral_template_image_prefix
-                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                    prompt_template += llava_mistral_template_content_element.format(
-                                        img_prompt_for_concat)
-                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat:
-                                    content_element = llava_mistral_template_content_element.format(
-                                        llava_mistral_retrieval_disassemble_image_prompt)
-                                    prompt_template += content_element
-                        else:
-                            if data_args.tbpr_type == 'origin_type':
-                                prompt_template = llama3_template_image_prefix
-                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                    prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat:
-                                    content_element = llama3_template_content_element.format(
-                                        llama3_retrieval_disassemble_image_prompt)
-                                    prompt_template += content_element
-                            elif data_args.tbpr_type == 'type':
-                                prompt_template = llama3_template_image_prefix
-                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                    prompt_template += llama3_template_content_element.format(
-                                        person_retrieval_img_prompt_for_concat)
-                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat:
-                                    content_element = llama3_template_content_element.format(
-                                        llama3_retrieval_disassemble_image_prompt)
-                                    prompt_template += content_element
-                            elif data_args.tbpr_type == 'type_1':
-                                prompt_template = llama3_template_image_prefix
-                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                    prompt_template += llama3_template_content_element.format(
-                                        person_retrieval_img_prompt_for_concat_1)
-                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
-                                    content_element = llama3_template_content_element.format(
-                                        llama3_retrieval_disassemble_image_prompt)
-                                    prompt_template += content_element
-                            elif data_args.tbpr_type == 'type_2':
-                                prompt_template = llama3_template_image_prefix
-                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                    prompt_template += llama3_template_content_element.format(
-                                        person_retrieval_img_prompt_for_concat_2)
-                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
-                                    content_element = llama3_template_content_element.format(
-                                        llama3_retrieval_disassemble_image_prompt)
-                                    prompt_template += content_element
-                            else:
-                                prompt_template = llama3_template_image_prefix
-                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                    prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat:
-                                    content_element = llama3_template_content_element.format(
-                                        llama3_retrieval_disassemble_image_prompt)
-                                    prompt_template += content_element
-
                         query_logits, query_dense_reps = model.encode_data_concat_for_tbpr(texts, 'text', processor,
                                                                                            device,
                                                                                            model_args, data_args)
@@ -1948,7 +1858,7 @@ def main():
                         lookup_indices.extend(text_ids)
                     else:
                         lookup_indices.extend(img_ids)
-                    if model_args.model_name_or_path == './checkpoints/llava-hf-llava-1.5-7b-hf' or model_args.model_name_or_path == './checkpoints/llava-hf-llava-v1.6-vicuna-7b-hf':
+                    if model_args.model_name_or_path == './checkpoints/llava-hf-llava-1.5-7b-hf':
                         prompt = img_prompt_no_special_llava_v1_5
                     elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
                         prompt = qwen2_5_img_prompt
@@ -1958,6 +1868,8 @@ def main():
                         prompt = img_prompt_intern_vl_v2_5
                     elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                         prompt = mistral_img_prompt
+                    elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                        prompt = vicuna_img_prompt
                     else:
                         prompt = img_prompt
                     # batch = batch.to(training_args.device)
@@ -2248,6 +2160,37 @@ def main():
                                 for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
                                     content_element = llava_mistral_template_content_element.format(
                                         llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            else:
+                                pass
+
+                        elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                            if data_args.prompt_type == 'prompt_5':
+                                prompt_template = llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_vicuna_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
+                                    content_element = llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                prompt_template = llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_vicuna_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
+                                    content_element = llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                prompt_template = llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_vicuna_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
+                                    content_element = llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
                                     prompt_template += content_element
                             else:
                                 pass

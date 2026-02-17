@@ -44,7 +44,15 @@ from template import img_prompt, \
     img_prompt_qwen_v3, qwen2_5_img_prompt, qwen3_img_prompt, qwen2_5_template_image_prefix, \
     qwen3_template_image_prefix, qwen2_5_template_content_element, qwen3_template_content_element, \
     retrieval_disassemble_image_prompts_1_for_concat, retrieval_disassemble_image_prompts_2_for_concat, \
-    retrieval_disassemble_image_prompts_4_for_concat, retrieval_disassemble_image_prompts_6_for_concat
+    retrieval_disassemble_image_prompts_4_for_concat, retrieval_disassemble_image_prompts_6_for_concat, \
+    retrieval_disassemble_image_prompts_for_concat_llama_generation, retrieval_disassemble_image_prompts_for_concat_mistral_generation, \
+    vicuna_img_prompt, llava_vicuna_template_content_element, llava_vicuna_template_image_prefix, \
+    retrieval_disassemble_image_prompts_person_retrieval_1_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_2_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_3_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_4_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_6_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_7_for_concat
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
     get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, \
     get_text_valid_tokens_values_fusion, get_text_valid_disassemble_tokens_values_fusion, \
@@ -1949,7 +1957,7 @@ def main():
                         lookup_indices.extend(text_ids)
                     else:
                         lookup_indices.extend(img_ids)
-                    if model_args.model_name_or_path == './checkpoints/llava-hf-llava-1.5-7b-hf' or model_args.model_name_or_path == './checkpoints/llava-hf-llava-v1.6-vicuna-7b-hf':
+                    if model_args.model_name_or_path == './checkpoints/llava-hf-llava-1.5-7b-hf':
                         prompt = img_prompt_no_special_llava_v1_5
                     elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
                         prompt = qwen2_5_img_prompt
@@ -1959,6 +1967,8 @@ def main():
                         prompt = img_prompt_intern_vl_v2_5
                     elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                         prompt = mistral_img_prompt
+                    elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                        prompt = vicuna_img_prompt
                     else:
                         prompt = img_prompt
                     # batch = batch.to(training_args.device)
@@ -2288,12 +2298,105 @@ def main():
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                     prompt_template += llava_mistral_template_content_element.format(
                                         img_prompt_for_concat)
-                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
-                                    content_element = llava_mistral_template_content_element.format(
-                                        llava_mistral_retrieval_disassemble_image_prompt)
-                                    prompt_template += content_element
+                                if data_args.prompt_generation:
+                                    if data_args.prompt_generation_model == 'llama':
+                                        for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat_llama_generation:
+                                            content_element = llava_mistral_template_content_element.format(
+                                                llava_mistral_retrieval_disassemble_image_prompt)
+                                            prompt_template += content_element
+                                    else:
+                                        for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat_mistral_generation:
+                                            content_element = llava_mistral_template_content_element.format(
+                                                llava_mistral_retrieval_disassemble_image_prompt)
+                                            prompt_template += content_element
+                                else:
+                                    for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
+                                        content_element = llava_mistral_template_content_element.format(
+                                            llava_mistral_retrieval_disassemble_image_prompt)
+                                        prompt_template += content_element
                             else:
                                 pass
+
+                        elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                            if data_args.prompt_type == 'prompt_5':
+                                prompt_template = llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_vicuna_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
+                                    content_element = llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_1':
+                                prompt_template = llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_vicuna_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_1_for_concat:
+                                    content_element = llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_2':
+                                prompt_template = llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_vicuna_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_2_for_concat:
+                                    content_element = llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                prompt_template = llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_vicuna_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
+                                    content_element = llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_4':
+                                prompt_template = llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_vicuna_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_4_for_concat:
+                                    content_element = llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_6':
+                                prompt_template = llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_vicuna_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_6_for_concat:
+                                    content_element = llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                prompt_template = llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_vicuna_template_content_element.format(
+                                        img_prompt_for_concat)
+                                if data_args.prompt_generation:
+                                    if data_args.prompt_generation_model == 'llama':
+                                        for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat_llama_generation:
+                                            content_element = llava_vicuna_template_content_element.format(
+                                                llava_vicuna_retrieval_disassemble_image_prompt)
+                                            prompt_template += content_element
+                                    else:
+                                        for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat_mistral_generation:
+                                            content_element = llava_vicuna_template_content_element.format(
+                                                llava_vicuna_retrieval_disassemble_image_prompt)
+                                            prompt_template += content_element
+                                else:
+                                    for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
+                                        content_element = llava_vicuna_template_content_element.format(
+                                            llava_vicuna_retrieval_disassemble_image_prompt)
+                                        prompt_template += content_element
+                            else:
+                                pass
+
+
                         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
                             if data_args.prompt_type == 'prompt_5':
                                 prompt_template = qwen2_5_template_image_prefix
@@ -2405,10 +2508,22 @@ def main():
                                 prompt_template = llama3_template_image_prefix
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                     prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
-                                    content_element = llama3_template_content_element.format(
-                                        llama3_retrieval_disassemble_image_prompt)
-                                    prompt_template += content_element
+                                if data_args.prompt_generation:
+                                    if data_args.prompt_generation_model == 'llama':
+                                        for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat_llama_generation:
+                                            content_element = llama3_template_content_element.format(
+                                                llava_mistral_retrieval_disassemble_image_prompt)
+                                            prompt_template += content_element
+                                    else:
+                                        for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat_mistral_generation:
+                                            content_element = llama3_template_content_element.format(
+                                                llava_mistral_retrieval_disassemble_image_prompt)
+                                            prompt_template += content_element
+                                else:
+                                    for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
+                                        content_element = llama3_template_content_element.format(
+                                            llama3_retrieval_disassemble_image_prompt)
+                                        prompt_template += content_element
                             else:
                                 pass
                         if search_args.query_type == 'text':
@@ -2982,13 +3097,22 @@ def main():
                 f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
                 f'0_{i + 1}_0_{10 - i - 1}.xlsx')
         else:
-            os.makedirs(
-                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                exist_ok=True)
+            if data_args.prompt_generation:
+                os.makedirs(
+                    f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                    exist_ok=True)
 
-            output_path = os.path.join(
-                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                f'0_{i + 1}_0_{10 - i - 1}.xlsx')
+                output_path = os.path.join(
+                    f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                    f'0_{i + 1}_0_{10 - i - 1}.xlsx')
+            else:
+                os.makedirs(
+                    f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    exist_ok=True)
+
+                output_path = os.path.join(
+                    f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    f'0_{i + 1}_0_{10 - i - 1}.xlsx')
 
         metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run[i], look_up, lookup_indices, search_args)
         metric.sort_and_count()
@@ -3136,9 +3260,14 @@ def main():
             f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
             f'best.xlsx')
     else:
-        output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-            f'best.xlsx')
+        if data_args.prompt_generation:
+            output_path = os.path.join(
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                f'best.xlsx')
+        else:
+            output_path = os.path.join(
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                f'best.xlsx')
 
     metric = RecallMetrics(dataset, dense_run, sparse_run, best_test_fusion_run, look_up, lookup_indices, search_args)
 

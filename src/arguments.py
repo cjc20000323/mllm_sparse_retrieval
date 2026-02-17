@@ -71,6 +71,8 @@ class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
     sparse_value_type: str = field(default='replace')
     sparse_lower_or_upper: str = field(default='lower')
     prompt_type: str = field(default='prompt_5')
+    prompt_generation: bool = field(default=False)
+    prompt_generation_model: str = field(default='llama')
     sparse_value_mean: bool = field(default=False)
     sparse_type: str = field(default='single')
     tbpr_type: str = field(default='origin_type')

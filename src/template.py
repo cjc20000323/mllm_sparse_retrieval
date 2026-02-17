@@ -12,6 +12,10 @@ llava_mistral_template_content_element = '<s>{}[/INST]</s>'
 llava_mistral_template_fashion_iq_composed_image_prefix = '[INST]<image> change the style of this {} to <sent>\n'
 llava_mistral_template_fashion_iq_image_prefix = '[INST]<image>\n'
 llava_mistral_template_fashion_iq_text_prefix = '[INST]<sent>\n'
+llava_vicuna_template = 'USER: {} ASSISTANT:'
+llava_vicuna_template_image_prefix = 'USER: <image>\n'
+llava_vicuna_template_text_prefix = 'USER: <sent>\n'
+llava_vicuna_template_content_element = '<s>{}</s>'
 
 qwen2_5_template = '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n'
 qwen2_5_template_image_prefix = '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>\n'
@@ -26,6 +30,8 @@ img_prompt = llama3_template.format('<image>\n<|begin_of_text|>Summary above ima
 text_prompt = llama3_template.format('<sent>\n<|begin_of_text|>Summary above sentence in one word: ')
 mistral_img_prompt = llava_mistral_template.format('<image>\n<s>Summary above image in one word: ')
 mistral_text_prompt = llava_mistral_template.format('<sent>\n<s>Summary above sentence in one word: ')
+vicuna_img_prompt = llava_vicuna_template.format('<image>\n<s>Summary above image in one word: ')
+vicuna_text_prompt = llava_vicuna_template.format('<sent>\n<s>Summary above sentence in one word: ')
 qwen2_5_img_prompt = qwen2_5_template.format('<|vision_start|><|image_pad|><|vision_end|>\n<tool_call>Summary above image in one word: ')
 qwen2_5_text_prompt = qwen2_5_template.format('<sent>\n<tool_call>Summary above sentence in one word: ')
 qwen3_img_prompt = qwen3_template.format('<|vision_start|><|image_pad|><|vision_end|>\n<think>Summary above image in one word: ')
@@ -35,14 +41,20 @@ person_retrieval_img_prompt = llama3_template.format('<image>\n<|begin_of_text|>
 person_retrieval_text_prompt = llama3_template.format('<sent>\n<|begin_of_text|>Summary the person in above sentence in one word: ')
 mistral_person_retrieval_img_prompt = llava_mistral_template.format('<image>\n<s>Summary the person in above image in one word: ')
 mistral_person_retrieval_text_prompt = llava_mistral_template.format('<sent>\n<s>Summary the person in above sentence in one word: ')
+vicuna_person_retrieval_img_prompt = llava_vicuna_template.format('<image>\n<s>Summary the person in above image in one word: ')
+vicuna_person_retrieval_text_prompt = llava_vicuna_template.format('<sent>\n<s>Summary the person in above sentence in one word: ')
 person_retrieval_img_prompt_1 = llama3_template.format('<image>\n<|begin_of_text|>Describe this person in one word based on the image: ')
 person_retrieval_text_prompt_1 = llama3_template.format('<sent>\n<|begin_of_text|>Describe this person in one word based on the sentence: ')
 mistral_person_retrieval_img_prompt_1 = llava_mistral_template.format('<image>\n<s>Describe this person in one word based on its image: ')
 mistral_person_retrieval_text_prompt_1 = llava_mistral_template.format('<sent>\n<s>Describe this person in one word based on its sentence: ')
+vicuna_person_retrieval_img_prompt_1 = llava_vicuna_template.format('<image>\n<s>Describe this person in one word based on its image: ')
+vicuna_person_retrieval_text_prompt_1 = llava_vicuna_template.format('<sent>\n<s>Describe this person in one word based on its sentence: ')
 person_retrieval_img_prompt_2 = llama3_template.format('<image>\n<|begin_of_text|>Describe wearing style of this person in one word based on the image: ')
 person_retrieval_text_prompt_2 = llama3_template.format('<sent>\n<|begin_of_text|>Describe wearing style of this person in one word based on the sentence: ')
 mistral_person_retrieval_img_prompt_2 = llava_mistral_template.format('<image>\n<s>Describe wearing style of this person in one word based on the image: ')
 mistral_person_retrieval_text_prompt_2 = llava_mistral_template.format('<sent>\n<s>Describe wearing style of this person in one word based on the sentence: ')
+vicuna_person_retrieval_img_prompt_2 = llava_vicuna_template.format('<image>\n<s>Describe wearing style of this person in one word based on the image: ')
+vicuna_person_retrieval_text_prompt_2 = llava_vicuna_template.format('<sent>\n<s>Describe wearing style of this person in one word based on the sentence: ')
 qwen3_person_retrieval_img_prompt = qwen3_template.format('<|vision_start|><|image_pad|><|vision_end|>\n<think>Summary the person in above image in one word: ')
 qwen3_person_retrieval_text_prompt = qwen3_template.format('<sent>\n<think>Summary the person in above sentence in one word: ')
 
@@ -94,6 +106,18 @@ mistral_role_relevant_prompt = llava_mistral_template.format("You are RankGPT, a
 mistral_role_precise_caption_prompt = llava_mistral_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \n For the following sentence and image, judge whether the sentence is the precise caption of the image. Output 'Yes' or 'No'.\nSentence: <sent> Image: <image> Output: ")
 mistral_role_old_text_query_relevant_prompt = llava_mistral_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nQuery: <sent>\nCandidate: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
 mistral_role_old_image_query_relevant_prompt = llava_mistral_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nQuery: <image>\nCandidate: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+vicuna_text_query_relevant_prompt = llava_vicuna_template.format("For the following query sentence and candidate image, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Sentence: <sent> Candidate Image: <image> Output: ")
+vicuna_image_query_relevant_prompt = llava_vicuna_template.format("For the following query image and candidate sentence, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Image: <image> Candidate Sentence: <sent> Output: ")
+vicuna_origin_old_text_query_relevant_prompt = llava_vicuna_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate: <image>\nQuery: <sent>\nDoes the candidate answer the query? Answer: ")
+vicuna_origin_old_image_query_relevant_prompt = llava_vicuna_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate: <sent>\nQuery: <image>\nDoes the candidate answer the query? Answer: ")
+vicuna_old_text_query_relevant_prompt = llava_vicuna_template.format("Query: <sent>\nCandidate: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+vicuna_old_image_query_relevant_prompt = llava_vicuna_template.format("Query: <image>\nCandidate: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+vicuna_text_reverse_query_relevant_prompt = llava_vicuna_template.format("For the following query sentence and candidate image, judge whether they are relevant. Output 'Yes' or 'No'.\nCandidate Image: <image> Query Sentence: <sent> Output: ")
+vicuna_image_reverse_query_relevant_prompt = llava_vicuna_template.format("For the following query image and candidate sentence, judge whether they are relevant. Output 'Yes' or 'No'.\nCandidate Sentence: <sent> Query Image: <image> Output: ")
+vicuna_old_text_reverse_query_relevant_prompt = llava_vicuna_template.format("Candidate: <image>\nQuery: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+vicuna_old_image_reverse_query_relevant_prompt = llava_vicuna_template.format("Candidate: <sent>\nQuery: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+vicuna_origin_old_text_reverse_query_relevant_prompt = llava_vicuna_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nQuery: <sent>\nCandidate: <image>\nDoes the candidate answer the query? Answer: ")
+vicuna_origin_old_image_reverse_query_relevant_prompt = llava_vicuna_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nQuery: <image>\nCandidate: <sent>\nDoes the candidate answer the query? Answer: ")
 
 qwen2_5_relevant_prompt = qwen2_5_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Image: <|vision_start|><|image_pad|><|vision_end|> Output: ")
 qwen2_5_in_one_word_relevant_prompt = qwen2_5_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Image: <|vision_start|><|image_pad|><|vision_end|> Output in one word: ")
@@ -167,6 +191,12 @@ mistral_person_retrieval_query_relevant_prompt = llava_mistral_template.format("
 mistral_person_retrieval_reverse_old_query_relevant_prompt = llava_mistral_template.format("Candidate: <image>\nQuery: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
 mistral_person_retrieval_reverse_origin_old_query_relevant_prompt = llava_mistral_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nQuery: <sent>\nCandidate: <image>\nDoes the candidate answer the query? Answer: ")
 mistral_person_retrieval_reverse_query_relevant_prompt = llava_mistral_template.format("For the following query sentence and candidate person image, judge whether they are relevant. Output 'Yes' or 'No'.\nCandidate Person Image: <image> Query Sentence: <sent> Output: ")
+vicuna_person_retrieval_old_query_relevant_prompt = llava_vicuna_template.format("Query: <sent>\nCandidate: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+vicuna_person_retrieval_origin_old_query_relevant_prompt = llava_vicuna_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate: <image>\nQuery: <sent>\nDoes the candidate answer the query? Answer: ")
+vicuna_person_retrieval_query_relevant_prompt = llava_vicuna_template.format("For the following query sentence and candidate image, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Sentence: <sent> Candidate Image: <image> Output: ")
+vicuna_person_retrieval_reverse_old_query_relevant_prompt = llava_vicuna_template.format("Candidate: <image>\nQuery: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
+vicuna_person_retrieval_reverse_origin_old_query_relevant_prompt = llava_vicuna_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nQuery: <sent>\nCandidate: <image>\nDoes the candidate answer the query? Answer: ")
+vicuna_person_retrieval_reverse_query_relevant_prompt = llava_vicuna_template.format("For the following query sentence and candidate person image, judge whether they are relevant. Output 'Yes' or 'No'.\nCandidate Person Image: <image> Query Sentence: <sent> Output: ")
 qwen3_person_retrieval_relevant_prompt = qwen3_template.format("For the following sentence and person image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Person Image: <|vision_start|><|image_pad|><|vision_end|> Output: ")
 qwen3_person_retrieval_old_query_relevant_prompt = qwen3_template.format("Query: <sent>\nCandidate: <|vision_start|><|image_pad|><|vision_end|>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
 qwen3_person_retrieval_origin_old_query_relevant_prompt = qwen3_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate: <|vision_start|><|image_pad|><|vision_end|>\nQuery: <sent>\nDoes the candidate answer the query? Answer: ")
@@ -175,10 +205,12 @@ qwen3_person_retrieval_query_relevant_prompt = qwen3_template.format("For the fo
 
 mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image: <image>\nPlease write a caption based on this image.")
 query_generation_paradigm_prompt = llama3_template.format("Image: <image>\nPlease write a caption based on this image.")
+vicuna_query_generation_paradigm_prompt = llava_vicuna_template.format("Image: <image>\nPlease write a caption based on this image.")
 qwen2_5_query_generation_paradigm_prompt = qwen2_5_template.format("Image: <|vision_start|><|image_pad|><|vision_end|>\nPlease write a caption based on this image.")
 qwen3_query_generation_paradigm_prompt = qwen3_template.format("Image: <|vision_start|><|image_pad|><|vision_end|>\nPlease write a caption based on this image.")
 mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Image: <image>\nWhat is the caption of the above image?")
 query_generation_paradigm_prompt_1 = llama3_template.format("Image: <image>\nWhat is the caption of the above image?")
+vicuna_query_generation_paradigm_prompt_1 = llava_vicuna_template.format("Image: <image>\nWhat is the caption of the above image?")
 qwen2_5_query_generation_paradigm_prompt_1 = qwen2_5_template.format("Image: <|vision_start|><|image_pad|><|vision_end|>\nWhat is the caption of the above image?")
 qwen3_query_generation_paradigm_prompt_1 = qwen3_template.format("Image: <|vision_start|><|image_pad|><|vision_end|>\nWhat is the caption of the above image?")
 mistral_query_generation_paradigm_prompt_2 = llava_mistral_template.format("<image>\nPlease write a caption based on this image.")
@@ -205,8 +237,10 @@ fashion_iq_query_generation_paradigm_prompt_1 = llama3_template.format("Image: <
 
 person_retrieval_mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Person Image: <image>\nPlease write a caption based on this person image.")
 person_retrieval_query_generation_paradigm_prompt = llama3_template.format("Person Image: <image>\nPlease write a caption based on this person image.")
+person_retrieval_vicuna_query_generation_paradigm_prompt = llava_vicuna_template.format("Person Image: <image>\nPlease write a caption based on this person image.")
 person_retrieval_mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Person Image: <image>\nWhat is the caption of the above person image?")
 person_retrieval_query_generation_paradigm_prompt_1 = llama3_template.format("Person Image: <image>\nWhat is the caption of the above person image?")
+person_retrieval_vicuna_query_generation_paradigm_prompt_1 = llava_vicuna_template.format("Person Image: <image>\nWhat is the caption of the above person image?")
 person_retrieval_mistral_query_generation_paradigm_prompt_2 = llava_mistral_template.format("Person Image: <image>\nPlease describe this person write a caption for this person image.")
 person_retrieval_query_generation_paradigm_prompt_2 = llama3_template.format("Person Image: <image>\nPlease describe this person write a caption for this person image.")
 person_retrieval_qwen3_query_generation_paradigm_prompt = qwen3_template.format("Person Image: <|vision_start|><|image_pad|><|vision_end|>\nPlease write a caption based on this person image.")
@@ -350,6 +384,26 @@ retrieval_disassemble_text_prompts_for_concat = [
     'Summary the environment, weather or places in above sentence in one word: ',
     'Summary the actions or movements of main people or objects in above sentence in one word: ',
     'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence in one word: '
+]
+
+retrieval_disassemble_text_prompts_for_concat_llama_generation = [
+    'Summary the person in above sentence in one word: ',
+    'Summary the clothing in above sentence in one word: ',
+    'Summary the location in above sentence in one word: ',
+    'Summary the activity in above sentence in one word: ',
+    'Summary the object in above sentence in one word: ',
+    'Summary the event in above sentence in one word: ',
+    'Summary the group in above sentence in one word: '
+]
+
+retrieval_disassemble_text_prompts_for_concat_mistral_generation = [
+    'Summary the gender, age and ethnicity in above sentence in one word: ',
+    'Summary the actions, movements and poses in above sentence in one word: ',
+    'Summary the objects, tools, clothing and accessories in above sentence in one word: ',
+    'Summary the locations and environments in above sentence in one word: ',
+    'Summary the relationships and interactions in above sentence in one word: ',
+    'Summary the professions and activities in above sentence in one word: ',
+    'Summary the animals and plants in above sentence in one word: '
 ]
 
 retrieval_disassemble_text_prompts_3 = [
@@ -604,6 +658,26 @@ retrieval_disassemble_image_prompts_for_concat = [
     'Summary the environment, weather or places in above image in one word: ',
     'Summary the actions or movements of main people or objects in above image in one word: ',
     'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above image in one word: ',
+]
+
+retrieval_disassemble_image_prompts_for_concat_llama_generation = [
+    'Summary the person in above image in one word: ',
+    'Summary the clothing in above image in one word: ',
+    'Summary the location in above image in one word: ',
+    'Summary the activity in above image in one word: ',
+    'Summary the object in above image in one word: ',
+    'Summary the event in above image in one word: ',
+    'Summary the group in above image in one word:'
+]
+
+retrieval_disassemble_image_prompts_for_concat_mistral_generation = [
+    'Summary the gender, age and ethnicity in above image in one word: ',
+    'Summary the actions, movements and poses in above image in one word: ',
+    'Summary the objects, tools, clothing and accessories in above image in one word: ',
+    'Summary the locations and environments in above image in one word: ',
+    'Summary the relationships and interactions in above image in one word: ',
+    'Summary the professions and activities in above image in one word: ',
+    'Summary the animals and plants in above image in one word: '
 ]
 
 retrieval_disassemble_image_prompts_3 = [
