@@ -1235,7 +1235,7 @@ class MLLMRetrievalModel(nn.Module):
                                     return_tensors="pt", padding=True).to(device)
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path or \
                     'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or \
-                    'llava-hf-llava-v1.6-mistral-13b-hf' in model_args.model_name_or_path:
+                    'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</s>']
             elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
@@ -1416,7 +1416,9 @@ class MLLMRetrievalModel(nn.Module):
                     # print(input[key].shape)
             '''
 
-            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</s>']
             elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:

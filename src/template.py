@@ -15,7 +15,7 @@ llava_mistral_template_fashion_iq_text_prefix = '[INST]<sent>\n'
 llava_vicuna_template = 'USER: {} ASSISTANT:'
 llava_vicuna_template_image_prefix = 'USER: <image>\n'
 llava_vicuna_template_text_prefix = 'USER: <sent>\n'
-llava_vicuna_template_content_element = '<s>{}</s>'
+llava_vicuna_template_content_element = '<s>{} ASSISTANT:</s>'
 
 qwen2_5_template = '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n'
 qwen2_5_template_image_prefix = '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>\n'
