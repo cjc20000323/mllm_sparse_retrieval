@@ -28,7 +28,8 @@ from template import new_prompt_generation_from_pair_prompt, new_prompt_generati
     prompt_schema_generation_text_prompt, prompt_schema_generation_text_prompt_1, \
     mistral_prompt_schema_generation_text_prompt, mistral_prompt_schema_generation_text_prompt_1, itr_five_aspects, \
     tbpr_five_aspects
-
+import dspy
+dspy.ReAct
 
 def main():
     parser = HfArgumentParser(

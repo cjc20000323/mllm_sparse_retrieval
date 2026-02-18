@@ -610,6 +610,40 @@ retrieval_disassemble_text_prompts_person_retrieval_for_concat = [
     'Summary the appearance and decoration details of person, such as color, pattern and so on, in above sentence in one word: '
 ]
 
+retrieval_disassemble_text_prompts_person_retrieval_for_concat_llama_generation = [
+    'Summary the individuals or person in above sentence in one word: ',
+    'Summary the clothing or attire of person in above sentence in one word: ',
+    'Summary the accessories or items of person in above sentence in one word: ',
+    'Summary the actions or activities of person in above sentence in one word: ',
+    'Summary the descriptions or characteristics of person in above sentence in one word: '
+]
+
+retrieval_disassemble_image_prompts_person_retrieval_for_concat_llama_generation = [
+    'Summary the individuals or person in above image in one word: ',
+    'Summary the clothing or attire of person in above image in one word: ',
+    'Summary the accessories or items of person in above image in one word: ',
+    'Summary the actions or activities of person in above image in one word: ',
+    'Summary the descriptions or characteristics of person in above image in one word: '
+]
+
+retrieval_disassemble_text_prompts_person_retrieval_for_concat_mistral_generation = [
+    'Summary the clothing, accessories, age, hair style of person in above sentence in one word: ',
+    'Summary the clothing or relations (e.g., wearing, carrying) of person in above sentence in one word: ',
+    'Summary the appearance (e.g., color, material) of person in above sentence in one word: ',
+    'Summary the body type, height of person in above sentence in one word: ',
+    'Summary the occupation (e.g., professional, casual) of person in above sentence in one word: ',
+    'Summary the actions (e.g., holding something) of person in above sentence in one word: ',
+]
+
+retrieval_disassemble_image_prompts_person_retrieval_for_concat_mistral_generation = [
+    'Summary the clothing, accessories, age, hair style of person in above image in one word: ',
+    'Summary the clothing or relations (e.g., wearing, carrying) of person in above image in one word: ',
+    'Summary the appearance (e.g., color, material) of person in above image in one word: ',
+    'Summary the body type, height of person in above image in one word: ',
+    'Summary the occupation (e.g., professional, casual) of person in above image in one word: ',
+    'Summary the actions (e.g., holding something) of person in above image in one word: ',
+]
+
 retrieval_disassemble_text_prompts_person_retrieval_1_for_concat = [
     'Summary the gender of person in above sentence in one word: ',
 ]
