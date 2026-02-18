@@ -118,6 +118,12 @@ vicuna_old_text_reverse_query_relevant_prompt = llava_vicuna_template.format("Ca
 vicuna_old_image_reverse_query_relevant_prompt = llava_vicuna_template.format("Candidate: <sent>\nQuery: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
 vicuna_origin_old_text_reverse_query_relevant_prompt = llava_vicuna_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nQuery: <sent>\nCandidate: <image>\nDoes the candidate answer the query? Answer: ")
 vicuna_origin_old_image_reverse_query_relevant_prompt = llava_vicuna_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nQuery: <image>\nCandidate: <sent>\nDoes the candidate answer the query? Answer: ")
+mistral_freeret_image_rerank_prompt = llava_mistral_template.format('Task: Determine whether the candidate matches the query.\nQuery: <image>\nCandidate: <sent>\nA. Yes, the candidate fully matches the query.\nB. No, the candidate does not match or only partially matches.')
+mistral_freeret_text_rerank_prompt = llava_mistral_template.format('Task: Determine whether the candidate matches the query.\nCandidate: <image>\nQuery: <sent>\nA. Yes, the candidate fully matches the query.\nB. No, the candidate does not match or only partially matches.')
+vicuna_freeret_image_rerank_prompt = llava_vicuna_template.format('Task: Determine whether the candidate matches the query.\nQuery: <image>\nCandidate: <sent>\nA. Yes, the candidate fully matches the query.\nB. No, the candidate does not match or only partially matches.')
+vicuna_freeret_text_rerank_prompt = llava_vicuna_template.format('Task: Determine whether the candidate matches the query.\nCandidate: <image>\nQuery: <sent>\nA. Yes, the candidate fully matches the query.\nB. No, the candidate does not match or only partially matches.')
+freeret_image_rerank_prompt = llama3_template.format('Task: Determine whether the candidate matches the query.\nQuery: <image>\nCandidate: <sent>\nA. Yes, the candidate fully matches the query.\nB. No, the candidate does not match or only partially matches.')
+freeret_text_rerank_prompt = llama3_template.format('Task: Determine whether the candidate matches the query.\nCandidate: <image>\nQuery: <sent>\nA. Yes, the candidate fully matches the query.\nB. No, the candidate does not match or only partially matches.')
 
 qwen2_5_relevant_prompt = qwen2_5_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Image: <|vision_start|><|image_pad|><|vision_end|> Output: ")
 qwen2_5_in_one_word_relevant_prompt = qwen2_5_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nSentence: <sent> Image: <|vision_start|><|image_pad|><|vision_end|> Output in one word: ")
@@ -384,6 +390,76 @@ retrieval_disassemble_text_prompts_for_concat = [
     'Summary the environment, weather or places in above sentence in one word: ',
     'Summary the actions or movements of main people or objects in above sentence in one word: ',
     'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence in one word: '
+]
+
+retrieval_disassemble_text_prompts_for_concat_remove_people_and_objects = [
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word: ',
+    'Summary the environment, weather or places in above sentence in one word: ',
+    'Summary the actions or movements of main people or objects in above sentence in one word: ',
+    'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence in one word: '
+]
+
+retrieval_disassemble_text_prompts_for_concat_remove_relations = [
+    'Summary the people or objects in above sentence in one word: ',
+    'Summary the environment, weather or places in above sentence in one word: ',
+    'Summary the actions or movements of main people or objects in above sentence in one word: ',
+    'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence in one word: '
+]
+
+retrieval_disassemble_text_prompts_for_concat_remove_actions_and_movements = [
+    'Summary the people or objects in above sentence in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word: ',
+    'Summary the environment, weather or places in above sentence in one word: ',
+    'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence in one word: '
+]
+
+retrieval_disassemble_text_prompts_for_concat_remove_environment = [
+    'Summary the people or objects in above sentence in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word: ',
+    'Summary the actions or movements of main people or objects in above sentence in one word: ',
+    'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence in one word: '
+]
+
+retrieval_disassemble_text_prompts_for_concat_remove_appearance = [
+    'Summary the people or objects in above sentence in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word: ',
+    'Summary the environment, weather or places in above sentence in one word: ',
+    'Summary the actions or movements of main people or objects in above sentence in one word: ',
+]
+
+retrieval_disassemble_image_prompts_for_concat_remove_appearance = [
+    'Summary the people or objects in above image in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above image in one word: ',
+    'Summary the environment, weather or places in above image in one word: ',
+    'Summary the actions or movements of main people or objects in above image in one word: ',
+]
+
+retrieval_disassemble_image_prompts_for_concat_remove_environment = [
+    'Summary the people or objects in above image in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above image in one word: ',
+    'Summary the actions or movements of main people or objects in above image in one word: ',
+    'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above image in one word: '
+]
+
+retrieval_disassemble_image_prompts_for_concat_remove_actions_and_movements = [
+    'Summary the people or objects in above image in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above image in one word: ',
+    'Summary the environment, weather or places in above image in one word: ',
+    'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above image in one word: '
+]
+
+retrieval_disassemble_image_prompts_for_concat_remove_relations = [
+    'Summary the people or objects in above image in one word: ',
+    'Summary the environment, weather or places in above image in one word: ',
+    'Summary the actions or movements of main people or objects in above image in one word: ',
+    'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above image in one word: '
+]
+
+retrieval_disassemble_image_prompts_for_concat_remove_people_and_objects = [
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above image in one word: ',
+    'Summary the environment, weather or places in above image in one word: ',
+    'Summary the actions or movements of main people or objects in above image in one word: ',
+    'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above image in one word: '
 ]
 
 retrieval_disassemble_text_prompts_for_concat_llama_generation = [

@@ -59,7 +59,8 @@ from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qw
     retrieval_disassemble_image_prompts_person_retrieval_7_for_concat, \
     retrieval_disassemble_image_prompts_for_concat_llama_generation, \
     retrieval_disassemble_image_prompts_for_concat_mistral_generation, vicuna_img_prompt,\
-    llava_vicuna_template_image_prefix, llava_vicuna_template_content_element, vicuna_person_retrieval_img_prompt
+    llava_vicuna_template_image_prefix, llava_vicuna_template_content_element, vicuna_person_retrieval_img_prompt, \
+    vicuna_person_retrieval_img_prompt_1, vicuna_person_retrieval_img_prompt_2
 from utils import load_image
 
 

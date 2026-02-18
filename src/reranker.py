@@ -78,7 +78,9 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     vicuna_old_text_reverse_query_relevant_prompt, vicuna_old_image_query_relevant_prompt, vicuna_old_text_query_relevant_prompt, \
     vicuna_origin_old_image_query_relevant_prompt, vicuna_origin_old_text_query_relevant_prompt, vicuna_text_query_relevant_prompt, \
     vicuna_image_query_relevant_prompt, vicuna_image_reverse_query_relevant_prompt, vicuna_text_reverse_query_relevant_prompt, \
-    vicuna_origin_old_text_reverse_query_relevant_prompt, vicuna_origin_old_image_reverse_query_relevant_prompt
+    vicuna_origin_old_text_reverse_query_relevant_prompt, vicuna_origin_old_image_reverse_query_relevant_prompt, \
+    vicuna_freeret_image_rerank_prompt, vicuna_freeret_text_rerank_prompt, mistral_freeret_image_rerank_prompt, \
+    mistral_freeret_text_rerank_prompt, freeret_text_rerank_prompt, freeret_image_rerank_prompt
 
 flickr_length_dict = {3: 3, 4: 5, 5: 26, 6: 83, 7: 196, 8: 316, 9: 376, 10: 447, 11: 446, 12: 455, 13: 399, 14: 403,
                       15: 343, 16: 287, 17: 213, 18: 179, 19: 134, 20: 127, 21: 82, 22: 78, 23: 83, 24: 45, 25: 40,
@@ -197,6 +199,8 @@ class Reranker:
                         rerank_prompt_template = mistral_person_retrieval_reverse_query_relevant_prompt
                     elif rerank_prompt_type == 'reverse_origin_old_relevant':
                         rerank_prompt_template = mistral_person_retrieval_reverse_origin_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'freeret':
+                        rerank_prompt_template = mistral_freeret_text_rerank_prompt
                     else:
                         rerank_prompt_template = mistral_person_retrieval_relevant_prompt
                 elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
@@ -212,6 +216,8 @@ class Reranker:
                         rerank_prompt_template = vicuna_person_retrieval_reverse_query_relevant_prompt
                     elif rerank_prompt_type == 'reverse_origin_old_relevant':
                         rerank_prompt_template = vicuna_person_retrieval_reverse_origin_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'freeret':
+                        rerank_prompt_template = vicuna_freeret_text_rerank_prompt
                     else:
                         rerank_prompt_template = vicuna_person_retrieval_query_relevant_prompt
                 elif 'Qwen-Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
@@ -240,6 +246,8 @@ class Reranker:
                         rerank_prompt_template = person_retrieval_reverse_query_relevant_prompt
                     elif rerank_prompt_type == 'reverse_origin_old_relevant':
                         rerank_prompt_template = person_retrieval_reverse_origin_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'freeret':
+                        rerank_prompt_template = freeret_text_rerank_prompt
                     else:
                         rerank_prompt_template = person_retrieval_relevant_prompt
             else:
@@ -293,6 +301,11 @@ class Reranker:
                             rerank_prompt_template = mistral_role_old_text_query_relevant_prompt
                     elif rerank_prompt_type == 'first_precise_caption':
                         rerank_prompt_template = mistral_first_precise_caption_prompt
+                    elif rerank_prompt_type == 'freeret':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = mistral_freeret_image_rerank_prompt
+                        else:
+                            rerank_prompt_template = mistral_freeret_text_rerank_prompt
                     else:
                         rerank_prompt_template = mistral_relevant_prompt
                 elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
@@ -326,6 +339,11 @@ class Reranker:
                             rerank_prompt_template = vicuna_origin_old_image_reverse_query_relevant_prompt
                         else:
                             rerank_prompt_template = vicuna_origin_old_text_reverse_query_relevant_prompt
+                    elif rerank_prompt_type == 'freeret':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = vicuna_freeret_image_rerank_prompt
+                        else:
+                            rerank_prompt_template = vicuna_freeret_text_rerank_prompt
                     else:
                         rerank_prompt_template = mistral_relevant_prompt
 
@@ -473,6 +491,11 @@ class Reranker:
                             rerank_prompt_template = role_old_text_query_relevant_prompt
                     elif rerank_prompt_type == 'first_precise_caption':
                         rerank_prompt_template = first_precise_caption_prompt
+                    elif rerank_prompt_type == 'freeret':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = freeret_image_rerank_prompt
+                        else:
+                            rerank_prompt_template = freeret_text_rerank_prompt
                     else:
                         rerank_prompt_template = relevant_prompt
             '''
@@ -587,8 +610,12 @@ class Reranker:
                                 batch_ids = torch.arange(len(inputs['input_ids']), device=logits.device)
                                 logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
                                     batch_ids, sequence_lengths]
-                            yes_id = self.vocab_dict['Yes']
-                            no_id = self.vocab_dict['No']
+                            if rerank_prompt_type != 'freeret':
+                                yes_id = self.vocab_dict['Yes']
+                                no_id = self.vocab_dict['No']
+                            else:
+                                yes_id = self.vocab_dict['A']
+                                no_id = self.vocab_dict['B']
                             if log_likelihood:
                                 logits = torch.log_softmax(logits, dim=-1)
                             logit_tensor = torch.stack([logits[:, yes_id], logits[:, no_id]], dim=1)
@@ -643,8 +670,12 @@ class Reranker:
                                     batch_ids = torch.arange(len(inputs['input_ids']), device=logits.device)
                                     logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
                                         batch_ids, sequence_lengths]
-                                yes_id = self.vocab_dict['Yes']
-                                no_id = self.vocab_dict['No']
+                                if rerank_prompt_type != 'freeret':
+                                    yes_id = self.vocab_dict['Yes']
+                                    no_id = self.vocab_dict['No']
+                                else:
+                                    yes_id = self.vocab_dict['A']
+                                    no_id = self.vocab_dict['B']
                                 if log_likelihood:
                                     logits = torch.log_softmax(logits, dim=-1)
                                 logit_tensor = torch.stack([logits[:, yes_id], logits[:, no_id]], dim=1)
@@ -677,8 +708,12 @@ class Reranker:
                                     batch_ids = torch.arange(len(inputs['input_ids']), device=logits.device)
                                     logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
                                         batch_ids, sequence_lengths]
-                                yes_id = self.vocab_dict['Yes']
-                                no_id = self.vocab_dict['No']
+                                if rerank_prompt_type != 'freeret':
+                                    yes_id = self.vocab_dict['Yes']
+                                    no_id = self.vocab_dict['No']
+                                else:
+                                    yes_id = self.vocab_dict['A']
+                                    no_id = self.vocab_dict['B']
                                 if log_likelihood:
                                     logits = torch.log_softmax(logits, dim=-1)
                                 '''
