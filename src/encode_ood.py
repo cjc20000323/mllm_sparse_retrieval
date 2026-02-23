@@ -861,16 +861,17 @@ def main():
     if training_args.encode_type == 'text':
         dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'full')
         tbpr_dataset = TextPersonRetrievalDataset('CUHK-PEDES', processor, data_args.dataset_split,
-                                                  'single')
+                                                  'full')
     else:
         dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'single')
         tbpr_dataset = TextPersonRetrievalDataset('RSTPReid', processor, data_args.dataset_split,
                                                   'single')
 
     sampler = Data.DistributedSampler(dataset, num_replicas=dist.get_world_size(), shuffle=True, rank=dist.get_rank())
+    tbpr_sampler = Data.DistributedSampler(tbpr_dataset, num_replicas=dist.get_world_size(), shuffle=True, rank=dist.get_rank())
     test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, pin_memory=True,
                                       batch_size=data_args.per_device_batch_size, shuffle=False)
-    tbpr_test_dataloader = Data.DataLoader(dataset=tbpr_dataset, sampler=sampler, pin_memory=True,
+    tbpr_test_dataloader = Data.DataLoader(dataset=tbpr_dataset, sampler=tbpr_sampler, pin_memory=True,
                                            batch_size=data_args.per_device_batch_size, shuffle=False)
 
     model = MLLMRetrievalModel(encoder)
@@ -886,8 +887,8 @@ def main():
 
         for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(tbpr_test_dataloader),
                                                                      total=len(tbpr_test_dataloader)):
-            text_ids = ["tbpr"+id for id in text_ids]
-            img_ids = ["tbpr"+id for id in img_ids]
+            text_ids = [id+"000000" for id in text_ids]
+            img_ids = [id+"000000" for id in img_ids]
 
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                 if data_args.tbpr_type == 'origin_type':
