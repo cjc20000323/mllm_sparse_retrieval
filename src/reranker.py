@@ -34,7 +34,14 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     mistral_fashion_iq_query_relevant_prompt, mistral_person_retrieval_relevant_prompt, \
     person_retrieval_relevant_prompt, mistral_person_retrieval_old_query_relevant_prompt, \
     person_retrieval_old_query_relevant_prompt, mistral_person_retrieval_origin_old_query_relevant_prompt, \
-    person_retrieval_origin_old_query_relevant_prompt, mistral_person_retrieval_query_relevant_prompt, \
+    person_retrieval_origin_old_query_relevant_prompt, person_retrieval_role_old_query_relevant_prompt,\
+    person_retrieval_role_relevant_prompt, person_retrieval_role_precise_caption_prompt, \
+    person_retrieval_in_one_word_relevant_prompt, person_retrieval_please_relevant_prompt, \
+    person_retrieval_precise_caption_prompt, person_retrieval_first_precise_caption_prompt, \
+    mistral_person_retrieval_query_relevant_prompt, mistral_person_retrieval_role_relevant_prompt, \
+    mistral_person_retrieval_role_precise_caption_prompt, mistral_person_retrieval_role_old_query_relevant_prompt, \
+    mistral_person_retrieval_in_one_word_relevant_prompt, mistral_person_retrieval_please_relevant_prompt, \
+    mistral_person_retrieval_precise_caption_prompt, mistral_person_retrieval_first_precise_caption_prompt, \
     person_retrieval_query_relevant_prompt, person_retrieval_query_generation_paradigm_prompt, \
     person_retrieval_mistral_query_generation_paradigm_prompt, person_retrieval_query_generation_paradigm_prompt_1, \
     person_retrieval_mistral_query_generation_paradigm_prompt_1, person_retrieval_query_generation_paradigm_prompt_2, \
