@@ -42,11 +42,7 @@ from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, ge
     retrieval_disassemble_image_prompts_3_for_concat, \
     retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, \
     retrieval_disassemble_image_prompts_7_for_concat, mistral_img_prompt, llava_mistral_template_image_prefix, \
-    llava_mistral_template_content_element, person_retrieval_img_prompt_for_concat, person_retrieval_img_prompt_for_concat_1, \
-    retrieval_disassemble_image_prompts_person_retrieval_for_concat, \
-    retrieval_disassemble_image_prompts_person_retrieval_for_concat_1, \
-    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, person_retrieval_img_prompt_for_concat_2, \
-    img_prompt_qwen_v3, qwen2_5_img_prompt, qwen3_img_prompt, qwen3_template_image_prefix, \
+    llava_mistral_template_content_element, img_prompt_qwen_v3, qwen2_5_img_prompt, qwen3_img_prompt, qwen3_template_image_prefix, \
     qwen2_5_template_image_prefix, qwen2_5_template_content_element, qwen3_template_content_element
 from hybrid import fuse
 from utils import load_image
