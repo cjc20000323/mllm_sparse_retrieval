@@ -2778,7 +2778,7 @@ def main():
     if 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
         encoder = Qwen3VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
                                                                   device_map=device_map,
-                                                                  attn_implementation="flash_attention_2",
+                                                                  attn_implementation="sdpa",
                                                                   dtype=torch.float16)
         processor = Qwen3VLProcessor.from_pretrained(model_args.model_name_or_path,
                                                      min_pixels=336 * 336,  # 最小像素
