@@ -186,7 +186,6 @@ def main():
     elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
         encoder = Qwen3VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
                                                                   device_map=device_map,
-                                                                  attn_implementation="flash_attention_2",
                                                                   dtype=torch_type)
         processor = Qwen3VLProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'InternVL2_5-8B' in model_args.model_name_or_path:
@@ -2775,6 +2774,12 @@ def main():
 
     max_val_fusion_metric = 0
     best_weight = 0.5
+
+    if 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+        encoder = Qwen3VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
+                                                                  device_map=device_map,
+                                                                  attn_implementation="flash_attention_2",
+                                                                  dtype=torch_type)
 
     if training_args.task_type == 'cir':
         choice_dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'train', search_args.query_type)
