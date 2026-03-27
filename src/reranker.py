@@ -651,10 +651,12 @@ class Reranker:
                                 img_path = self.img_path_map[k]
                                 image_path = f'./data/{self.data_name}/{img_file_path}/{img_path}'
                                 raw_image = Image.open(image_path).convert('RGB')
+                                raw_image = raw_image.resize((336, 336), Image.Resampling.BILINEAR)
                             else:
                                 img_path = self.img_path_map[k]
                                 image_path = f'./data/{self.data_name}/flickr30k-images/{img_path}'
                                 raw_image = Image.open(image_path).convert('RGB')
+                                raw_image = raw_image.resize((336, 336), Image.Resampling.BILINEAR)
                             # image_list = []
                             for text_id, sim_score in candidate_pool.items():
                                 '''
