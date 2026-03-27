@@ -2785,6 +2785,7 @@ def main():
                                                      max_pixels=336 * 336,  # 最大像素，强制所有图缩放到336x336
                                                      do_resize=True,
                                                      do_center_crop=True,  # 强制裁剪到固定比例
+                                                     crop_size={"height": 448, "width": 448}
                                                      )
 
     if training_args.task_type == 'cir':
