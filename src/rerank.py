@@ -2779,7 +2779,7 @@ def main():
         encoder = Qwen3VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
                                                                   device_map=device_map,
                                                                   attn_implementation="flash_attention_2",
-                                                                  dtype=torch.bfloat16)
+                                                                  dtype=torch.float16)
         processor = Qwen3VLProcessor.from_pretrained(model_args.model_name_or_path,
                                                      min_pixels=336 * 336,  # 最小像素
                                                      max_pixels=336 * 336,  # 最大像素，强制所有图缩放到336x336
@@ -2787,6 +2787,7 @@ def main():
                                                      do_center_crop=True,  # 强制裁剪到固定比例
                                                      crop_size={"height": 448, "width": 448}
                                                      )
+        encoder = encoder.eval()
 
     if training_args.task_type == 'cir':
         choice_dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'train', search_args.query_type)
