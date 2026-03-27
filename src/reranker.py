@@ -1120,6 +1120,8 @@ class Reranker:
                             img_path = self.img_path_map[k]
                             image_path = f'./data/{self.data_name}/flickr30k-images/{img_path}'
                             raw_image = Image.open(image_path).convert('RGB')
+                        if 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                            raw_image = raw_image.resize((336, 336), Image.Resampling.BILINEAR)
                         # image_list = []
                         text_id_list = []
                         sim_score_list = []
@@ -1223,6 +1225,8 @@ class Reranker:
                                 img_path = self.img_path_map[img_id]
                                 image_path = f'./data/{self.data_name}/flickr30k-images/{img_path}'
                                 raw_image = Image.open(image_path).convert('RGB')
+                            if 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                                raw_image = raw_image.resize((336, 336), Image.Resampling.BILINEAR)
                             img_id_list.append(img_id)
                             image_list.append(raw_image)
                             sim_score_list.append(sim_score)
