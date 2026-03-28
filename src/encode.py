@@ -860,6 +860,7 @@ def main():
         filtered_ids = get_filtered_ids(processor.tokenizer)
     vocab_dict = {v: k for k, v in vocab_dict.items()}
     print(len(vocab_dict))
+    print(vocab_dict[144])
 
     input_token_embeddings = encoder.get_input_embeddings().weight
     output_token_embeddings = encoder.get_output_embeddings().weight[:len(vocab_dict), :]
