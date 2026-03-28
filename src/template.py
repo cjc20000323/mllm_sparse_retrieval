@@ -128,10 +128,10 @@ vicuna_freeret_image_rerank_prompt = llava_vicuna_template.format('Task: Determi
 vicuna_freeret_text_rerank_prompt = llava_vicuna_template.format('Task: Determine whether the candidate matches the query.\nCandidate: <image>\nQuery: <sent>\nA. Yes, the candidate fully matches the query.\nB. No, the candidate does not match or only partially matches.')
 freeret_image_rerank_prompt = llama3_template.format('Task: Determine whether the candidate matches the query.\nQuery: <image>\nCandidate: <sent>\nA. Yes, the candidate fully matches the query.\nB. No, the candidate does not match or only partially matches.')
 freeret_text_rerank_prompt = llama3_template.format('Task: Determine whether the candidate matches the query.\nCandidate: <image>\nQuery: <sent>\nA. Yes, the candidate fully matches the query.\nB. No, the candidate does not match or only partially matches.')
-llava_34b_text_query_relevant_prompt = llava_34b_template.format()
-llava_34b_text_reverse_query_relevant_prompt = llava_34b_template.format()
-llava_34b_image_query_relevant_prompt = llava_34b_template.format()
-llava_34b_image_reverse_query_relevant_prompt = llava_34b_template.format()
+llava_34b_text_query_relevant_prompt = llava_34b_template.format("For the following query sentence and candidate image, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Sentence: <sent> Candidate Image: <image> Output: ")
+llava_34b_text_reverse_query_relevant_prompt = llava_34b_template.format("For the following query image and candidate sentence, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Image: <image> Candidate Sentence: <sent> Output: ")
+llava_34b_image_query_relevant_prompt = llava_34b_template.format("For the following query sentence and candidate image, judge whether they are relevant. Output 'Yes' or 'No'.\nCandidate Image: <image> Query Sentence: <sent> Output: ")
+llava_34b_image_reverse_query_relevant_prompt = llava_34b_template.format("For the following query image and candidate sentence, judge whether they are relevant. Output 'Yes' or 'No'.\nCandidate Sentence: <sent> Query Image: <image> Output: ")
 
 
 
