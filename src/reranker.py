@@ -1,4 +1,3 @@
-import random
 from contextlib import nullcontext
 
 import torch
@@ -34,14 +33,7 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     mistral_fashion_iq_query_relevant_prompt, mistral_person_retrieval_relevant_prompt, \
     person_retrieval_relevant_prompt, mistral_person_retrieval_old_query_relevant_prompt, \
     person_retrieval_old_query_relevant_prompt, mistral_person_retrieval_origin_old_query_relevant_prompt, \
-    person_retrieval_origin_old_query_relevant_prompt, person_retrieval_role_old_query_relevant_prompt,\
-    person_retrieval_role_relevant_prompt, person_retrieval_role_precise_caption_prompt, \
-    person_retrieval_in_one_word_relevant_prompt, person_retrieval_please_relevant_prompt, \
-    person_retrieval_precise_caption_prompt, person_retrieval_first_precise_caption_prompt, \
-    mistral_person_retrieval_query_relevant_prompt, mistral_person_retrieval_role_relevant_prompt, \
-    mistral_person_retrieval_role_precise_caption_prompt, mistral_person_retrieval_role_old_query_relevant_prompt, \
-    mistral_person_retrieval_in_one_word_relevant_prompt, mistral_person_retrieval_please_relevant_prompt, \
-    mistral_person_retrieval_precise_caption_prompt, mistral_person_retrieval_first_precise_caption_prompt, \
+    person_retrieval_origin_old_query_relevant_prompt, mistral_person_retrieval_query_relevant_prompt, \
     person_retrieval_query_relevant_prompt, person_retrieval_query_generation_paradigm_prompt, \
     person_retrieval_mistral_query_generation_paradigm_prompt, person_retrieval_query_generation_paradigm_prompt_1, \
     person_retrieval_mistral_query_generation_paradigm_prompt_1, person_retrieval_query_generation_paradigm_prompt_2, \
@@ -71,7 +63,7 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     qwen2_5_role_old_text_query_relevant_prompt, qwen2_5_first_precise_caption_prompt, \
     qwen3_person_retrieval_query_relevant_prompt, qwen3_person_retrieval_old_query_relevant_prompt, \
     qwen3_person_retrieval_relevant_prompt, qwen3_person_retrieval_origin_old_query_relevant_prompt, \
-    person_retrieval_qwen3_query_generation_paradigm_prompt, person_retrieval_qwen3_query_generation_paradigm_prompt_1,\
+    person_retrieval_qwen3_query_generation_paradigm_prompt, person_retrieval_qwen3_query_generation_paradigm_prompt_1, \
     text_reverse_query_relevant_prompt, image_reverse_query_relevant_prompt, mistral_text_reverse_query_relevant_prompt, \
     mistral_image_reverse_query_relevant_prompt, person_retrieval_reverse_query_relevant_prompt, \
     person_retrieval_reverse_old_query_relevant_prompt, person_retrieval_reverse_origin_old_query_relevant_prompt, \
@@ -80,14 +72,25 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     vicuna_query_generation_paradigm_prompt_1, person_retrieval_vicuna_query_generation_paradigm_prompt_1, \
     person_retrieval_vicuna_query_generation_paradigm_prompt, vicuna_person_retrieval_old_query_relevant_prompt, \
     vicuna_person_retrieval_query_relevant_prompt, vicuna_person_retrieval_origin_old_query_relevant_prompt, \
-    vicuna_person_retrieval_reverse_query_relevant_prompt, vicuna_person_retrieval_reverse_origin_old_query_relevant_prompt, \
+    vicuna_person_retrieval_reverse_query_relevant_prompt, \
+    vicuna_person_retrieval_reverse_origin_old_query_relevant_prompt, \
     vicuna_person_retrieval_reverse_old_query_relevant_prompt, vicuna_old_image_reverse_query_relevant_prompt, \
-    vicuna_old_text_reverse_query_relevant_prompt, vicuna_old_image_query_relevant_prompt, vicuna_old_text_query_relevant_prompt, \
-    vicuna_origin_old_image_query_relevant_prompt, vicuna_origin_old_text_query_relevant_prompt, vicuna_text_query_relevant_prompt, \
-    vicuna_image_query_relevant_prompt, vicuna_image_reverse_query_relevant_prompt, vicuna_text_reverse_query_relevant_prompt, \
+    vicuna_old_text_reverse_query_relevant_prompt, vicuna_old_image_query_relevant_prompt, \
+    vicuna_old_text_query_relevant_prompt, \
+    vicuna_origin_old_image_query_relevant_prompt, vicuna_origin_old_text_query_relevant_prompt, \
+    vicuna_text_query_relevant_prompt, \
+    vicuna_image_query_relevant_prompt, vicuna_image_reverse_query_relevant_prompt, \
+    vicuna_text_reverse_query_relevant_prompt, \
     vicuna_origin_old_text_reverse_query_relevant_prompt, vicuna_origin_old_image_reverse_query_relevant_prompt, \
     vicuna_freeret_image_rerank_prompt, vicuna_freeret_text_rerank_prompt, mistral_freeret_image_rerank_prompt, \
-    mistral_freeret_text_rerank_prompt, freeret_text_rerank_prompt, freeret_image_rerank_prompt
+    mistral_freeret_text_rerank_prompt, freeret_text_rerank_prompt, freeret_image_rerank_prompt, \
+    person_retrieval_llava_34b_query_generation_paradigm_prompt_1, \
+    person_retrieval_llava_34b_query_generation_paradigm_prompt, \
+    llava_34b_query_generation_paradigm_prompt, llava_34b_query_generation_paradigm_prompt_1, \
+    llava_34b_person_retrieval_query_relevant_prompt, llava_34b_person_retrieval_reverse_query_relevant_prompt, \
+    llava_34b_text_query_relevant_prompt, llava_34b_image_query_relevant_prompt, \
+    llava_34b_text_reverse_query_relevant_prompt, \
+    llava_34b_image_reverse_query_relevant_prompt
 
 flickr_length_dict = {3: 3, 4: 5, 5: 26, 6: 83, 7: 196, 8: 316, 9: 376, 10: 447, 11: 446, 12: 455, 13: 399, 14: 403,
                       15: 343, 16: 287, 17: 213, 18: 179, 19: 134, 20: 127, 21: 82, 22: 78, 23: 83, 24: 45, 25: 40,
@@ -227,6 +230,11 @@ class Reranker:
                         rerank_prompt_template = vicuna_freeret_text_rerank_prompt
                     else:
                         rerank_prompt_template = vicuna_person_retrieval_query_relevant_prompt
+                elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                    if rerank_prompt_type == 'query_relevant':
+                        rerank_prompt_template = llava_34b_person_retrieval_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_query_relevant':
+                        rerank_prompt_template = llava_34b_person_retrieval_reverse_query_relevant_prompt
                 elif 'Qwen-Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
                     if rerank_prompt_type == 'relevant':
                         rerank_prompt_template = qwen3_person_retrieval_relevant_prompt
@@ -333,9 +341,9 @@ class Reranker:
                             rerank_prompt_template = vicuna_text_query_relevant_prompt
                     elif rerank_prompt_type == 'reverse_query_relevant':
                         if self.query_type == 'image':
-                            rerank_prompt_template = mistral_image_reverse_query_relevant_prompt
+                            rerank_prompt_template = vicuna_image_reverse_query_relevant_prompt
                         else:
-                            rerank_prompt_template = mistral_text_reverse_query_relevant_prompt
+                            rerank_prompt_template = vicuna_text_reverse_query_relevant_prompt
                     elif rerank_prompt_type == 'origin_old_relevant':
                         if self.query_type == 'image':
                             rerank_prompt_template = vicuna_origin_old_image_query_relevant_prompt
@@ -353,6 +361,18 @@ class Reranker:
                             rerank_prompt_template = vicuna_freeret_text_rerank_prompt
                     else:
                         rerank_prompt_template = mistral_relevant_prompt
+
+                elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                    if rerank_prompt_type == 'query_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = llava_34b_image_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = llava_34b_text_query_relevant_prompt
+                    elif rerank_prompt_type == 'reverse_query_relevant':
+                        if self.query_type == 'image':
+                            rerank_prompt_template = llava_34b_image_reverse_query_relevant_prompt
+                        else:
+                            rerank_prompt_template = llava_34b_text_reverse_query_relevant_prompt
 
                 elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
                     if rerank_prompt_type == 'relevant':
@@ -795,6 +815,17 @@ class Reranker:
                 elif rerank_prompt_type == 'what_caption_generation':
                     rerank_prompt_template = vicuna_query_generation_paradigm_prompt_1
 
+        elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+            if training_args.task_type == 'tbpr':
+                if rerank_prompt_type == 'caption_generation':
+                    rerank_prompt_template = person_retrieval_llava_34b_query_generation_paradigm_prompt
+                elif rerank_prompt_type == 'what_caption_generation':
+                    rerank_prompt_template = person_retrieval_llava_34b_query_generation_paradigm_prompt_1
+            else:
+                if rerank_prompt_type == 'caption_generation':
+                    rerank_prompt_template = llava_34b_query_generation_paradigm_prompt
+                elif rerank_prompt_type == 'what_caption_generation':
+                    rerank_prompt_template = llava_34b_query_generation_paradigm_prompt_1
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
             if rerank_prompt_type == 'caption_generation':
                 rerank_prompt_template = qwen2_5_query_generation_paradigm_prompt

@@ -41,7 +41,8 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     retrieval_disassemble_text_prompts_for_concat_mistral_generation, vicuna_text_prompt, llava_vicuna_template_content_element,\
     llava_vicuna_template_text_prefix, vicuna_person_retrieval_text_prompt, vicuna_person_retrieval_text_prompt_1, \
     vicuna_person_retrieval_text_prompt_2, retrieval_disassemble_text_prompts_person_retrieval_for_concat_llama_generation, \
-    retrieval_disassemble_text_prompts_person_retrieval_for_concat_mistral_generation
+    retrieval_disassemble_text_prompts_person_retrieval_for_concat_mistral_generation, llava_34b_template_content_element, \
+    llava_34b_template_text_prefix
 import torch.nn.functional as F
 
 
@@ -1114,6 +1115,36 @@ class MLLMRetrievalModel(nn.Module):
                         prompt_template += content_element
             else:
                 pass
+        elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+            if data_args.prompt_type == 'prompt_5':
+                prompt_template = llava_34b_template_text_prefix
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_34b_template_content_element.format(
+                        text_prompt_for_concat)
+                for llava_34b_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
+                    content_element = llava_34b_template_content_element.format(
+                        llava_34b_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_3':
+                prompt_template = llava_34b_template_text_prefix
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_34b_template_content_element.format(
+                        text_prompt_for_concat)
+                for llava_34b_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_3_for_concat:
+                    content_element = llava_34b_template_content_element.format(
+                        llava_34b_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            elif data_args.prompt_type == 'prompt_7':
+                prompt_template = llava_34b_template_text_prefix
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_34b_template_content_element.format(
+                        text_prompt_for_concat)
+                for llava_34b_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
+                    content_element = llava_34b_template_content_element.format(
+                        llava_34b_retrieval_disassemble_text_prompt)
+                    prompt_template += content_element
+            else:
+                pass
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
             if data_args.prompt_type == 'prompt_5':
                 prompt_template = qwen2_5_template_text_prefix
@@ -1239,6 +1270,9 @@ class MLLMRetrievalModel(nn.Module):
                     'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|startoftext|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|endoftext|>']
             elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<tool_call>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</tool_call>']
@@ -1282,6 +1316,8 @@ class MLLMRetrievalModel(nn.Module):
                             if i % len(retrieval_disassemble_text_prompts_for_concat) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                     '''
+                elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                         if data_args.prompt_type == 'prompt_5':
@@ -1422,6 +1458,9 @@ class MLLMRetrievalModel(nn.Module):
                     'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|startoftext|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|endoftext|>']
             elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<tool_call>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</tool_call>']
@@ -1465,6 +1504,8 @@ class MLLMRetrievalModel(nn.Module):
                             if i % len(retrieval_disassemble_text_prompts_for_concat) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                     '''
+                elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                         if data_args.prompt_type == 'prompt_5':
@@ -2297,6 +2338,16 @@ class MLLMRetrievalModel(nn.Module):
             else:
                 pass
 
+        elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+            prompt_template = llava_34b_template_text_prefix
+            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                prompt_template += llava_34b_template_content_element.format(
+                    person_retrieval_text_prompt_for_concat)
+            for llava_34b_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat:
+                content_element = llava_34b_template_content_element.format(
+                    llava_34b_retrieval_disassemble_text_prompt)
+                prompt_template += content_element
+
         elif 'Qwen-Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
             prompt_template = qwen3_template_text_prefix
             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
@@ -2387,6 +2438,9 @@ class MLLMRetrievalModel(nn.Module):
                     'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|startoftext|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|endoftext|>']
             elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<think>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</think>']
@@ -2398,6 +2452,8 @@ class MLLMRetrievalModel(nn.Module):
             begin_col_list = []
             for i in range(len(begin_of_text_indices[1])):
                 if 'Qwen' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
+                elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
                     begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
@@ -2536,6 +2592,9 @@ class MLLMRetrievalModel(nn.Module):
                     'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|startoftext|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|endoftext|>']
             elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<think>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</think>']
@@ -2547,6 +2606,8 @@ class MLLMRetrievalModel(nn.Module):
             begin_col_list = []
             for i in range(len(begin_of_text_indices[1])):
                 if 'Qwen' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
+                elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
                     begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
