@@ -16,6 +16,10 @@ llava_vicuna_template = 'USER: {} ASSISTANT:'
 llava_vicuna_template_image_prefix = 'USER: <image>\n'
 llava_vicuna_template_text_prefix = 'USER: <sent>\n'
 llava_vicuna_template_content_element = '<s>{} ASSISTANT:</s>'
+llava_34b_template = ''
+llava_34b_template_image_prefix = ''
+llava_34b_template_text_prefix = ''
+llava_34b_template_content_element = ''
 
 qwen2_5_template = '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n'
 qwen2_5_template_image_prefix = '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>\n'
@@ -124,6 +128,12 @@ vicuna_freeret_image_rerank_prompt = llava_vicuna_template.format('Task: Determi
 vicuna_freeret_text_rerank_prompt = llava_vicuna_template.format('Task: Determine whether the candidate matches the query.\nCandidate: <image>\nQuery: <sent>\nA. Yes, the candidate fully matches the query.\nB. No, the candidate does not match or only partially matches.')
 freeret_image_rerank_prompt = llama3_template.format('Task: Determine whether the candidate matches the query.\nQuery: <image>\nCandidate: <sent>\nA. Yes, the candidate fully matches the query.\nB. No, the candidate does not match or only partially matches.')
 freeret_text_rerank_prompt = llama3_template.format('Task: Determine whether the candidate matches the query.\nCandidate: <image>\nQuery: <sent>\nA. Yes, the candidate fully matches the query.\nB. No, the candidate does not match or only partially matches.')
+llava_34b_text_query_relevant_prompt = llava_34b_template.format()
+llava_34b_text_reverse_query_relevant_prompt = llava_34b_template.format()
+llava_34b_image_query_relevant_prompt = llava_34b_template.format()
+llava_34b_image_reverse_query_relevant_prompt = llava_34b_template.format()
+
+
 
 qwen2_5_relevant_prompt = qwen2_5_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nImage: <|vision_start|><|image_pad|><|vision_end|> Sentence: <sent> Output: ")
 qwen2_5_in_one_word_relevant_prompt = qwen2_5_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nImage: <|vision_start|><|image_pad|><|vision_end|> Sentence: <sent> Output in one word: ")
@@ -225,6 +235,8 @@ qwen3_person_retrieval_relevant_prompt = qwen3_template.format("For the followin
 qwen3_person_retrieval_old_query_relevant_prompt = qwen3_template.format("Query: <sent>\nCandidate: <|vision_start|><|image_pad|><|vision_end|>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
 qwen3_person_retrieval_origin_old_query_relevant_prompt = qwen3_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate: <|vision_start|><|image_pad|><|vision_end|>\nQuery: <sent>\nDoes the candidate answer the query? Answer: ")
 qwen3_person_retrieval_query_relevant_prompt = qwen3_template.format("For the following query sentence and candidate person image, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Sentence: <sent> Candidate Person Image: <|vision_start|><|image_pad|><|vision_end|> Output: ")
+llava_34b_person_retrieval_query_relevant_prompt = llava_34b_template.format("For the following query sentence and candidate image, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Sentence: <sent> Candidate Image: <image> Output: ")
+llava_34b_person_retrieval_reverse_query_relevant_prompt = llava_34b_template.format("For the following query sentence and candidate person image, judge whether they are relevant. Output 'Yes' or 'No'.\nCandidate Person Image: <image> Query Sentence: <sent> Output: ")
 
 
 mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image: <image>\nPlease write a caption based on this image.")
@@ -253,6 +265,8 @@ detailed_mistral_query_generation_paradigm_prompt = llava_mistral_template.forma
 detailed_query_generation_paradigm_prompt = llama3_template.format("Image: <image>\nProvide a detailed description of the given image.")
 detailed_mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Image: <image>\nGive an elaborate explanation of the image you see.")
 detailed_query_generation_paradigm_prompt_1 = llama3_template.format("Image: <image>\nGive an elaborate explanation of the image you see.")
+llava_34b_query_generation_paradigm_prompt = llava_34b_template.format("Image: <image>\nPlease write a caption based on this image.")
+llava_34b_query_generation_paradigm_prompt_1 = llava_34b_template.format("Image: <image>\nWhat is the caption of the above image?")
 
 fashion_iq_mistral_query_generation_paradigm_prompt = llava_mistral_template.format("<image> change the style of this {} to <sent>\nPlease write a caption based on this image.")
 fashion_iq_query_generation_paradigm_prompt = llama3_template.format("Image: <image>\nPlease write a caption based on this image.")
@@ -269,6 +283,9 @@ person_retrieval_mistral_query_generation_paradigm_prompt_2 = llava_mistral_temp
 person_retrieval_query_generation_paradigm_prompt_2 = llama3_template.format("Person Image: <image>\nPlease describe this person write a caption for this person image.")
 person_retrieval_qwen3_query_generation_paradigm_prompt = qwen3_template.format("Person Image: <|vision_start|><|image_pad|><|vision_end|>\nPlease write a caption based on this person image.")
 person_retrieval_qwen3_query_generation_paradigm_prompt_1 = qwen3_template.format("Person Image: <|vision_start|><|image_pad|><|vision_end|>\nWhat is the caption of the above person image?")
+person_retrieval_llava_34b_query_generation_paradigm_prompt = llava_34b_template.format("Person Image: <image>\nPlease write a caption based on this person image.")
+person_retrieval_llava_34b_query_generation_paradigm_prompt_1 = llava_34b_template.format("Person Image: <image>\nWhat is the caption of the above person image?")
+
 
 img_prompt_for_concat = 'Summary above image in one word: '
 text_prompt_for_concat = 'Summary above sentence in one word: '

@@ -829,7 +829,7 @@ def main():
                 "role": "user",
                 "content": [
                     {"type": "text", "text": "\nSummary above image in one word: "},
-                    {"type": "image", "image": '{}'},
+                    # {"type": "image", "image": '{}'},
                 ],
             },
         ]
