@@ -2046,7 +2046,7 @@ def main():
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                     prompt_template += llava_34b_template_content_element.format(
                                         img_prompt_for_concat)
-                                for qwen3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
+                                for llava_34b_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
                                     content_element = llava_34b_template_content_element.format(
                                         llava_34b_retrieval_disassemble_image_prompt)
                                     prompt_template += content_element
