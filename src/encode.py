@@ -2012,6 +2012,8 @@ def main():
                                         prompt_template += content_element
                             else:
                                 pass
+                        elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                            pass
                         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
                             if data_args.prompt_type == 'prompt_5':
                                 prompt_template = qwen2_5_template_image_prefix

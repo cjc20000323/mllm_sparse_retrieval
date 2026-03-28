@@ -1243,8 +1243,8 @@ class MLLMRetrievalModel(nn.Module):
                 begin_of_text_id = processor.tokenizer.get_vocab()['<tool_call>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</tool_call>']
             elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-                begin_of_text_id = processor.tokenizer.get_vocab()['<tool_call>']
-                end_of_text_id = processor.tokenizer.get_vocab()['</tool_call>']
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|box_start|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|box_end|>']
             else:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
                 end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
@@ -1426,8 +1426,8 @@ class MLLMRetrievalModel(nn.Module):
                 begin_of_text_id = processor.tokenizer.get_vocab()['<tool_call>']
                 end_of_text_id = processor.tokenizer.get_vocab()['</tool_call>']
             elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-                begin_of_text_id = processor.tokenizer.get_vocab()['<tool_call>']
-                end_of_text_id = processor.tokenizer.get_vocab()['</tool_call>']
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|box_start|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|box_end|>']
             else:
                 begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
                 end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
