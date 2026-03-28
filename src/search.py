@@ -52,7 +52,8 @@ from template import img_prompt, \
     retrieval_disassemble_image_prompts_person_retrieval_3_for_concat, \
     retrieval_disassemble_image_prompts_person_retrieval_4_for_concat, \
     retrieval_disassemble_image_prompts_person_retrieval_6_for_concat, \
-    retrieval_disassemble_image_prompts_person_retrieval_7_for_concat
+    retrieval_disassemble_image_prompts_person_retrieval_7_for_concat, llava_34b_template_image_prefix, \
+    llava_34b_template_content_element
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
     get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, \
     get_text_valid_tokens_values_fusion, get_text_valid_disassemble_tokens_values_fusion, \
@@ -2396,6 +2397,36 @@ def main():
                             else:
                                 pass
 
+                        elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                            if data_args.prompt_type == 'prompt_5':
+                                prompt_template = llava_34b_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_34b_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_34b_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
+                                    content_element = llava_34b_template_content_element.format(
+                                        llava_34b_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                prompt_template = llava_34b_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_34b_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_34b_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
+                                    content_element = llava_34b_template_content_element.format(
+                                        llava_34b_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                prompt_template = llava_34b_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += llava_34b_template_content_element.format(
+                                        img_prompt_for_concat)
+                                for llava_34b_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
+                                    content_element = llava_34b_template_content_element.format(
+                                        llava_34b_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            else:
+                                pass
 
                         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
                             if data_args.prompt_type == 'prompt_5':
