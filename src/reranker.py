@@ -1272,7 +1272,7 @@ class Reranker:
                             inputs = self.processor(images=image_shard, text=text_input, return_tensors="pt").to(
                                 self.model.device)
                             if dist.get_rank() == 0:
-                                print(inputs.shape)
+                                print(inputs['input_ids'].shape)
                             max_inputs_sum = inputs['input_ids'].shape[1]
                             labels = [self.processor(text=text, return_tensors="pt")[
                                           'input_ids'].squeeze().tolist()] * len(
