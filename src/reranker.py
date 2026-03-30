@@ -1175,6 +1175,8 @@ class Reranker:
                             image_shard = [raw_image] * len(text_shard)
                             inputs = self.processor(images=image_shard, text=text_input, return_tensors="pt").to(
                                 self.model.device)
+                            if dist.get_rank() == 0:
+                                print(inputs.shape)
                             max_inputs_sum = inputs['input_ids'].shape[1]
                             data_sum += rerank_batch_size
                             token_sum += max_inputs_sum
