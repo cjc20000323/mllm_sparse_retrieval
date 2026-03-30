@@ -31,14 +31,15 @@ import numpy as np
 
 data = {
     "Condition": ["t2i", "i2t"],
-    "RGP r@1": [20.3, 79.2],
+    "RGP r@1": [73.9, 79.2],
     "CGP r@1": [79.1, 75.0],
+    "modified CGP r@1": [79.1, 81.5]
 }
 df = pd.DataFrame(data)
 
 # 图表设置
 n_groups = len(df)  # 条件的数量
-n_datasets = 2  # 数据集的数量
+n_datasets = 3  # 数据集的数量
 bar_width = 0.05  # 条形宽度
 index = np.arange(n_datasets) * (n_groups * bar_width + bar_width)  # 数据集索引，确保有间隙
 colors = ["#f57c6e", "#f2b56f", "#fae69e", "#84c3b7", "#88d8db", "#71b7ed", "#b8aeeb", " #f2a7da"]
@@ -59,7 +60,7 @@ ax[0].set_ylabel('r@1', fontsize=25)
 # ax.set_ylim([0.7, 0.88])
 # ax.set_title('Hits@1 by Condition and Dataset')
 ax[0].set_xticks(index + n_groups * bar_width / 2)
-ax[0].set_xticklabels(['RGP', 'CGP'],fontsize=25)
+ax[0].set_xticklabels(['RGP', 'CGP', 'Modified CGP'],fontsize=25)
 ax[0].tick_params(axis='y', labelsize=20)
 # ax.legend( loc='upper center',ncol=3, fontsize=20, bbox_to_anchor=(0.5, 1.3),handlelength=8.5, handletextpad=1)
 ax[0].legend(['t2i', 'i2t'], ncol=1, fontsize=25)
