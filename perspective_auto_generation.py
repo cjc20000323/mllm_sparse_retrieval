@@ -42,7 +42,7 @@ ax.set_xticks(index + n_groups * bar_width / 2)
 ax.set_xticklabels(['Flickr30K t2i', 'Flickr30k i2t', 'RSTPReid'],fontsize=25)
 ax.tick_params(axis='y', labelsize=20)
 # ax.legend( loc='upper center',ncol=3, fontsize=20, bbox_to_anchor=(0.5, 1.3),handlelength=8.5, handletextpad=1)
-fig.legend(['Dense', 'MPP Sparse', 'MPP Hybrid', 'MPP Hybrid (human-made)'], bbox_to_anchor=(1, 1.2), ncol=2, fontsize=25)
+fig.legend(['Dense', 'MPP Sparse', 'MPP Hybrid', 'MPP Hybrid (manual)'], bbox_to_anchor=(0.95, 1.21), ncol=2, fontsize=25)
 plt.tight_layout()
 plt.savefig('perspective_auto_generation.pdf', format='pdf', bbox_inches='tight', pad_inches=0.05)
 

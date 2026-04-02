@@ -33,8 +33,8 @@ fig, ax = plt.subplots(1, 1, figsize=(8, 5))
 
 colors = ["#f57c6e", "#f2b56f", "#fae69e", "#84c3b7", "#88d8db", "#71b7ed", "#b8aeeb", " #f2a7da"]
 
-ax.plot(length, hybrid_recall_t2i, marker='o', label='t2i', color=colors[5], linestyle='-', linewidth=3, markersize=8)
-ax.plot(length, hybrid_recall_i2t, marker='o', label='i2t', color=colors[4], linestyle='-', linewidth=3, markersize=8)
+ax.plot(length, hybrid_recall_t2i, marker='o', label='t2i', color=colors[0], linestyle='-', linewidth=3, markersize=8)
+ax.plot(length, hybrid_recall_i2t, marker='o', label='i2t', color=colors[5], linestyle='-', linewidth=3, markersize=8)
 ax.plot(length, hybrid_recall_mean, marker='o', label='mean', color=colors[1], linestyle='-', linewidth=3, markersize=8)
 
 ax.set_xlabel('Perspective Number L', fontsize=25)
@@ -49,6 +49,7 @@ ax.legend(['t2i', 'i2t', 'mean'], loc='lower right', fontsize=25)
 plt.savefig('flickr_prompt.pdf', format='pdf', bbox_inches='tight', pad_inches=0.05)
 
 hybrid_recall_t2i = [20.4, 20.2, 20.4, 20.5, 24.7, 21.5, 21.8]
+hybrid_recall_t2i_cuhk = [12.1, 12.7, 13.0, 13.9, 15.4, 14.2, 13.8]
 
 # 设置大字体
 plt.rcParams.update({'font.size': 12})
@@ -58,13 +59,15 @@ fig1, ax1 = plt.subplots(1, 1, figsize=(8, 5))
 colors = ["#f57c6e", "#f2b56f", "#fae69e", "#84c3b7", "#88d8db", "#71b7ed", "#b8aeeb", " #f2a7da"]
 
 ax1.plot(length, hybrid_recall_t2i, marker='o', label='t2i', color=colors[5], linestyle='-', linewidth=3, markersize=8)
+ax1.plot(length, hybrid_recall_t2i_cuhk, marker='o', label='t2i', color=colors[0], linestyle='-', linewidth=3, markersize=8)
 
 ax1.set_xlabel('Perspective Number L', fontsize=25)
 ax1.set_ylabel('r@5', fontsize=25)
 plt.xticks([1, 2, 3, 4, 5, 6, 7])
 ax1.tick_params(axis='both', which='major', labelsize=30)
 # ax[0].set_xticks(x_axis)
-ax1.legend(['t2i'], loc='lower right', ncol=1, fontsize=25)
+ax1.legend(['RSTPReid', 'CUHK-PEDES'], ncol=1, fontsize=25)
 ax1.grid(True)
 # plt.tight_layout(rect=[0, 0, 1, 0.95])  # 调整整体布局以防止重叠
 plt.savefig('rstpreid_prompt.pdf', format='pdf', bbox_inches='tight', pad_inches=0.05)
+

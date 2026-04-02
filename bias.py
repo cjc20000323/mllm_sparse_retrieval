@@ -10,7 +10,7 @@ y = np.array([3.9724862575531006, 3.9724862575531006, 3.9724862575531006, 3.6767
 # 设置大字体
 plt.rcParams.update({'font.size': 12})
 
-fig, ax = plt.subplots(1, 2, figsize=(20, 6))
+fig, ax = plt.subplots(1, 2, figsize=(14, 6))
 colors = ["#f57c6e", "#f2b56f", "#fae69e", "#84c3b7", "#88d8db", "#71b7ed", "#b8aeeb", " #f2a7da"]
 
 ax[1].plot(x, -y, marker='o', color=colors[0], linestyle='-', linewidth=3, markersize=8)
@@ -43,6 +43,7 @@ n_datasets = 3  # 数据集的数量
 bar_width = 0.05  # 条形宽度
 index = np.arange(n_datasets) * (n_groups * bar_width + bar_width)  # 数据集索引，确保有间隙
 colors = ["#f57c6e", "#f2b56f", "#fae69e", "#84c3b7", "#88d8db", "#71b7ed", "#b8aeeb", " #f2a7da"]
+
 # 为每个条件绘制条形图
 for i, condition in enumerate(df["Condition"]):
     offsets = index + (i+0.5) * bar_width
@@ -53,7 +54,7 @@ for i, condition in enumerate(df["Condition"]):
                     xy=(bar.get_x() + bar.get_width() / 2, height-0.8),
                     xytext=(0, 3),  # 3 points vertical offset
                     textcoords="offset points",
-                    ha='center', va='bottom', fontsize=18)
+                    ha='center', va='bottom', fontsize=20)
 # 设置图表属性
 # ax.set_xlabel('Datasets', fontsize=20)
 ax[0].set_ylabel('r@1', fontsize=25)
@@ -63,6 +64,12 @@ ax[0].set_xticks(index + n_groups * bar_width / 2)
 ax[0].set_xticklabels(['RGP', 'CGP', 'Modified CGP'],fontsize=25)
 ax[0].tick_params(axis='y', labelsize=20)
 # ax.legend( loc='upper center',ncol=3, fontsize=20, bbox_to_anchor=(0.5, 1.3),handlelength=8.5, handletextpad=1)
-ax[0].legend(['t2i', 'i2t'], ncol=1, fontsize=25)
+ax[0].axhline(y=74.1, color="blue", linestyle='--', label='i2t hybrid')
+ax[0].text(-0.065, 74.1, f'{74.1}', color='black',
+         va='bottom', ha='left', fontsize=18)
+ax[0].axhline(y=64.4, color="green", linestyle='--', label='t2i hybrid')
+ax[0].text(-0.065, 64.4, f'{64.4}', color='black',
+         va='bottom', ha='left', fontsize=18)
+ax[0].legend(['i2t hybrid', 't2i hybrid', 't2i', 'i2t'], ncol=1, fontsize=25)
 plt.tight_layout()
 plt.savefig('flickr_bias.pdf', format='pdf', bbox_inches='tight', pad_inches=0.05)
