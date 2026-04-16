@@ -2318,8 +2318,10 @@ def main():
 
                         else:
                             raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            '''
                             if 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
                                 raw_images = [raw_image.resize((336, 336), Image.Resampling.BILINEAR) for raw_image in raw_images]
+                            '''
                             img_inputs = processor(images=raw_images, text=[prompt_template] * len(imgs_path),
                                                    return_tensors="pt",
                                                    padding=True)
@@ -2806,6 +2808,7 @@ def main():
     max_val_fusion_metric = 0
     best_weight = 0.5
 
+    '''
     if 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
         encoder = Qwen3VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
                                                                   device_map=device_map,
@@ -2819,6 +2822,7 @@ def main():
                                                      crop_size={"height": 448, "width": 448}
                                                      )
         encoder = encoder.eval()
+    '''
 
     if training_args.task_type == 'cir':
         choice_dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'train', search_args.query_type)
