@@ -5,6 +5,8 @@
     <mapping directory="$PROJECT_DIR$/BLIP" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/E5-V" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/EVA" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/VLM2Vec" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/VLM2Vec/VLM2Vec" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/nltk_data" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/tevatron" vcs="Git" />
   </component>
