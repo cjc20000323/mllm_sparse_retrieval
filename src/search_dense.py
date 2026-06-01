@@ -19,7 +19,8 @@ from transformers import (
 
 from template import gme_image_flickr_prompt, gme_text_flickr_prompt, gme_text_coco_prompt, gme_image_coco_prompt, \
     gme_tbpr_prompt, lamra_2_5_query_tbpr_prompt, lamra_2_query_tbpr_prompt, lamra_2_query_img_prompt, \
-    lamra_2_query_text_prompt, lamra_2_5_query_img_prompt, lamra_2_5_query_text_prompt
+    lamra_2_query_text_prompt, lamra_2_5_query_img_prompt, lamra_2_5_query_text_prompt, vlm2vec_query_img_prompt, \
+    vlm2vec_query_text_prompt, vlm2vec_query_tbpr_prompt
 
 from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
 from arguments import TrainingArguments
@@ -38,6 +39,7 @@ from sentence_transformers import SentenceTransformer
 from src.model.model import MMEBModel
 from src.model.processor import load_processor, QWEN2_VL, VLM_VIDEO_TOKENS, VLM_IMAGE_TOKENS
 from src.model.vlm_backbone.qwen2_vl.qwen_vl_utils import process_vision_info
+from peft import PeftModel
 
 # from cuml.cluster import KMeans
 
@@ -188,22 +190,21 @@ def main():
                                                                 torch_dtype=torch_type)
             processor = Qwen2VLProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'VLM2Vec' in model_args.model_name_or_path:
-        import src.arguments
-
-        model_args_vlm2vec = src.arguments.ModelArguments(
-            model_name='./checkpoints/Qwen-Qwen2-VL-2B-Instruct',
-            checkpoint_path=model_args.model_name_or_path,
-            pooling='last',
-            normalize=True,
-            model_backbone='qwen2_vl',
-            lora=True
+        if 'V2' in model_args.model_name_or_path:
+            encoder = Qwen2VLForConditionalGeneration.from_pretrained('./checkpoints/Qwen-Qwen2-VL-2B-Instruct',
+                                                                      device_map=device_map,
+                                                                      torch_dtype=torch_type)
+            processor = Qwen2VLProcessor.from_pretrained('./checkpoints/Qwen-Qwen2-VL-2B-Instruct')
+        else:
+            encoder = Qwen2VLForConditionalGeneration.from_pretrained('./checkpoints/Qwen-Qwen2-VL-7B-Instruct',
+                                                                      device_map=device_map,
+                                                                      torch_dtype=torch_type)
+            processor = Qwen2VLProcessor.from_pretrained('./checkpoints/Qwen-Qwen2-VL-7B-Instruct')
+        encoder = PeftModel.from_pretrained(
+            encoder,
+            model_args.model_name_or_path,
+            torch_dtype=torch_type
         )
-        data_args_vlm2vec = src.arguments.DataArguments()
-
-        processor = load_processor(model_args_vlm2vec, data_args_vlm2vec)
-        encoder = MMEBModel.load(model_args_vlm2vec)
-        encoder = encoder.to('cuda', dtype=torch.bfloat16)
-        encoder.eval()
     else:
         encoder = CLIPModel.from_pretrained(model_args.model_name_or_path, device_map=device_map,
                                                 torch_dtype=torch_type)
@@ -324,12 +325,11 @@ def main():
                         query_dense_reps = output.hidden_states[-1][:, -1, :]
                     elif 'VLM2Vec' in model_args.model_name_or_path:
                         text_inputs = processor(
-                            text=[f'Find me a person image that matches the given description. <sent>'.replace('<sent>', text) for text in texts],
+                            text=[vlm2vec_query_tbpr_prompt.replace('<sent>', text) for text in texts],
                             return_tensors="pt",
-                            padding=True
-                        )
-                        text_inputs = {key: value.to('cuda') for key, value in text_inputs.items()}
-                        query_dense_reps = encoder(qry=text_inputs)["qry_reps"]
+                            padding=True).to(device)
+                        output = encoder(**text_inputs, output_hidden_states=True, return_dict=True)
+                        query_dense_reps = output.hidden_states[-1][:, -1, :]
                     else:
                         text_input = encoder.tokenizer(texts, padding='max_length', truncation=True, max_length=35,
                                                        return_tensors="pt").to(device)
@@ -392,13 +392,11 @@ def main():
                             query_dense_reps = output.hidden_states[-1][:, -1, :]
                         elif 'VLM2Vec' in model_args.model_name_or_path:
                             text_inputs = processor(
-                                text=[f'<sent> Represent the given sentence'.replace('<sent>', text) for
-                                      text in texts],
+                                text=[vlm2vec_query_text_prompt.replace('<sent>', text) for text in texts],
                                 return_tensors="pt",
-                                padding=True
-                            )
-                            text_inputs = {key: value.to('cuda') for key, value in text_inputs.items()}
-                            query_dense_reps = encoder(qry=text_inputs)["qry_reps"]
+                                padding=True).to(device)
+                            output = encoder(**text_inputs, output_hidden_states=True, return_dict=True)
+                            query_dense_reps = output.hidden_states[-1][:, -1, :]
                         else:
                             text_input = encoder.tokenizer(texts, padding='max_length', truncation=True, max_length=35,
                                                            return_tensors="pt").to(device)
@@ -438,29 +436,13 @@ def main():
                             output = encoder(**imgs, output_hidden_states=True, return_dict=True, use_cache=True)
                             query_dense_reps = output.hidden_states[-1][:, -1, :]
                         elif 'VLM2Vec' in model_args.model_name_or_path:
-                            messages = [
-                                {
-                                    "role": "user",
-                                    "content": [
-                                        {
-                                            "type": "image",
-                                            "image": img,
-                                        },
-                                    ],
-                                } for img in imgs_path
-                            ]
-                            image_inputs, video_inputs = process_vision_info(messages)
-                            img_inputs = processor(
-                                text=[f'{VLM_IMAGE_TOKENS[QWEN2_VL]} Represent the given image.'] * len(
-                                    imgs_path),
-                                images=image_inputs,
-                                return_tensors="pt",
-                                padding=True
-                            )
-                            imgs = {key: value.to('cuda') for key, value in img_inputs.items()}
-                            imgs['pixel_values'] = imgs['pixel_values'].unsqueeze(0)
-                            imgs['image_grid_thw'] = imgs['image_grid_thw'].unsqueeze(0)
-                            query_dense_reps = encoder(qry=imgs)["qry_reps"]
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            img_inputs = processor(images=raw_images, text=[vlm2vec_query_img_prompt] * len(imgs_path),
+                                                   return_tensors="pt",
+                                                   padding=True)
+                            imgs = img_inputs.to(device)
+                            output = encoder(**imgs, output_hidden_states=True, return_dict=True)
+                            query_dense_reps = output.hidden_states[-1][:, -1, :]
                         else:
                             raw_images = [blip_load_image(path, 384, device).to(device) for path in imgs_path]
                             raw_images = torch.cat(raw_images)
