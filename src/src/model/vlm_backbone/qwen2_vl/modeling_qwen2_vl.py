@@ -253,7 +253,7 @@ class VisionSdpaAttention(nn.Module):
 
 QWEN2_VL_VISION_ATTENTION_CLASSES = {
     "eager": VisionAttention,
-    "flash_attention_2": VisionFlashAttention2,
+    "flash_attention_2": VisionAttention,
     "sdpa": VisionSdpaAttention,
 }
 
@@ -852,7 +852,7 @@ class Qwen2VLSdpaAttention(Qwen2VLAttention):
 
 QWEN2_VL_ATTENTION_CLASSES = {
     "eager": Qwen2VLAttention,
-    "flash_attention_2": Qwen2VLFlashAttention2,
+    "flash_attention_2": Qwen2VLAttention,
     "sdpa": Qwen2VLSdpaAttention,
 }
 

@@ -3,23 +3,23 @@ import logging
 import PIL
 from transformers.image_utils import ChannelDimension
 
-from baseline_backbone.colpali import ColPaliProcessor
+from src.model.baseline_backbone.colpali import ColPaliProcessor
 
 logger = logging.getLogger(__name__)
 
 import torch
 import numpy as np
-from src.src.utils.basic_utils import print_master
+from src.utils.basic_utils import print_master
 
-from baseline_backbone.llava_next import LlavaNextForConditionalGeneration
-from baseline_backbone.phi3_v.modeling_phi3_v import Phi3VForCausalLM
-from vlm_backbone.qwen2_vl import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
-from vlm_backbone.qwen2_vl_tokenselection import \
+from src.model.baseline_backbone.llava_next import LlavaNextForConditionalGeneration
+from src.model.baseline_backbone.phi3_v.modeling_phi3_v import Phi3VForCausalLM
+from src.model.vlm_backbone.qwen2_vl import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
+from src.model.vlm_backbone.qwen2_vl_tokenselection import \
     Qwen2VLForConditionalGeneration as Qwen2VLTokenSelectionForConditionalGeneration, \
     Qwen2VLProcessor as Qwen2VLTokenSelectionProcessor
-from baseline_backbone.internvideo2.modeling_internvideo2 import InternVideo2_Stage2
-from vlm_backbone.qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
-from vlm_backbone.qwen2_5_vl_tokenselection import \
+from src.model.baseline_backbone.internvideo2.modeling_internvideo2 import InternVideo2_Stage2
+from src.model.vlm_backbone.qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
+from src.model.vlm_backbone.qwen2_5_vl_tokenselection import \
     Qwen2_5_VLForConditionalGeneration as Qwen2_5_VL_TokenSelectionForConditionalGeneration
 
 
@@ -105,7 +105,7 @@ def load_processor(model_args, data_args=None):
     model_name_or_path = model_args.checkpoint_path if model_args.checkpoint_path else model_args.model_name
     print_master(f'Loading processor from: {model_name_or_path}')
     if model_args.model_backbone == PHI3V:
-        from baseline_backbone.phi3_v.processing_phi3_v import Phi3VProcessor
+        from src.model.baseline_backbone.phi3_v.processing_phi3_v import Phi3VProcessor
         processor = Phi3VProcessor.from_pretrained(
             model_name_or_path,
             trust_remote_code=True,
@@ -113,15 +113,15 @@ def load_processor(model_args, data_args=None):
         )
         processor.tokenizer.padding_side = "right"
     elif model_args.model_backbone == LLAVA_NEXT:
-        from baseline_backbone.llava_next import LlavaNextProcessor
+        from src.model.baseline_backbone.llava_next import LlavaNextProcessor
         processor = LlavaNextProcessor.from_pretrained(
             model_name_or_path,
             trust_remote_code=True
         )
     elif model_args.model_backbone in [QWEN2_VL, GME, LamRA]:
-        from vlm_backbone.qwen2_vl.processing_qwen2_vl import Qwen2VLProcessor
-        from vlm_backbone.qwen2_vl.image_processing_qwen2_vl import Qwen2VLImageProcessor
-        from vlm_backbone.qwen2_vl.tokenization_qwen2_fast import Qwen2TokenizerFast
+        from src.model.vlm_backbone.qwen2_vl.processing_qwen2_vl import Qwen2VLProcessor
+        from src.model.vlm_backbone.qwen2_vl.image_processing_qwen2_vl import Qwen2VLImageProcessor
+        from src.model.vlm_backbone.qwen2_vl.tokenization_qwen2_fast import Qwen2TokenizerFast
         min_pixels, max_pixels = None, None
         if data_args is not None:
             min_pixels, max_pixels = data_args.resize_min_pixels, data_args.resize_max_pixels
@@ -133,9 +133,9 @@ def load_processor(model_args, data_args=None):
             image_processor=image_processor, tokenizer=tokenizer, size=size
         )
     elif model_args.model_backbone == QWEN2_VL_TOKENSELECTION:
-        from vlm_backbone.qwen2_vl_tokenselection.processing_qwen2_vl import Qwen2VLProcessor
-        from vlm_backbone.qwen2_vl_tokenselection.image_processing_qwen2_vl import Qwen2VLImageProcessor
-        from vlm_backbone.qwen2_vl_tokenselection.tokenization_qwen2_fast import Qwen2TokenizerFast
+        from src.model.vlm_backbone.qwen2_vl_tokenselection.processing_qwen2_vl import Qwen2VLProcessor
+        from src.model.vlm_backbone.qwen2_vl_tokenselection.image_processing_qwen2_vl import Qwen2VLImageProcessor
+        from src.model.vlm_backbone.qwen2_vl_tokenselection.tokenization_qwen2_fast import Qwen2TokenizerFast
         image_processor = Qwen2VLImageProcessor.from_pretrained(model_name_or_path)
         if data_args is not None:
             image_processor.do_resize = data_args.resize_use_processor
@@ -150,9 +150,9 @@ def load_processor(model_args, data_args=None):
             uimask_ratio=model_args.uimask_ratio, uimask_rand=model_args.uimask_rand
         )
     elif model_args.model_backbone in [QWEN2_5_VL, LamRA_QWEN2_5]:
-        from vlm_backbone.qwen2_5_vl.processing_qwen2_5_vl import Qwen2_5_VLProcessor
-        from vlm_backbone.qwen2_5_vl.image_processing_qwen2_5_vl import Qwen2_5_VLImageProcessor
-        from vlm_backbone.qwen2_vl.tokenization_qwen2_fast import Qwen2TokenizerFast
+        from src.model.vlm_backbone.qwen2_5_vl.processing_qwen2_5_vl import Qwen2_5_VLProcessor
+        from src.model.vlm_backbone.qwen2_5_vl.image_processing_qwen2_5_vl import Qwen2_5_VLImageProcessor
+        from src.model.vlm_backbone.qwen2_vl.tokenization_qwen2_fast import Qwen2TokenizerFast
         min_pixels, max_pixels = None, None
         if data_args is not None:
             min_pixels, max_pixels = data_args.resize_min_pixels, data_args.resize_max_pixels
@@ -162,9 +162,9 @@ def load_processor(model_args, data_args=None):
         processor = Qwen2_5_VLProcessor.from_pretrained(model_name_or_path, image_processor=image_processor, tokenizer=tokenizer)
     elif model_args.model_backbone == QWEN2_5_VL_TOKENSELECTION:
         # TODO: qwen2.5 token selection not working yet
-        from vlm_backbone.qwen2_5_vl_tokenselection.processing_qwen2_5_vl import Qwen2_5_VLProcessor
-        from vlm_backbone.qwen2_5_vl_tokenselection.image_processing_qwen2_5_vl import Qwen2_5_VLImageProcessor
-        from vlm_backbone.qwen2_vl_tokenselection.tokenization_qwen2_fast import Qwen2TokenizerFast
+        from src.model.vlm_backbone.qwen2_5_vl_tokenselection.processing_qwen2_5_vl import Qwen2_5_VLProcessor
+        from src.model.vlm_backbone.qwen2_5_vl_tokenselection.image_processing_qwen2_5_vl import Qwen2_5_VLImageProcessor
+        from src.model.vlm_backbone.qwen2_vl_tokenselection.tokenization_qwen2_fast import Qwen2TokenizerFast
         min_pixels, max_pixels = None, None
         if data_args is not None:
             min_pixels, max_pixels = data_args.resize_min_pixels, data_args.resize_max_pixels
@@ -580,7 +580,7 @@ def ColPali_process_fn(model_inputs: dict, processor, max_length=None):
 def InternVideo2_process_fn(model_inputs: dict, processor, max_length=None):
     if all(x is None for x in model_inputs["images"]):
         # Text side
-        from baseline_backbone.internvideo2.modeling_internvideo2 import BertTokenizer
+        from src.model.baseline_backbone.internvideo2.modeling_internvideo2 import BertTokenizer
         tokenizer = BertTokenizer.from_pretrained("bert-large-uncased")
         inputs = tokenizer(
             model_inputs["text"],

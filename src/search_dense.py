@@ -176,7 +176,8 @@ def main():
         encoder = encoder.to(device)
         processor = None
     elif 'gme' in model_args.model_name_or_path:
-        encoder = SentenceTransformer("Alibaba-NLP/gme-Qwen2-VL-7B-Instruct")
+        encoder = SentenceTransformer(model_args.model_name_or_path)
+        processor = None
     elif 'LamRA' in model_args.model_name_or_path:
         if 'Qwen' in model_args.model_name_or_path:
             encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path, device_map=device_map,
@@ -190,7 +191,7 @@ def main():
         import src.arguments
 
         model_args_vlm2vec = src.arguments.ModelArguments(
-            model_name='Qwen/Qwen2-VL-7B-Instruct',
+            model_name='./checkpoints/Qwen-Qwen2-VL-2B-Instruct',
             checkpoint_path=model_args.model_name_or_path,
             pooling='last',
             normalize=True,
@@ -326,7 +327,8 @@ def main():
                             text=[f'Find me a person image that matches the given description. <sent>'.replace('<sent>', text) for text in texts],
                             return_tensors="pt",
                             padding=True
-                        ).to(device)
+                        )
+                        text_inputs = {key: value.to('cuda') for key, value in text_inputs.items()}
                         query_dense_reps = encoder(qry=text_inputs)["qry_reps"]
                     else:
                         text_input = encoder.tokenizer(texts, padding='max_length', truncation=True, max_length=35,
@@ -368,7 +370,7 @@ def main():
                             query_dense_reps = encoder.get_text_features(text_inputs['input_ids'].cuda(),
                                                                          text_inputs['attention_mask'].cuda())
                         elif 'gme' in model_args.model_name_or_path:
-                            if model_args.model_name == 'flickr':
+                            if data_args.dataset_name == 'flickr':
                                 query_dense_reps = encoder.encode(
                                     [dict(text=t, prompt=gme_image_flickr_prompt) for t in texts],
                                     convert_to_tensor=True)
@@ -390,12 +392,12 @@ def main():
                             query_dense_reps = output.hidden_states[-1][:, -1, :]
                         elif 'VLM2Vec' in model_args.model_name_or_path:
                             text_inputs = processor(
-                                text=[f'Find me an image that matches the given caption. <sent>'.replace('<sent>',
-                                                                                                               text) for
+                                text=[f'<sent> Represent the given sentence'.replace('<sent>', text) for
                                       text in texts],
                                 return_tensors="pt",
                                 padding=True
-                            ).to(device)
+                            )
+                            text_inputs = {key: value.to('cuda') for key, value in text_inputs.items()}
                             query_dense_reps = encoder(qry=text_inputs)["qry_reps"]
                         else:
                             text_input = encoder.tokenizer(texts, padding='max_length', truncation=True, max_length=35,
@@ -414,13 +416,13 @@ def main():
                             imgs = img_inputs.to(device)
                             query_dense_reps = encoder.get_image_features(imgs['pixel_values'])
                         elif 'gme' in model_args.model_name_or_path:
-                            if model_args.model_name == 'flickr':
+                            if data_args.dataset_name == 'flickr':
                                 query_dense_reps = encoder.encode(
-                                    [dict(image=imgs_path, prompt=gme_text_flickr_prompt) for img in imgs_path],
+                                    [dict(image=img, prompt=gme_text_flickr_prompt) for img in imgs_path],
                                     convert_to_tensor=True)
                             else:
                                 query_dense_reps = encoder.encode(
-                                    [dict(image=imgs_path, prompt=gme_text_coco_prompt) for img in imgs_path],
+                                    [dict(image=img, prompt=gme_text_coco_prompt) for img in imgs_path],
                                     convert_to_tensor=True)
                         elif 'LamRA' in model_args.model_name_or_path:
                             raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
@@ -449,13 +451,15 @@ def main():
                             ]
                             image_inputs, video_inputs = process_vision_info(messages)
                             img_inputs = processor(
-                                text=[f'Find an image caption describing the given image. {VLM_IMAGE_TOKENS[QWEN2_VL]}'] * len(
+                                text=[f'{VLM_IMAGE_TOKENS[QWEN2_VL]} Represent the given image.'] * len(
                                     imgs_path),
                                 images=image_inputs,
                                 return_tensors="pt",
                                 padding=True
                             )
-                            imgs = img_inputs.to(device)
+                            imgs = {key: value.to('cuda') for key, value in img_inputs.items()}
+                            imgs['pixel_values'] = imgs['pixel_values'].unsqueeze(0)
+                            imgs['image_grid_thw'] = imgs['image_grid_thw'].unsqueeze(0)
                             query_dense_reps = encoder(qry=imgs)["qry_reps"]
                         else:
                             raw_images = [blip_load_image(path, 384, device).to(device) for path in imgs_path]

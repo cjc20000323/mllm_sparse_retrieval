@@ -97,6 +97,9 @@ def main():
         encoder = blip_itm(pretrained=model_args.model_name_or_path + '/model_large.pth', vit='large')
         encoder = encoder.to(device)
         processor = None
+    elif 'gme' in model_args.model_name_or_path:
+        encoder = SentenceTransformer(model_args.model_name_or_path)
+        processor = None
     elif 'Qwen2-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2-VL-2B-Instruct' in model_args.model_name_or_path:
         encoder = Qwen2VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
                                                                      device_map=device_map,
@@ -114,14 +117,14 @@ def main():
         ]
         prompt = processor.apply_chat_template(conversation, add_generation_prompt=True)
         if dist.get_rank() == 0:
+            print()
             print(prompt)
+            print()
         input_id = processor(text=prompt,
                              return_tensors="pt",
                              padding=True).input_ids
         if dist.get_rank() == 0:
             print(input_id)
-    elif 'gme' in model_args.model_name_or_path:
-        encoder = SentenceTransformer("Alibaba-NLP/gme-Qwen2-VL-7B-Instruct")
     elif 'LamRA' in model_args.model_name_or_path:
         if 'Qwen' in model_args.model_name_or_path:
             encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path, device_map=device_map,
@@ -135,7 +138,7 @@ def main():
         import src.arguments
 
         model_args_vlm2vec = src.arguments.ModelArguments(
-            model_name='Qwen/Qwen2-VL-7B-Instruct',
+            model_name='./checkpoints/Qwen-Qwen2-VL-2B-Instruct',
             checkpoint_path=model_args.model_name_or_path,
             pooling='last',
             normalize=True,
@@ -220,7 +223,7 @@ def main():
                         return_tensors="pt",
                         padding=True
                     )
-                    imgs = img_inputs.to(device)
+                    imgs = {key: value.to('cuda') for key, value in img_inputs.items()}
                     reps = encoder(tgt=imgs)["tgt_reps"]
                 else:
                     raw_images = [blip_load_image(path, 384, device).to(device) for path in imgs_path]
@@ -269,10 +272,12 @@ def main():
                             reps = output.hidden_states[-1][:, -1, :]
                         elif 'VLM2Vec' in model_args.model_name_or_path:
                             text_inputs = processor(
-                                text=[f'<sent> Represent the given sentence.'.replace('<sent>', text) for text in texts],
+                                text=[f'<sent>'.replace('<sent>', text) for text in texts],
                                 return_tensors="pt",
                                 padding=True
-                            ).to(device)
+                            )
+                            text_inputs = {key: value.to('cuda') for key, value in text_inputs.items()}
+
                             reps = encoder(tgt=text_inputs)["tgt_reps"]
                         else:
                             text_input = encoder.tokenizer(texts, padding='max_length', truncation=True, max_length=35,
@@ -319,13 +324,15 @@ def main():
                             ]
                             image_inputs, video_inputs = process_vision_info(messages)
                             img_inputs = processor(
-                                text=[f'{VLM_IMAGE_TOKENS[QWEN2_VL]} Represent the given image.'] * len(
+                                text=[f'{VLM_IMAGE_TOKENS[QWEN2_VL]}'] * len(
                                     imgs_path),
                                 images=image_inputs,
                                 return_tensors="pt",
                                 padding=True
                             )
-                            imgs = img_inputs.to(device)
+                            imgs = {key: value.to('cuda') for key, value in img_inputs.items()}
+                            imgs['pixel_values'] = imgs['pixel_values'].unsqueeze(0)
+                            imgs['image_grid_thw'] = imgs['image_grid_thw'].unsqueeze(0)
                             reps = encoder(tgt=imgs)["tgt_reps"]
                         else:
                             raw_images = [blip_load_image(path, 384, device).to(device) for path in imgs_path]

@@ -13,7 +13,7 @@
 # limitations under the License.
 from typing import TYPE_CHECKING
 
-from src.src.model.vlm_backbone.qwen2_5_vl.configuration_qwen2_5_vl import *
-from src.src.model.vlm_backbone.qwen2_5_vl.image_processing_qwen2_5_vl import *
-from src.src.model.vlm_backbone.qwen2_5_vl.modeling_qwen2_5_vl import *
-from src.src.model.vlm_backbone.qwen2_5_vl.processing_qwen2_5_vl import *
+from src.model.vlm_backbone.qwen2_5_vl.configuration_qwen2_5_vl import *
+from src.model.vlm_backbone.qwen2_5_vl.image_processing_qwen2_5_vl import *
+from src.model.vlm_backbone.qwen2_5_vl.modeling_qwen2_5_vl import *
+from src.model.vlm_backbone.qwen2_5_vl.processing_qwen2_5_vl import *
