@@ -1,6 +1,7 @@
 llama3_template = '<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n \n'
 llama3_template_image_prefix = '<|start_header_id|>user<|end_header_id|>\n\n<image>\n'
 llama3_template_text_prefix = '<|start_header_id|>user<|end_header_id|>\n\n<sent>\n'
+llama3_template_fusion_prefix = '<|start_header_id|>user<|end_header_id|>\n\n<image>\n<sent>\n'
 llama3_template_content_element = '<|begin_of_text|>{}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n \n<|end_of_text|>'
 llama3_template_fashion_iq_composed_image_prefix = '<|start_header_id|>user<|end_header_id|>\n\n<image> change the style of this {} to <sent>\n'
 llama3_template_fashion_iq_image_prefix = '<|start_header_id|>user<|end_header_id|>\n\n<image>\n'
@@ -8,6 +9,7 @@ llama3_template_fashion_iq_text_prefix = '<|start_header_id|>user<|end_header_id
 llava_mistral_template = '[INST]{}[/INST]'
 llava_mistral_template_image_prefix = '[INST]<image>\n'
 llava_mistral_template_text_prefix = '[INST]<sent>\n'
+llava_mistral_template_fusion_prefix = '[INST]<image>\n<sent>\n'
 llava_mistral_template_content_element = '<s>{}[/INST]</s>'
 llava_mistral_template_fashion_iq_composed_image_prefix = '[INST]<image> change the style of this {} to <sent>\n'
 llava_mistral_template_fashion_iq_image_prefix = '[INST]<image>\n'
@@ -86,6 +88,11 @@ vicuna_person_retrieval_text_prompt_2 = llava_vicuna_template.format('<sent>\n<s
 qwen3_person_retrieval_img_prompt = qwen3_template.format('<|vision_start|><|image_pad|><|vision_end|>\n<think>Summary the person in above image in one word: ')
 qwen3_person_retrieval_text_prompt = qwen3_template.format('<sent>\n<think>Summary the person in above sentence in one word: ')
 
+t2it_query_prompt = llama3_template.format('<sent>\n<|begin_of_text|>Summary above sentence in one word: ')
+t2it_corpus_prompt = llama3_template.format('<image>\n<sent>\n<|begin_of_text|>Summary above image and sentence in one word: ')
+mistral_t2it_query_prompt = llava_mistral_template.format('<sent>\n<s>Summary above sentence in one word: ')
+mistral_t2it_corpus_prompt = llava_mistral_template.format('<image>\n<sent>\n<s>Summary above image and sentence in one word: ')
+
 
 llama3_fashion_iq_composed_image_prompt = llama3_template.format('<image> change the style of this {} to <sent>\n<|begin_of_text|>Describe this modified {} in one word based on its style: ')
 mistral_fashion_iq_composed_image_prompt = llava_mistral_template.format('<image> change the style of this {} to <sent>\n<s>Describe this modified {} in one word based on its style: ')
@@ -157,8 +164,6 @@ llava_34b_text_reverse_query_relevant_prompt = llava_34b_template.format("For th
 llava_34b_image_query_relevant_prompt = llava_34b_template.format("For the following query sentence and candidate image, judge whether they are relevant. Output 'Yes' or 'No'.\nCandidate Image: <image> Query Sentence: <sent> Output: ")
 llava_34b_image_reverse_query_relevant_prompt = llava_34b_template.format("For the following query image and candidate sentence, judge whether they are relevant. Output 'Yes' or 'No'.\nCandidate Sentence: <sent> Query Image: <image> Output: ")
 
-
-
 qwen2_5_relevant_prompt = qwen2_5_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nImage: <|vision_start|><|image_pad|><|vision_end|> Sentence: <sent> Output: ")
 qwen2_5_in_one_word_relevant_prompt = qwen2_5_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nImage: <|vision_start|><|image_pad|><|vision_end|> Sentence: <sent> Output in one word: ")
 qwen2_5_please_relevant_prompt = qwen2_5_template.format("For the following sentence and image, judge whether they are relevant. Please output 'Yes' or 'No'.\nImage: <|vision_start|><|image_pad|><|vision_end|> Sentence: <sent> Output: ")
@@ -178,7 +183,6 @@ qwen2_5_role_relevant_prompt = qwen2_5_template.format("You are RankGPT, an inte
 qwen2_5_role_precise_caption_prompt = qwen2_5_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \n For the following sentence and image, judge whether the sentence is the precise caption of the image. Output 'Yes' or 'No'.\nImage: <|vision_start|><|image_pad|><|vision_end|> Sentence: <sent> Output: ")
 qwen2_5_role_old_text_query_relevant_prompt = qwen2_5_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nCandidate: <|vision_start|><|image_pad|><|vision_end|>\nQuery: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
 qwen2_5_role_old_image_query_relevant_prompt = qwen2_5_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nQuery: <|vision_start|><|image_pad|><|vision_end|>\nCandidate: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
-
 
 qwen3_relevant_prompt = qwen3_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nImage: <|vision_start|><|image_pad|><|vision_end|> Sentence: <sent> Output: ")
 qwen3_in_one_word_relevant_prompt = qwen3_template.format("For the following sentence and image, judge whether they are relevant. Output 'Yes' or 'No'.\nImage: <|vision_start|><|image_pad|><|vision_end|> Sentence: <sent> Output in one word: ")
@@ -201,7 +205,6 @@ qwen3_role_relevant_prompt = qwen3_template.format("You are RankGPT, an intellig
 qwen3_role_precise_caption_prompt = qwen3_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \n For the following sentence and image, judge whether the sentence is the precise caption of the image. Output 'Yes' or 'No'.\nImage: <|vision_start|><|image_pad|><|vision_end|> Sentence: <sent> Output: ")
 qwen3_role_old_text_query_relevant_prompt = qwen3_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nCandidate: <|vision_start|><|image_pad|><|vision_end|>\nQuery: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
 qwen3_role_old_image_query_relevant_prompt = qwen3_template.format("You are RankGPT, an intelligent assistant that can rank candidates based on their relevancy to the query. \nQuery: <|vision_start|><|image_pad|><|vision_end|>\nCandidate: <sent>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
-
 
 fashion_iq_relevant_prompt = llama3_template.format("For the following modified {} and target {}, judge whether they are relevant. Output 'Yes' or 'No'.\nModified {}: <image> change the style of this {} to <sent> Target {}: <image> Output: ")
 fashion_iq_old_query_relevant_prompt = llama3_template.format("Query Modified {}: <image> change the style of this {} to <sent>\nCandidate {}: <image>\n Does the candidate answer the query?  Answer 'Yes' or 'No'.  Answer: ")
@@ -313,6 +316,7 @@ person_retrieval_llava_34b_query_generation_paradigm_prompt_1 = llava_34b_templa
 
 img_prompt_for_concat = 'Summary above image in one word: '
 text_prompt_for_concat = 'Summary above sentence in one word: '
+fusion_prompt_for_concat = 'Summary above image and sentence in one word: '
 fashion_iq_composed_image_for_concat = 'Describe this modified {} in one word based on its style: '
 fashion_iq_img_prompt_for_concat = 'Describe this {} in one word based on its style: '
 person_retrieval_img_prompt_for_concat = 'Summary the person in above image in one word: '
@@ -794,6 +798,22 @@ retrieval_disassemble_image_prompts_person_retrieval_7_for_concat = [
     'Summary the appearance and decoration details of person, such as color, pattern and so on, in above image in one word: '
     'Summary the reason why main people might be in this position and doing this thing in above image in one word:  ',
     'Summary the environment, weather or places in above image in one word: ',
+]
+
+retrieval_disassemble_query_prompts_t2it_retrieval_for_concat = [
+    'Summary the events in above sentence in one word: ',
+    'Summary the environment and geographical locations, such as architecture, buildings or structures',
+    'Summary the time in above sentence in one word: ',
+    'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above sentence in one word: ',
+    'Summary the main person or objects in above sentence in one word: '
+]
+
+retrieval_disassemble_corpus_prompts_t2it_retrieval_for_concat = [
+    'Summary the events in above image and sentence in one word: ',
+    'Summary the environment and geographical locations, such as architecture, buildings or structures, in above image and sentence in one word: ',
+    'Summary the time in above image and sentence in one word: ',
+    'Summary the appearance, such as color, material, decoration and so on, of main people or objects in above image and sentence in one word: ',
+    'Summary the main person or objects in above image and sentence in one word: '
 ]
 
 

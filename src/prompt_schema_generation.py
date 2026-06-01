@@ -11,7 +11,8 @@ from transformers import LlamaForCausalLM, MistralForCausalLM, LlamaTokenizer, A
 
 from arguments import PromptRepsLLMDataArguments, ModelArguments
 from arguments import TrainingArguments, PromptGenerationArguments
-from dataset import CrossModalRetrievalDataset, TextPersonRetrievalDataset, ComposedTextImageRetrievalDataset
+from dataset import CrossModalRetrievalDataset, TextPersonRetrievalDataset, ComposedTextImageRetrievalDataset, \
+    Text2ImagetextRetrievalDataset, Imagetext2TextRetrievalDataset
 from template import prompt_schema_generation_text_prompt, prompt_schema_generation_text_prompt_1, \
     mistral_prompt_schema_generation_text_prompt, mistral_prompt_schema_generation_text_prompt_1, \
     prompt_schema_generation_text_prompt_2, mistral_prompt_schema_generation_text_prompt_2, tbpr_five_aspects, \
@@ -97,12 +98,14 @@ def main():
         itr_flickr_dataset = CrossModalRetrievalDataset('flickr', tokenizer, 'test', 'single')
         itr_coco_dataset = CrossModalRetrievalDataset('coco', tokenizer, 'test', 'single')
         cir_dataset = ComposedTextImageRetrievalDataset('fashion-iq', tokenizer, 'val', 'composed')
+        t2it_webqa_dataset = Text2ImagetextRetrievalDataset('webqa', tokenizer, 'test', 'corpus')
 
         tbpr_cuhk_pedes_dataloader = Data.DataLoader(dataset=tbpr_cuhk_pedes_dataset, batch_size=1, shuffle=False)
         tbpr_icfg_pedes_dataloader = Data.DataLoader(dataset=tbpr_icfg_pedes_dataset, batch_size=1, shuffle=False)
         itr_flickr_dataloader = Data.DataLoader(dataset=itr_flickr_dataset, batch_size=1, shuffle=False)
         itr_coco_dataloader = Data.DataLoader(dataset=itr_coco_dataset, batch_size=1, shuffle=False)
         cir_dataloader = Data.DataLoader(dataset=cir_dataset, batch_size=1, shuffle=False)
+        t2it_webqa_dataloader = Data.DataLoader(dataset=t2it_webqa_dataset, batch_size=1, shuffle=False)
 
         counter = 0
         tbpr_cuhk_pedes_demonstration = ''
@@ -110,6 +113,7 @@ def main():
         itr_flickr_demonstration = ''
         itr_coco_demonstration = ''
         cir_demonstration = ''
+        t2it_webqa_demonstration = ''
         for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(tbpr_cuhk_pedes_dataloader),
                                                                      total=len(tbpr_cuhk_pedes_dataloader)):
             # print(texts)
@@ -177,6 +181,21 @@ def main():
                 break
             counter += 1
 
+        counter = 0
+        for batch_idx, (corpus_texts, corpus_images, query_ids) in tqdm(
+                enumerate(t2it_webqa_dataloader),
+                total=len(t2it_webqa_dataloader)):
+            # print(texts)
+
+            # cir_demonstration += f'{counter}. '
+            print(corpus_texts)
+            t2it_webqa_demonstration += corpus_texts[0]
+            t2it_webqa_demonstration += '\n'
+
+            if counter == prompt_generation_args.demonstration_num:
+                break
+            counter += 1
+
         # print(cir_demonstration)
 
         if prompt_generation_args.prompt_generation_type == 'prompt_schema':
@@ -194,6 +213,7 @@ def main():
         inputs = tokenizer(text_input, return_tensors="pt").to(model.device)
         output = model.generate(**inputs, max_new_tokens=100)
 
+        print('itr')
         print('Here is the original output')
         print(tokenizer.decode(output[0], skip_special_tokens=True))
         print('Here is the filtered output')
@@ -214,6 +234,29 @@ def main():
         inputs = tokenizer(text_input, return_tensors="pt").to(model.device)
         output = model.generate(**inputs, max_new_tokens=100)
 
+        print('tbpr')
+        print('Here is the original output')
+        print(tokenizer.decode(output[0], skip_special_tokens=True))
+        print('Here is the filtered output')
+        print(tokenizer.decode(output[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True))
+
+        if prompt_generation_args.prompt_generation_type == 'prompt_schema':
+            text_input = prompt.replace('<sent>', t2it_webqa_demonstration, 1)
+        elif prompt_generation_args.prompt_generation_type == 'prompt_schema_1':
+            text_input = prompt.replace('<sent>', itr_coco_demonstration, 1)
+            text_input = text_input.replace('<sent>', itr_five_aspects, 1)
+            text_input = text_input.replace('<sent>', t2it_webqa_demonstration, 1)
+        else:
+            text_input = prompt.replace('<sent>', itr_coco_demonstration, 1)
+            text_input = text_input.replace('<sent>', itr_five_aspects, 1)
+            text_input = text_input.replace('<sent>', tbpr_cuhk_pedes_demonstration, 1)
+            text_input = text_input.replace('<sent>', tbpr_five_aspects, 1)
+            text_input = text_input.replace('<sent>', t2it_webqa_demonstration, 1)
+        inputs = tokenizer(text_input, return_tensors="pt").to(model.device)
+        output = model.generate(**inputs, max_new_tokens=100)
+
+        print('t2it')
+        print(t2it_webqa_demonstration)
         print('Here is the original output')
         print(tokenizer.decode(output[0], skip_special_tokens=True))
         print('Here is the filtered output')

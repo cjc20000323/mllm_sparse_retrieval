@@ -2,11 +2,13 @@ import csv
 import os
 import json
 
+import pandas as pd
 from torch.utils.data import Dataset
 import torch
 from PIL import Image
 import tevatron.retriever.arguments
-from arguments import coco_file_path, flickr_file_path, fashion_iq_file_path, cuhk_pedes_file_path, icfg_pedes_flie_path, rstpreid_file_path
+from arguments import coco_file_path, flickr_file_path, fashion_iq_file_path, cuhk_pedes_file_path, \
+    icfg_pedes_flie_path, rstpreid_file_path, webqa_file_path, remuq_file_path
 from template import llama3_template, text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
     img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5
 from tevatron.retriever.dataset import EncodeDataset
@@ -454,7 +456,6 @@ class TextPersonRetrievalDataset(Dataset):
         else:
             ValueError('Mode is not either single or full.')
 
-
     def get_text(self, idx):
         return self.text_dict[idx]
 
@@ -470,6 +471,150 @@ class TextPersonRetrievalDataset(Dataset):
         return self.img2person[idx]
 
 
+class Text2ImagetextRetrievalDataset(Dataset):
+    def __init__(self, data_name, processor, split, mode, data_args=None):
+        super(Text2ImagetextRetrievalDataset, self).__init__()
+        self.data_name = data_name
+        assert self.data_name in ['webqa']
+        self.processor = processor
+        self.split = split
+        self.id2query = {}
+        self.query_id_list = []
+        self.id2candidate = {}  # 字典里面保存的还是字典，一个是候选图像一个是候选文本
+        self.candidate_id_list = []
+        self.query2candidate = {}  # 字典Key保存输入，保存输出
+        if self.data_name == 'webqa':
+            self.data_path = webqa_file_path
+        else:
+            ValueError('Data name is not in the candidates list.')
+
+        self.mode = mode
+        if self.data_name == 'webqa':
+            self.dataset_file = {
+                'query': self.data_path + 'query-00000-of-00001.parquet',
+                'rel': self.data_path + 'qrels-00000-of-00001.parquet',
+                'corpus': [self.data_path + 'corpus-00000-of-00002.parquet',
+                           self.data_path + 'corpus-00001-of-00002.parquet']
+            }
+        else:
+            self.dataset_file = {
+                'query': self.data_path + 'query-00000-of-00001.parquet',
+                'rel': self.data_path + 'qrels-00000-of-00001.parquet',
+                'corpus': [self.data_path + 'corpus-00000-of-00002.parquet',
+                           self.data_path + 'corpus-00001-of-00002.parquet']
+            }
+
+        df_query = pd.read_parquet(self.dataset_file['query'])
+        for idx, row in df_query.iterrows():
+            self.id2query[row['id']] = row['text']
+            self.query_id_list.append(row['id'])
+        df_rel = pd.read_parquet(self.dataset_file['rel'])
+        for idx, row in df_rel.iterrows():
+            self.query2candidate[row['query-id']] = row['corpus-id']
+
+        for corpus_path in self.dataset_file['corpus']:
+            df_corpus = pd.read_parquet(corpus_path)
+            for idx, row in df_corpus.iterrows():
+                self.id2candidate[row['id']] = {'text': row['text'], 'image': row['image']}
+                self.candidate_id_list.append(row['id'])
+
+    def __len__(self):
+        if self.mode == 'query':
+            return len(self.query_id_list)
+        else:
+            return len(self.candidate_id_list)
+
+    def __getitem__(self, idx):
+        if self.mode == 'query':
+            query_id = self.query_id_list[idx]
+            query_text = self.id2query[query_id]
+            return query_text, query_id
+        else:
+            corpus_id = self.candidate_id_list[idx]
+            corpus_text = self.id2candidate[corpus_id]['text']
+            corpus_image = self.id2candidate[corpus_id]['image']["bytes"]
+            return corpus_text, corpus_image, corpus_id
+
+    def get_target(self, idx):
+        return self.query2candidate[idx]
+
+    def get_query(self, idx):
+        return self.id2query[idx]
+
+    def get_candidate(self, idx):
+        return self.id2candidate[idx]
+
+
+class Imagetext2TextRetrievalDataset(Dataset):
+    def __init__(self, data_name, processor, split, mode, data_args=None):
+        super(Imagetext2TextRetrievalDataset, self).__init__()
+        self.data_name = data_name
+        assert self.data_name in ['remuq']
+        self.split = split
+        self.id2query = {}
+        self.query_id_list = []
+        self.id2candidate = {}  # 字典里面保存的还是字典，一个是候选图像一个是候选文本
+        self.candidate_id_list = []
+        self.query2candidate = {}  # 字典Key保存输入，保存输出
+        if self.data_name == 'remuq':
+            self.data_path = remuq_file_path
+        else:
+            ValueError('Data name is not in the candidates list.')
+
+        self.mode = mode
+        if self.data_name == 'remuq':
+            self.dataset_file = {
+                'query': self.data_path + 'query.parquet',
+                'rel': self.data_path + 'qrels.parquet',
+                'corpus': self.data_path + 'corpus.parquet'
+            }
+        else:
+            self.dataset_file = {
+                'query': self.data_path + 'query.parquet',
+                'rel': self.data_path + 'qrels.parquet',
+                'corpus': self.data_path + 'corpus.parquet'
+            }
+
+        df_query = pd.read_parquet(self.dataset_file['query'])
+        for idx, row in df_query.iterrows():
+            self.id2query[row['id']] = {'text': row['text'], 'image': row['image']}
+            self.query_id_list.append(row['id'])
+        df_rel = pd.read_parquet(self.dataset_file['rel'])
+        for idx, row in df_rel.iterrows():
+            self.query2candidate[row['query-id']] = row['corpus-id']
+
+        for corpus_path in self.dataset_file['corpus']:
+            df_corpus = pd.read_parquet(corpus_path)
+            for idx, row in df_corpus.iterrows():
+                self.id2candidate[row['id']] = row['text']
+                self.candidate_id_list.append(row['id'])
+
+
+    def __len__(self):
+        if self.mode == 'query':
+            return len(self.query_id_list)
+        else:
+            return len(self.candidate_id_list)
+
+    def __getitem__(self, idx):
+        if self.mode == 'query':
+            query_id = self.query_id_list[idx]
+            query_text = self.id2query[query_id]['text']
+            query_image = self.id2query[query_id]['image']["bytes"]
+            return query_text, query_image, query_id
+        else:
+            corpus_id = self.candidate_id_list[idx]
+            corpus_text = self.id2candidate[corpus_id]
+            return corpus_text, corpus_id
+
+    def get_target(self, idx):
+        return self.query2candidate[idx]
+
+    def get_query(self, idx):
+        return self.id2query[idx]
+
+    def get_candidate(self, idx):
+        return self.id2candidate[idx]
 
 
 @dataclass

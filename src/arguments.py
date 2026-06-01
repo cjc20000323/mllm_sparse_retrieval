@@ -10,6 +10,8 @@ fashion_iq_file_path = './data/fashion-iq/'
 cuhk_pedes_file_path = './data/CUHK-PEDES/'
 icfg_pedes_flie_path = './data/ICFG-PEDES/'
 rstpreid_file_path = './data/RSTPReid/'
+webqa_file_path = './data/WebQA/'
+remuq_file_path = './data/UMRB-ReMuQ/'
 
 
 @dataclass
@@ -122,5 +124,5 @@ class PromptGenerationArguments:
     prompt_generation_image: str = field(default='None')
     prompt_generation_type: str = field(default='t2t')
     demonstration_num: int = field(default=1)
-    prompt_generation_model: str = field(default=None)
+    # prompt_generation_model: str = field(default=None)
     case_type: str = field(default='caption')

@@ -37,6 +37,10 @@ class RecallMetrics:
                                         self.recall_k_setting_list} for dress_type in self.fashion_iq_list}
             self.fusion_recall_lists = {dress_type: {k: [[None] for _ in range(dist.get_world_size())] for k in
                                         self.recall_k_setting_list} for dress_type in self.fashion_iq_list}
+        elif dataset.data_name == 'webqa':
+            pass
+        elif dataset.data_name == '':
+            pass
         else:
             self.dense_recall_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in
                                        self.recall_k_setting_list}

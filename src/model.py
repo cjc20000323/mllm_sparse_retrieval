@@ -42,7 +42,8 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     llava_vicuna_template_text_prefix, vicuna_person_retrieval_text_prompt, vicuna_person_retrieval_text_prompt_1, \
     vicuna_person_retrieval_text_prompt_2, retrieval_disassemble_text_prompts_person_retrieval_for_concat_llama_generation, \
     retrieval_disassemble_text_prompts_person_retrieval_for_concat_mistral_generation, llava_34b_template_content_element, \
-    llava_34b_template_text_prefix
+    llava_34b_template_text_prefix, t2it_query_prompt, mistral_t2it_query_prompt, \
+    retrieval_disassemble_query_prompts_t2it_retrieval_for_concat
 import torch.nn.functional as F
 
 
@@ -516,6 +517,91 @@ class MLLMRetrievalModel(nn.Module):
             # 这里对应原文的log+relu操作
             logits = torch.log(1 + torch.relu(logits))
             return logits, embs
+
+
+    def encode_data_for_t2it(self, input, input_type, processor, device, model_args, data_args):
+        if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
+            prompt = text_prompt_no_special_llava_v1_5
+        elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+            if data_args.tbpr_type == 'origin_type':
+                prompt = vicuna_text_prompt
+            elif data_args.tbpr_type == 'type':
+                prompt = vicuna_person_retrieval_text_prompt
+            elif data_args.tbpr_type == 'type_1':
+                prompt = vicuna_person_retrieval_text_prompt_1
+            elif data_args.tbpr_type == 'type_2':
+                prompt = vicuna_person_retrieval_text_prompt_2
+            else:
+                prompt = vicuna_text_prompt
+        elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+            prompt = text_prompt_qwen_v2_5
+            prompt = processor.apply_chat_template(
+                prompt, tokenize=False, add_generation_prompt=True
+            )
+        elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+            prompt = qwen3_person_retrieval_text_prompt
+        elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+            prompt = text_prompt_intern_vl_v2_5
+            prompt = processor.apply_chat_template(
+                prompt, tokenize=False, add_generation_prompt=True
+            )
+        elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+            prompt = mistral_t2it_query_prompt
+        else:
+            prompt = t2it_query_prompt
+        if input_type == 'query':
+            text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
+                                    return_tensors="pt",
+                                    padding=True).to(device)
+            output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
+            # print(text_inputs['input_ids'])
+            # print(output.logits.shape)
+            # print(output.hidden_states[-1].shape)
+            if data_args.reps_loc == 'after_pad':
+                logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+            else:
+                # logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+                logits = output.logits
+                # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                sequence_lengths = text_inputs['attention_mask'].sum(dim=-1) - 1
+                batch_ids = torch.arange(len(text_inputs['input_ids']), device=logits.device)
+                logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
+                    batch_ids, sequence_lengths]
+            # 这里对应原文的log+relu操作
+            logits = torch.log(1 + torch.relu(logits))
+
+            return logits, embs
+        else:
+            length = len(input.pixel_values)
+            # print('length is ', length)
+            '''
+            for key in input.keys():
+                input[key] = input[key].squeeze()  # 数据集读取的时候，是直接多了一个维度计数，因此会有一个维度是1，把这个维度去掉
+                # print(input[key].shape)
+            if length == 1:
+                for key in input.keys():
+                    input[key] = input[key].unsqueeze(0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
+                    # print(input[key].shape)
+            '''
+            output = self.encoder(**input, output_hidden_states=True, return_dict=True, use_cache=True)
+            if data_args.reps_loc == 'after_pad':
+                logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+            else:
+                logits = output.logits
+                # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                sequence_lengths = input['attention_mask'].sum(dim=-1) - 1
+                batch_ids = torch.arange(len(input['input_ids']), device=logits.device)
+                logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
+                    batch_ids, sequence_lengths]
+            # 这里对应原文的log+relu操作
+            logits = torch.log(1 + torch.relu(logits))
+            return logits, embs
+
+
+    def encode_data_for_it2t(self, input, input_type, processor, device, model_args, data_args):
+        pass
 
     def encode_data_for_train(self, input, input_type, processor, device, model_args, data_args):
         '''
@@ -2739,6 +2825,250 @@ class MLLMRetrievalModel(nn.Module):
                 logits = torch.log(1 + torch.relu(logits))
                 embs = output.hidden_states[-1][:, end_col_list[0], :]
             return logits, embs
+
+
+    def encode_data_concat_for_t2it(self, input, input_type, processor, device, model_args, data_args):
+        if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+            prompt_template = llava_mistral_template_text_prefix
+            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
+            for llava_mistral_retrieval_disassemble_query_prompt in retrieval_disassemble_query_prompts_t2it_retrieval_for_concat:
+                content_element = llava_mistral_template_content_element.format(
+                    llava_mistral_retrieval_disassemble_query_prompt)
+                prompt_template += content_element
+
+        else:
+            prompt_template = llama3_template_text_prefix
+
+            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+            for llama3_retrieval_disassemble_query_prompt in retrieval_disassemble_query_prompts_t2it_retrieval_for_concat:
+                content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_query_prompt)
+                prompt_template += content_element
+        if input_type == 'query':
+            text_inputs = processor(text=[prompt_template.replace('<sent>', text) for text in input],
+                                    return_tensors="pt", padding=True).to(device)
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|startoftext|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|endoftext|>']
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<think>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</think>']
+            else:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
+            begin_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(begin_of_text_id))
+            end_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(end_of_text_id))
+            begin_col_list = []
+            for i in range(len(begin_of_text_indices[1])):
+                if 'Qwen' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
+                elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
+                else:
+                    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                        if i % (
+                                len(retrieval_disassemble_query_prompts_t2it_retrieval_for_concat) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    else:
+                        if i % (
+                                len(retrieval_disassemble_query_prompts_t2it_retrieval_for_concat) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+            begin_col_list = sorted(list(set(begin_col_list)))
+            end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
+
+            text_inputs_embeds = self.encoder.get_input_embeddings()(text_inputs['input_ids'])
+            dtype, device = text_inputs_embeds.dtype, text_inputs_embeds.device
+            min_dtype = torch.finfo(dtype).min
+            causal_mask = torch.full(
+                (text_inputs_embeds.shape[1], text_inputs['attention_mask'].shape[-1]),
+                fill_value=min_dtype, dtype=dtype, device=device
+            )
+            causal_mask = torch.triu(causal_mask, diagonal=1)
+            edit_causal_mask = causal_mask.clone()
+            start_indice = 0
+            for i in range(len(list(zip(begin_col_list, end_col_list)))):
+                if i == 0:
+                    start_indice = begin_col_list[i]
+                else:
+                    current_begin_col_indice = begin_col_list[i]
+                    current_end_col_indice = end_col_list[i]
+                    edit_causal_mask[current_begin_col_indice:current_end_col_indice + 1,
+                    start_indice:current_begin_col_indice] = 1
+            edit_causal_mask = edit_causal_mask[None, None, :, :].expand(text_inputs['attention_mask'].shape[0], 1, -1, -1)
+            cache_position = torch.arange(
+                0, 0 + text_inputs_embeds.shape[1],
+                device=text_inputs_embeds.device
+            )
+            causal_mask *= torch.arange(text_inputs['attention_mask'].shape[-1],
+                                        device=device) > cache_position.reshape(-1, 1)
+            causal_mask = causal_mask[None, None, :, :].expand(text_inputs['attention_mask'].shape[0], 1, -1, -1)
+            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+            mask_length = text_inputs['attention_mask'].shape[-1]
+            padding_mask = causal_mask[:, :, :, :mask_length] + text_inputs['attention_mask'][:, None, None, :].to(causal_mask.device)
+            padding_mask = padding_mask == 0
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                padding_mask, min_dtype
+            )
+            edit_causal_mask = edit_causal_mask == 1
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                edit_causal_mask, min_dtype
+            )
+
+            text_inputs['attention_mask'] = causal_mask
+            '''
+            with open(f'tensor_values_{dist.get_rank()}.txt', 'w') as f:
+                for mask in causal_mask:
+                    f.write(str(mask.squeeze()))
+            '''
+            output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
+            end_col_list = (torch.tensor(end_col_list) - 1).to(device)
+            batch_size = text_inputs['input_ids'].shape[0]
+            if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                logits = output.logits[:, end_col_list[0], :]
+                disassemble_logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
+                logits = torch.cat([logits, disassemble_logits], dim=0)
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
+            elif model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
+                logits = output.logits[:, end_col_list, :].reshape(batch_size * len(end_col_list), -1)
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_col_list, :].reshape(batch_size * len(end_col_list), -1)
+            elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
+                logits = output.logits[:, end_col_list[0], :]
+                disassemble_logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
+                logits = torch.cat([logits, disassemble_logits], dim=0)
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_col_list[0], :]
+            else:
+                logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_col_list[0], :]
+            return logits, embs
+
+        elif input_type == 'corpus':
+            '''
+            length = len(input.pixel_values)
+            # print('length is ', length)
+            for key in input.keys():
+                input[key] = input[key].squeeze()  # 数据集读取的时候，是直接多了一个维度计数，因此会有一个维度是1，把这个维度去掉
+                # print(input[key].shape)
+            if length == 1:
+                for key in input.keys():
+                    input[key] = input[key].unsqueeze(0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
+                    # print(input[key].shape)
+            '''
+
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|startoftext|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|endoftext|>']
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<think>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</think>']
+            else:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
+            begin_of_text_indices = torch.where(input['input_ids'] == torch.tensor(begin_of_text_id))
+            end_of_text_indices = torch.where(input['input_ids'] == torch.tensor(end_of_text_id))
+            begin_col_list = []
+            for i in range(len(begin_of_text_indices[1])):
+                if 'Qwen' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
+                elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
+                else:
+                    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                        if i % (
+                                len(retrieval_disassemble_query_prompts_t2it_retrieval_for_concat) + 2) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+                    else:
+                        if i % (
+                                len(retrieval_disassemble_query_prompts_t2it_retrieval_for_concat) + 1) != 0:
+                            begin_col_list.append(begin_of_text_indices[1][i].item())
+            begin_col_list = sorted(list(set(begin_col_list)))
+            end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
+            img_inputs_embeds = self.encoder.get_input_embeddings()(input['input_ids'])
+            dtype, device = img_inputs_embeds.dtype, img_inputs_embeds.device
+            min_dtype = torch.finfo(dtype).min
+            causal_mask = torch.full(
+                (img_inputs_embeds.shape[1], input['attention_mask'].shape[-1]),
+                fill_value=min_dtype, dtype=dtype, device=device
+            )
+            edit_causal_mask = causal_mask.clone()
+            start_indice = 0
+            for i in range(len(list(zip(begin_col_list, end_col_list)))):
+                if i == 0:
+                    start_indice = begin_col_list[i]
+                else:
+                    current_begin_col_indice = begin_col_list[i]
+                    current_end_col_indice = end_col_list[i]
+                    edit_causal_mask[current_begin_col_indice:current_end_col_indice + 1,
+                    start_indice:current_begin_col_indice] = 1
+
+            edit_causal_mask = edit_causal_mask[None, None, :, :].expand(input['attention_mask'].shape[0], 1, -1, -1)
+            cache_position = torch.arange(
+                0, 0 + img_inputs_embeds.shape[1],
+                device=img_inputs_embeds.device
+            )
+            causal_mask *= torch.arange(input['attention_mask'].shape[-1],
+                                        device=device) > cache_position.reshape(-1, 1)
+            causal_mask = causal_mask[None, None, :, :].expand(input['attention_mask'].shape[0], 1, -1, -1)
+            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+            mask_length = input['attention_mask'].shape[-1]
+            padding_mask = causal_mask[:, :, :, :mask_length] + input['attention_mask'][:, None, None, :].to(
+                causal_mask.device
+            )
+            padding_mask = padding_mask == 0
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                padding_mask, min_dtype
+            )
+            edit_causal_mask = edit_causal_mask == 1
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                edit_causal_mask, min_dtype
+            )
+
+            input['attention_mask'] = causal_mask
+
+            output = self.encoder(**input, output_hidden_states=True, return_dict=True, use_cache=True)
+            # 这里对应原文的log+relu操作
+            end_col_list = (torch.tensor(end_col_list) - 1).to(device)
+            batch_size = input['input_ids'].shape[0]
+            if model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                logits = output.logits[:, end_col_list[0], :]
+                disassemble_logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]),
+                                                                                   -1)
+                logits = torch.cat([logits, disassemble_logits], dim=0)
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
+            elif model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
+                logits = output.logits[:, end_col_list, :].reshape(batch_size * len(end_col_list), -1)
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_col_list, :].reshape(batch_size * len(end_col_list), -1)
+            elif model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
+                logits = output.logits[:, end_col_list[0], :]
+                disassemble_logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]),
+                                                                                   -1)
+                logits = torch.cat([logits, disassemble_logits], dim=0)
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_col_list[0], :]
+            else:
+                logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
+                logits = torch.log(1 + torch.relu(logits))
+                embs = output.hidden_states[-1][:, end_col_list[0], :]
+            return logits, embs
+
+    def encode_data_concat_for_it2t(self, input, input_type, processor, device, model_args, data_args):
+        pass
 
     def compute_similarity(self, embs_1, embs_2):
         embs_1 = F.normalize(embs_1, dim=-1)
