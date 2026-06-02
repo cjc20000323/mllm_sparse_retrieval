@@ -274,6 +274,12 @@ t2it_retrieval_origin_old_query_relevant_prompt = llama3_template.format("Given 
 mistral_t2it_retrieval_old_query_relevant_prompt = llava_mistral_template.format("Candidate image and sentence: <image>\n<sent>\nQuery: <sent>\n Does the candidate image and text answer the query text?  Answer 'Yes' or 'No'.  Answer: ")
 mistral_t2it_retrieval_query_relevant_prompt = llava_mistral_template.format("For the following query sentence and candidate image and sentence, judge whether they are relevant. Output 'Yes' or 'No'.\nCandidate Image and Sentence: <image> <sent> Query Sentence: <sent> Output: ")
 mistral_t2it_retrieval_origin_old_query_relevant_prompt = llama3_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate Image and Sentence: <image>\n<sent>\nQuery: <sent>\nDoes the candidate answer the query? Answer: ")
+it2t_retrieval_old_query_relevant_prompt = llama3_template.format("Query image and text: <image>\n<sent>\nCandidate: <sent>\n Does the candidate image and text answer the query text?  Answer 'Yes' or 'No'.  Answer: ")
+it2t_retrieval_query_relevant_prompt = llama3_template.format("For the following query sentence and candidate image and sentence, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Image and Sentence: <image> <sent> Candidate Sentence: <sent> Output: ")
+it2t_retrieval_origin_old_query_relevant_prompt = llama3_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nQuery Image and Sentence: <image>\n<sent>\nCandidate: <sent>\nDoes the candidate answer the query? Answer: ")
+mistral_it2t_retrieval_old_query_relevant_prompt = llava_mistral_template.format("Query image and text: <image>\n<sent>\nCandidate: <sent>\n Does the candidate image and text answer the query text?  Answer 'Yes' or 'No'.  Answer: ")
+mistral_it2t_retrieval_query_relevant_prompt = llava_mistral_template.format("For the following query sentence and candidate image and sentence, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Image and Sentence: <image> <sent> Candidate Sentence: <sent> Output: ")
+mistral_it2t_retrieval_origin_old_query_relevant_prompt = llava_mistral_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nQuery Image and Sentence: <image>\n<sent>\nCandidate: <sent>\nDoes the candidate answer the query? Answer: ")
 
 mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image: <image>\nPlease write a caption based on this image.")
 query_generation_paradigm_prompt = llama3_template.format("Image: <image>\nPlease write a caption based on this image.")
@@ -326,10 +332,10 @@ t2it_retrieval_query_generation_paradigm_prompt = llama3_template.format("Image 
 t2it_retrieval_mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image and Sentence: <image>\n<sent>\nPlease write a query question based on the given image and sentence.")
 t2it_retrieval_query_generation_paradigm_prompt_1 = llama3_template.format("Image and Sentence: <image>\n<sent>\nWhat is the query question based on the given image and sentence?")
 t2it_retrieval_mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Image and Sentence: <image>\n<sent>\nWhat is the query question based on the given image and sentence?")
-# it2t_retrieval_query_generation_paradigm_prompt = llama3_template.format()
-# it2t_retrieval_mistral_query_generation_paradigm_prompt = llava_mistral_template.format()
-# it2t_retrieval_query_generation_paradigm_prompt_1 = llama3_template.format()
-# it2t_retrieval_mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format()
+it2t_retrieval_query_generation_paradigm_prompt = llama3_template.format("Image and Sentence: <image>\n<sent>\nPlease write an answer based on the given image and sentence.")
+it2t_retrieval_mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image and Sentence: <image>\n<sent>\nPlease write an answer based on the given image and sentence.")
+it2t_retrieval_query_generation_paradigm_prompt_1 = llama3_template.format("Image and Sentence: <image>\n<sent>\nWhat is the answer based on the given image and sentence?")
+it2t_retrieval_mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Image and Sentence: <image>\n<sent>\nWhat is the answer based on the given image and sentence?")
 
 img_prompt_for_concat = 'Summary above image in one word: '
 text_prompt_for_concat = 'Summary above sentence in one word: '

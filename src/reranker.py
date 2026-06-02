@@ -95,7 +95,12 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     mistral_t2it_retrieval_origin_old_query_relevant_prompt, mistral_t2it_retrieval_old_query_relevant_prompt, \
     mistral_t2it_retrieval_query_relevant_prompt, t2it_retrieval_query_generation_paradigm_prompt, \
     t2it_retrieval_mistral_query_generation_paradigm_prompt, t2it_retrieval_mistral_query_generation_paradigm_prompt_1, \
-    t2it_retrieval_query_generation_paradigm_prompt_1
+    t2it_retrieval_query_generation_paradigm_prompt_1, it2t_retrieval_query_relevant_prompt, \
+    it2t_retrieval_old_query_relevant_prompt, it2t_retrieval_origin_old_query_relevant_prompt, \
+    mistral_it2t_retrieval_query_relevant_prompt, mistral_it2t_retrieval_old_query_relevant_prompt, \
+    mistral_it2t_retrieval_origin_old_query_relevant_prompt, it2t_retrieval_query_generation_paradigm_prompt, \
+    it2t_retrieval_mistral_query_generation_paradigm_prompt, it2t_retrieval_mistral_query_generation_paradigm_prompt_1, \
+    it2t_retrieval_query_generation_paradigm_prompt_1
 from io import BytesIO
 
 flickr_length_dict = {3: 3, 4: 5, 5: 26, 6: 83, 7: 196, 8: 316, 9: 376, 10: 447, 11: 446, 12: 455, 13: 399, 14: 403,
@@ -291,7 +296,24 @@ class Reranker:
                     else:
                         rerank_prompt_template = t2it_retrieval_old_query_relevant_prompt
             elif training_args.task_type == 'it2t':
-                pass
+                if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    if rerank_prompt_type == 'old_relevant':
+                        rerank_prompt_template = mistral_it2t_retrieval_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'query_relevant':
+                        rerank_prompt_template = mistral_it2t_retrieval_query_relevant_prompt
+                    elif rerank_prompt_type == 'origin_old_relevant':
+                        rerank_prompt_template = mistral_it2t_retrieval_origin_old_query_relevant_prompt
+                    else:
+                        rerank_prompt_template = mistral_it2t_retrieval_old_query_relevant_prompt
+                else:
+                    if rerank_prompt_type == 'old_relevant':
+                        rerank_prompt_template = it2t_retrieval_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'query_relevant':
+                        rerank_prompt_template = it2t_retrieval_query_relevant_prompt
+                    elif rerank_prompt_type == 'origin_old_relevant':
+                        rerank_prompt_template = it2t_retrieval_origin_old_query_relevant_prompt
+                    else:
+                        rerank_prompt_template = it2t_retrieval_old_query_relevant_prompt
             else:
                 if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                     if rerank_prompt_type == 'relevant':
@@ -691,14 +713,12 @@ class Reranker:
                         if dist.get_rank() == 0:
                             print(k)
                             print(candidate_pool)
-                        query_text = self.dataset.get_query[k]
+                        query_text = self.dataset.get_query(k)
                         for corpus_id, sim_score in candidate_pool.items():
                             candidate = self.dataset.get_candidate(corpus_id)
                             raw_image = Image.open(BytesIO(candidate['image']["bytes"])).convert("RGB")
                             text_input = rerank_prompt_template.replace('<sent>', candidate['text'])
                             text_input = text_input.replace('<sent>', query_text)
-                            inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
-                                self.model.device)
                             inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
                                 self.model.device)
                             output = self.model(**inputs, output_hidden_states=True, return_dict=True)
@@ -728,8 +748,55 @@ class Reranker:
                         if dist.get_rank() == 0:
                             print(sorted_by_value_rerank_run)
                         rerank_fusion_run[k] = sorted_by_value_rerank_run
-                elif training_args.task_type == 't2it':
-                    pass
+                elif training_args.task_type == 'it2t':
+                    for k, v in tqdm(fusion_run.items()):
+                        # k是查询的id，v是一个字典，key是候选的id，value是查询和候选的相似度
+                        sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
+                        candidate_pool = dict(sorted_by_value[:rerank_num])
+                        rerank_run = {}
+                        image_list = []
+                        text_list = []
+                        count = 0
+                        if dist.get_rank() == 0:
+                            print(k)
+                            print(candidate_pool)
+                        query_fusion = self.dataset.get_query(k)
+                        query_text = query_fusion['text']
+                        query_image = query_fusion['image']
+                        raw_image = Image.open(BytesIO(query_image["bytes"])).convert("RGB")
+                        for corpus_id, sim_score in candidate_pool.items():
+                            corpus_text = self.dataset.get_candidate(corpus_id)
+                            text_input = rerank_prompt_template.replace('<sent>', query_text)
+                            text_input = text_input.replace('<sent>', corpus_text)
+                            inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
+                                self.model.device)
+                            output = self.model(**inputs, output_hidden_states=True, return_dict=True)
+                            if data_args.reps_loc == 'after_pad':
+                                logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+                            else:
+                                logits = output.logits
+                                # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                                # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                                sequence_lengths = inputs['attention_mask'].sum(dim=-1) - 1
+                                batch_ids = torch.arange(len(inputs['input_ids']), device=logits.device)
+                                logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
+                                    batch_ids, sequence_lengths]
+                            if rerank_prompt_type != 'freeret':
+                                yes_id = self.vocab_dict['Yes']
+                                no_id = self.vocab_dict['No']
+                            else:
+                                yes_id = self.vocab_dict['A']
+                                no_id = self.vocab_dict['B']
+                            if log_likelihood:
+                                logits = torch.log_softmax(logits, dim=-1)
+                            logit_tensor = torch.stack([logits[:, yes_id], logits[:, no_id]], dim=1)
+                            output_probs = F.softmax(logit_tensor, dim=1)  # 同样指定dim=1
+                            yes_prob = output_probs.squeeze()[0]
+                            rerank_run[corpus_id] = float(yes_prob)
+                        sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
+                        if dist.get_rank() == 0:
+                            print(sorted_by_value_rerank_run)
+                        rerank_fusion_run[k] = sorted_by_value_rerank_run
                 else:
                     for k, v in tqdm(fusion_run.items()):
                         # k是查询的id，v是一个字典，key是候选的id，value是查询和候选的相似度
@@ -857,6 +924,11 @@ class Reranker:
                     rerank_prompt_template = person_retrieval_mistral_query_generation_paradigm_prompt_1
                 elif rerank_prompt_type == 'describe_caption_generation':
                     rerank_prompt_template = person_retrieval_mistral_query_generation_paradigm_prompt_2
+            elif training_args.task_type == 't2it':
+                if rerank_prompt_type == 'caption_generation':
+                    rerank_prompt_template = t2it_retrieval_mistral_query_generation_paradigm_prompt
+                else:
+                    rerank_prompt_template = t2it_retrieval_mistral_query_generation_paradigm_prompt_1
             else:
                 if rerank_prompt_type == 'caption_generation':
                     rerank_prompt_template = mistral_query_generation_paradigm_prompt
@@ -927,6 +999,11 @@ class Reranker:
                     rerank_prompt_template = person_retrieval_query_generation_paradigm_prompt_1
                 elif rerank_prompt_type == 'describe_caption_generation':
                     rerank_prompt_template = person_retrieval_query_generation_paradigm_prompt_2
+            elif training_args.task_type == 't2it':
+                if rerank_prompt_type == 'caption_generation':
+                    rerank_prompt_template = t2it_retrieval_query_generation_paradigm_prompt
+                else:
+                    rerank_prompt_template = t2it_retrieval_query_generation_paradigm_prompt_1
             else:
                 if rerank_prompt_type == 'caption_generation':
                     rerank_prompt_template = query_generation_paradigm_prompt
@@ -1209,6 +1286,143 @@ class Reranker:
                     if dist.get_rank() == 0:
                         print(sorted_by_value_rerank_run)
                     rerank_fusion_run[k] = sorted_by_value_rerank_run
+            elif training_args.task_type == 't2it':
+                for k, v in tqdm(fusion_run.items()):
+                    # k是查询的id，v是一个字典，key是候选的id，value是查询和候选的相似度
+                    sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
+                    candidate_pool = dict(sorted_by_value[:rerank_num])
+                    rerank_run = {}
+                    if dist.get_rank() == 0:
+                        print(k)
+                        print(candidate_pool)
+                    query_text = self.dataset.get_query(k)
+                    candidate_id_list = []
+                    candidate_image_list = []
+                    candidate_text_list = []
+                    sim_score_list = []
+                    for corpus_id, sim_score in candidate_pool.items():
+                        candidate = self.dataset.get_candidate(corpus_id)
+                        raw_image = Image.open(BytesIO(candidate['image']["bytes"])).convert("RGB")
+                        candidate_id_list.append(corpus_id)
+                        candidate_image_list.append(raw_image)
+                        candidate_text_list.append(candidate['text'])
+                        sim_score_list.append(sim_score)
+                    sharded_nll_list = []
+                    for indice in tqdm(range(0, len(candidate_id_list), rerank_batch_size)):
+                        image_shard = candidate_image_list[indice: indice + rerank_batch_size]
+                        text_shard = candidate_text_list[indice: indice + rerank_batch_size]
+                        text_input = [rerank_prompt_template.replace('<sent>', corpus_text) for corpus_text in text_shard]
+                        text_input = [text_in + query_text for text_in in text_input]
+                        inputs = self.processor(images=image_shard, text=text_input, return_tensors="pt").to(
+                            self.model.device)
+                        max_inputs_sum = inputs['input_ids'].shape[1]
+                        labels = [self.processor(text=query_text, return_tensors="pt")[
+                                      'input_ids'].squeeze().tolist()] * len(
+                            image_shard)
+                        # 去掉label的第一个起始符
+                        labels = [[-100] * (max_inputs_sum - len(label[1:])) + label[1:] for label in labels]
+                        labels_view = torch.tensor(labels).to(self.model.device)
+                        output = self.model(**inputs, output_hidden_states=True, return_dict=True)
+                        logits = output.logits
+                        shift_logits = logits[..., :-1, :].contiguous()
+                        shift_labels = labels_view[..., 1:].contiguous()
+
+                        loss_func = torch.nn.CrossEntropyLoss(reduction='none')
+                        nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                        nll = nll.view(shift_labels.size())
+                        # 这个为啥是sum呢？根据原论文，是要把各个token上预测结果概率的对数似然加和取平均，但这里似乎只是求了和
+                        # upr的代码中，指定了每个batch_size是1，也就是每次只针对1个查询计算
+                        avg_nll = torch.sum(nll, dim=1)
+                        valid_tokens = (labels_view != -100).sum(dim=1).float()
+                        avg_nll /= valid_tokens
+                        # 目前暂时认为avg_nll的大小是[batch_size]，直接tolist后就是对应img_id的相似度
+                        sharded_nll_list.extend(avg_nll.tolist())
+                    for img_id, nll in zip(candidate_id_list, sharded_nll_list):
+                        rerank_run[img_id] = -float(nll)
+                    sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
+                    if dist.get_rank() == 0:
+                        print(sorted_by_value_rerank_run)
+                    rerank_fusion_run[k] = sorted_by_value_rerank_run
+            elif training_args.task_type == 'it2t':
+                for k, v in tqdm(fusion_run.items()):
+                    sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
+                    candidate_pool = dict(sorted_by_value[:rerank_num])
+                    rerank_run = {}
+                    nll_rerank_run = {}
+                    single_nll_rerank_run = {}
+                    if dist.get_rank() == 0:
+                        print(k)
+                        print(candidate_pool)
+                    query_fusion = self.dataset.get_query(k)
+                    query_text = query_fusion['text']
+                    query_image = query_fusion['image']
+                    raw_image = Image.open(BytesIO(query_image["bytes"])).convert("RGB")
+                    corpus_id_list = []
+                    sim_score_list = []
+                    label_list = []
+                    corpus_text_list = []
+                    for corpus_id, sim_score in candidate_pool.items():
+                        corpus_id_list.append(corpus_id)
+                        corpus_text_list.append(self.dataset.get_candidate(corpus_id))
+                        sim_score_list.append(sim_score)
+                    sharded_nll_list = []
+                    single_sharded_nll_list = []
+
+                    for indice in tqdm(range(0, len(corpus_id_list), rerank_batch_size)):
+                        text_shard = corpus_text_list[indice: indice + rerank_batch_size]
+                        text_input = [rerank_prompt_template.replace('<sent>', query_text) + corpus_text for corpus_text in text_shard]
+                        image_shard = [raw_image] * len(text_shard)
+                        inputs = self.processor(images=image_shard, text=text_input, return_tensors="pt").to(
+                            self.model.device)
+                        max_inputs_sum = inputs['input_ids'].shape[1]
+                        labels = [self.processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist() for
+                                  text in text_shard]
+                        # 去掉label的第一个起始符
+                        labels = [[-100] * (max_inputs_sum - len(label[1:])) + label[1:] for label in labels]
+                        labels_view = torch.tensor(labels).to(self.model.device)
+                        output = self.model(**inputs, output_hidden_states=True, return_dict=True)
+                        logits = output.logits
+                        shift_logits = logits[..., :-1, :].contiguous()
+                        shift_labels = labels_view[..., 1:].contiguous()
+                        loss_func = torch.nn.CrossEntropyLoss(reduction='none')
+                        nll = loss_func(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                        nll = nll.view(shift_labels.size())
+                        avg_nll = torch.sum(nll, dim=1)
+
+                        valid_tokens = (labels_view != -100).sum(dim=1).float()
+                        avg_nll /= valid_tokens
+                        if search_args.modify_type == 'modify_single':
+                            text_inputs = self.processor(text=text_input, return_tensors="pt").to(self.model.device)
+                            text_max_inputs_sum = text_inputs['input_ids'].shape[1]
+                            text_labels = [
+                                self.processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist() for
+                                text in text_shard]
+                            # 去掉label的第一个起始符
+                            text_labels = [[-100] * (text_max_inputs_sum - len(label[1:])) + label[1:] for label in
+                                           text_labels]
+                            text_labels_view = torch.tensor(text_labels).to(self.model.device)
+                            text_output = self.model(**text_inputs, output_hidden_states=True, return_dict=True)
+                            text_logits = text_output.logits
+                            text_shift_logits = text_logits[..., :-1, :].contiguous()
+                            text_shift_labels = text_labels_view[..., 1:].contiguous()
+                            text_nll = loss_func(text_shift_logits.view(-1, text_shift_logits.size(-1)),
+                                                 text_shift_labels.view(-1))
+                            text_nll = text_nll.view(text_shift_labels.size())
+                            text_avg_nll = torch.sum(text_nll, dim=1)
+                            text_valid_tokens = (text_labels_view != -100).sum(dim=1).float()
+                            text_avg_nll /= text_valid_tokens
+
+                        sharded_nll_list.extend(avg_nll.tolist())
+                        if search_args.modify_type == 'modify_single':
+                            single_sharded_nll_list.extend(text_avg_nll.tolist())
+                    if search_args.modify_type == 'modify_single':
+                        for text_id, nll, single_nll in zip(corpus_id_list, sharded_nll_list, single_sharded_nll_list):
+                            rerank_run[text_id] = -float(nll) + float(single_nll)
+                            single_nll_rerank_run[text_id] = -float(single_nll)
+                            nll_rerank_run[text_id] = -float(nll)
+                    else:
+                        for text_id, nll in zip(corpus_id_list, sharded_nll_list):
+                            rerank_run[text_id] = -float(nll)
             else:
                 token_sum = 0
                 data_sum = 0
