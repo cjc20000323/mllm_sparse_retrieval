@@ -61,11 +61,11 @@ def main():
     # 指定模型
     if 'Meta-Llama-3-8B-Instruct' in model_args.model_name_or_path:
         model = LlamaForCausalLM.from_pretrained(model_args.model_name_or_path,
-                                                device_map=device_map, torch_dtype=torch_type)
+                                                 device_map=device_map, torch_dtype=torch_type)
         tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path)
     elif 'Mistral-7B-Instruct-v0.3' in model_args.model_name_or_path:
         model = MistralForCausalLM.from_pretrained(model_args.model_name_or_path,
-                                                device_map=device_map, torch_dtype=torch_type)
+                                                   device_map=device_map, torch_dtype=torch_type)
         tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path)
     else:
         model = LlamaForCausalLM.from_pretrained(model_args.model_name_or_path,
@@ -98,7 +98,8 @@ def main():
         itr_flickr_dataset = CrossModalRetrievalDataset('flickr', tokenizer, 'test', 'single')
         itr_coco_dataset = CrossModalRetrievalDataset('coco', tokenizer, 'test', 'single')
         cir_dataset = ComposedTextImageRetrievalDataset('fashion-iq', tokenizer, 'val', 'composed')
-        t2it_webqa_dataset = Text2ImagetextRetrievalDataset('webqa', tokenizer, 'test', 'query')
+        t2it_webqa_dataset = Text2ImagetextRetrievalDataset('webqa', tokenizer, 'test', 'corpus')
+        it2t_remuq_dataset = Imagetext2TextRetrievalDataset('remuq', tokenizer, 'test', 'query')
 
         tbpr_cuhk_pedes_dataloader = Data.DataLoader(dataset=tbpr_cuhk_pedes_dataset, batch_size=1, shuffle=False)
         tbpr_icfg_pedes_dataloader = Data.DataLoader(dataset=tbpr_icfg_pedes_dataset, batch_size=1, shuffle=False)
@@ -106,6 +107,7 @@ def main():
         itr_coco_dataloader = Data.DataLoader(dataset=itr_coco_dataset, batch_size=1, shuffle=False)
         cir_dataloader = Data.DataLoader(dataset=cir_dataset, batch_size=1, shuffle=False)
         t2it_webqa_dataloader = Data.DataLoader(dataset=t2it_webqa_dataset, batch_size=1, shuffle=False)
+        it2t_remuq_dataloader = Data.DataLoader(dataset=it2t_remuq_dataset, batch_size=1, shuffle=False)
 
         counter = 0
         tbpr_cuhk_pedes_demonstration = ''
@@ -114,6 +116,7 @@ def main():
         itr_coco_demonstration = ''
         cir_demonstration = ''
         t2it_webqa_demonstration = ''
+        it2t_remuq_demonstration = ''
         for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(tbpr_cuhk_pedes_dataloader),
                                                                      total=len(tbpr_cuhk_pedes_dataloader)):
             # print(texts)
@@ -182,7 +185,7 @@ def main():
             counter += 1
 
         counter = 0
-        for batch_idx, (query_texts, query_ids) in tqdm(
+        for batch_idx, (query_texts, query_images, query_ids) in tqdm(
                 enumerate(t2it_webqa_dataloader),
                 total=len(t2it_webqa_dataloader)):
             # print(texts)
@@ -191,6 +194,18 @@ def main():
             print(query_texts)
             t2it_webqa_demonstration += query_texts[0]
             t2it_webqa_demonstration += '\n'
+
+            if counter == prompt_generation_args.demonstration_num:
+                break
+            counter += 1
+
+        counter = 0
+        for batch_idx, (query_texts, query_images, query_ids) in tqdm(
+                enumerate(it2t_remuq_dataloader),
+                total=len(it2t_remuq_dataloader)):
+            print(query_texts)
+            it2t_remuq_demonstration += query_texts[0]
+            it2t_remuq_demonstration += '\n'
 
             if counter == prompt_generation_args.demonstration_num:
                 break
@@ -261,6 +276,29 @@ def main():
         print(tokenizer.decode(output[0], skip_special_tokens=True))
         print('Here is the filtered output')
         print(tokenizer.decode(output[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True))
+
+        if prompt_generation_args.prompt_generation_type == 'prompt_schema':
+            text_input = prompt.replace('<sent>', it2t_remuq_demonstration, 1)
+        elif prompt_generation_args.prompt_generation_type == 'prompt_schema_1':
+            text_input = prompt.replace('<sent>', itr_coco_demonstration, 1)
+            text_input = text_input.replace('<sent>', itr_five_aspects, 1)
+            text_input = text_input.replace('<sent>', it2t_remuq_demonstration, 1)
+        else:
+            text_input = prompt.replace('<sent>', itr_coco_demonstration, 1)
+            text_input = text_input.replace('<sent>', itr_five_aspects, 1)
+            text_input = text_input.replace('<sent>', tbpr_cuhk_pedes_demonstration, 1)
+            text_input = text_input.replace('<sent>', tbpr_five_aspects, 1)
+            text_input = text_input.replace('<sent>', it2t_remuq_demonstration, 1)
+        inputs = tokenizer(text_input, return_tensors="pt").to(model.device)
+        output = model.generate(**inputs, max_new_tokens=100)
+
+        print('it2t')
+        print(it2t_remuq_demonstration)
+        print('Here is the original output')
+        print(tokenizer.decode(output[0], skip_special_tokens=True))
+        print('Here is the filtered output')
+        print(tokenizer.decode(output[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True))
+
 
 if __name__ == "__main__":
     main()

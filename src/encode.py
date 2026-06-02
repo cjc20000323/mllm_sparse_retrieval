@@ -66,7 +66,8 @@ from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qw
     retrieval_disassemble_image_prompts_person_retrieval_for_concat_mistral_generation, llava_34b_template, \
     llava_34b_template_image_prefix, llava_34b_template_content_element, t2it_corpus_prompt, mistral_t2it_corpus_prompt, \
     llava_mistral_template_fusion_prefix, llama3_template_fusion_prefix, \
-    retrieval_disassemble_corpus_prompts_t2it_retrieval_for_concat, fusion_prompt_for_concat
+    retrieval_disassemble_corpus_prompts_t2it_retrieval_for_concat, fusion_prompt_for_concat, it2t_query_prompt, \
+    mistral_it2t_query_prompt, retrieval_disassemble_query_prompts_it2t_retrieval_for_concat
 from utils import load_image
 from io import BytesIO
 
@@ -1123,7 +1124,22 @@ def main():
                 else:
                     prompts = llama3_retrieval_disassemble_image_prompts
         elif training_args.task_type == 'it2t':
-            pass
+            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
+                prompt = img_prompt_no_special_llava_v1_5
+            elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                prompt = img_prompt_qwen_v2_5
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                prompt = img_prompt_qwen_v3
+            elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                prompt = img_prompt_intern_vl_v2_5
+                if dist.get_rank() == 0:
+                    print(prompt)
+            elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                prompt = mistral_it2t_query_prompt
+            elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                pass
+            else:
+                prompt = it2t_query_prompt
         else:
             if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
                 prompt = img_prompt_no_special_llava_v1_5
@@ -1930,6 +1946,93 @@ def main():
                                 )
                             )
 
+        elif training_args.task_type == 'it2t':
+            for batch_idx, (corpus_texts, corpus_ids) in tqdm(enumerate(test_dataloader),
+                                                                             total=len(test_dataloader)):
+                with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+                    if len(corpus_texts) != data_args.per_device_batch_size:
+                        print(len(corpus_texts))
+                        print(dist.get_rank())
+                    if model_args.calculate_type == 'separate':
+                        '''
+                        if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                            prompt = processor.apply_chat_template(
+                                img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
+                            )
+                        '''
+                        logits, reps = model.encode_data_for_it2t(corpus_texts, 'corpus', processor, device, model_args,
+                                                                  data_args)
+                    else:
+                        logits, reps = model.encode_data_concat_for_it2t(corpus_texts, 'corpus',
+                                                                                           processor,
+                                                                                           device,
+                                                                                           model_args, data_args)
+                        if 'disassembleeol_concrete' in model_args.eol_type:
+                            disassemble_logits = logits[data_args.per_device_batch_size:]
+                            logits = logits[:data_args.per_device_batch_size]
+                        elif 'disassembleeol' in model_args.eol_type:
+                            disassemble_logits = logits
+                    # print(logits.shape)
+                    reps = F.normalize(reps, dim=-1)
+                    if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                        if model_args.calculate_type == 'concat':
+                            prompt_length = len(retrieval_disassemble_query_prompts_it2t_retrieval_for_concat)
+                        else:
+                            prompt_length = len(retrieval_disassemble_query_prompts_it2t_retrieval_for_concat)
+                        reps = reps.reshape(-1, prompt_length, reps.shape[1]).mean(1)
+                    lookup_indices.extend(corpus_ids)
+
+                    encoded.append(reps.cpu().detach().float().numpy())
+                    ids = corpus_ids
+                    if 'disassembleeol' in model_args.eol_type:
+                        for corpus_indice in range(len(ids)):
+                            id = ids[corpus_indice]
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                logit = logits[corpus_indice]
+                            corpus_text = corpus_texts[corpus_indice]
+                            if data_args.prompt_type == 'prompt_5':
+                                length = len(retrieval_disassemble_query_prompts_it2t_retrieval_for_concat)
+                            disassemble_logit = disassemble_logits[
+                                                corpus_indice * length:(corpus_indice + 1) * length]
+                            vector = dict()
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                tokens, values = get_text_valid_disassemble_tokens_values(corpus_text,
+                                                                                          processor.tokenizer,
+                                                                                          disassemble_logit,
+                                                                                          vocab_dict,
+                                                                                          data_args,
+                                                                                          filtered_ids, logit,
+                                                                                          model_args)
+                            else:
+                                tokens, values = get_text_valid_disassemble_tokens_values(corpus_text,
+                                                                                          processor.tokenizer,
+                                                                                          disassemble_logit,
+                                                                                          vocab_dict,
+                                                                                          data_args,
+                                                                                          filtered_ids, None,
+                                                                                          model_args)
+
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
+                                        vector[token] = int(v)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
+                            if data_args.sparse_value_mean:
+                                for token in vector.keys():
+                                    vector[token] //= len(retrieval_disassemble_query_prompts_it2t_retrieval_for_concat)
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
+                                )
+                            )
 
         else:
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),

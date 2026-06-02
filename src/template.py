@@ -92,7 +92,10 @@ t2it_query_prompt = llama3_template.format('<sent>\n<|begin_of_text|>Summary abo
 t2it_corpus_prompt = llama3_template.format('<image>\n<sent>\n<|begin_of_text|>Summary above image and sentence in one word: ')
 mistral_t2it_query_prompt = llava_mistral_template.format('<sent>\n<s>Summary above sentence in one word: ')
 mistral_t2it_corpus_prompt = llava_mistral_template.format('<image>\n<sent>\n<s>Summary above image and sentence in one word: ')
-
+it2t_query_prompt = llama3_template.format('<image>\n<sent>\n<|begin_of_text|>Summary above image and sentence in one word: ')
+it2t_corpus_prompt = llama3_template.format('<sent>\n<|begin_of_text|>Summary above sentence in one word: ')
+mistral_it2t_query_prompt = llava_mistral_template.format('<image>\n<sent>\n<|begin_of_text|>Summary above image and sentence in one word: ')
+mistral_it2t_corpus_prompt = llava_mistral_template.format('<sent>\n<|begin_of_text|>Summary above sentence in one word: ')
 
 llama3_fashion_iq_composed_image_prompt = llama3_template.format('<image> change the style of this {} to <sent>\n<|begin_of_text|>Describe this modified {} in one word based on its style: ')
 mistral_fashion_iq_composed_image_prompt = llava_mistral_template.format('<image> change the style of this {} to <sent>\n<s>Describe this modified {} in one word based on its style: ')
@@ -319,10 +322,10 @@ person_retrieval_qwen3_query_generation_paradigm_prompt_1 = qwen3_template.forma
 person_retrieval_llava_34b_query_generation_paradigm_prompt = llava_34b_template.format("Person Image: <image>\nPlease write a caption based on this person image.")
 person_retrieval_llava_34b_query_generation_paradigm_prompt_1 = llava_34b_template.format("Person Image: <image>\nWhat is the caption of the above person image?")
 
-t2it_retrieval_query_generation_paradigm_prompt = llama3_template.format("Image and Sentence: <image>\n<sent>\nPlease write a query question related to the given image and sentence.")
-t2it_retrieval_mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image and Sentence: <image>\n<sent>\nPlease write a query question related to the given image and sentence.")
-t2it_retrieval_query_generation_paradigm_prompt_1 = llama3_template.format("Image and Sentence: <image>\n<sent>\nWhat is the query question related to the given image and sentence?")
-t2it_retrieval_mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Image and Sentence: <image>\n<sent>\nWhat is the query question related to the given image and sentence?")
+t2it_retrieval_query_generation_paradigm_prompt = llama3_template.format("Image and Sentence: <image>\n<sent>\nPlease write a query question based on the given image and sentence.")
+t2it_retrieval_mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image and Sentence: <image>\n<sent>\nPlease write a query question based on the given image and sentence.")
+t2it_retrieval_query_generation_paradigm_prompt_1 = llama3_template.format("Image and Sentence: <image>\n<sent>\nWhat is the query question based on the given image and sentence?")
+t2it_retrieval_mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Image and Sentence: <image>\n<sent>\nWhat is the query question based on the given image and sentence?")
 # it2t_retrieval_query_generation_paradigm_prompt = llama3_template.format()
 # it2t_retrieval_mistral_query_generation_paradigm_prompt = llava_mistral_template.format()
 # it2t_retrieval_query_generation_paradigm_prompt_1 = llama3_template.format()
@@ -815,7 +818,7 @@ retrieval_disassemble_image_prompts_person_retrieval_7_for_concat = [
 ]
 
 retrieval_disassemble_query_prompts_t2it_retrieval_for_concat = [
-    'Summary the events in above sentence in one word: ',
+    'Summary the events and actions in above sentence in one word: ',
     'Summary the environment and geographical locations, such as architecture, buildings or structures',
     'Summary the time in above sentence in one word: ',
     'Summary the appearance, such as color, material, decoration, shape and so on, of main people or objects in above sentence in one word: ',
@@ -823,11 +826,27 @@ retrieval_disassemble_query_prompts_t2it_retrieval_for_concat = [
 ]
 
 retrieval_disassemble_corpus_prompts_t2it_retrieval_for_concat = [
-    'Summary the events in above image and sentence in one word: ',
+    'Summary the events and actions in above image and sentence in one word: ',
     'Summary the environment and geographical locations, such as architecture, buildings or structures, in above image and sentence in one word: ',
     'Summary the time in above image and sentence in one word: ',
     'Summary the appearance, such as color, material, decoration, shape and so on, of main people or objects in above image and sentence in one word: ',
     'Summary the main person or objects in above image and sentence in one word: ',
+]
+
+retrieval_disassemble_query_prompts_it2t_retrieval_for_concat = [
+    'Summary the main person or objects in above image and sentence in one word: ',
+    'Summary the environment and geographical locations, such as architecture, buildings or structures, in above image and sentence in one word: ',
+    'Summary the appearance, such as color, material, decoration, shape and so on, of main people or objects in above image and sentence in one word: ',
+    'Summary the events and actions in above image and sentence in one word: ',
+    'Summary the time in above image and sentence in one word: ',
+]
+
+retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat = [
+    'Summary the main person or objects in above sentence in one word: ',
+    'Summary the environment and geographical locations, such as architecture, buildings or structures, in above sentence in one word: ',
+    'Summary the appearance, such as color, material, decoration, shape and so on, of main people or objects in above sentence in one word: ',
+    'Summary the events and actions in above sentence in one word: ',
+    'Summary the time in above sentence in one word: ',
 ]
 
 

@@ -586,11 +586,10 @@ class Imagetext2TextRetrievalDataset(Dataset):
         for idx, row in df_rel.iterrows():
             self.query2candidate[row['query-id']] = row['corpus-id']
 
-        for corpus_path in self.dataset_file['corpus']:
-            df_corpus = pd.read_parquet(corpus_path)
-            for idx, row in df_corpus.iterrows():
-                self.id2candidate[row['id']] = row['text']
-                self.candidate_id_list.append(row['id'])
+        df_corpus = pd.read_parquet(self.dataset_file['corpus'])
+        for idx, row in df_corpus.iterrows():
+            self.id2candidate[row['id']] = row['text']
+            self.candidate_id_list.append(row['id'])
 
 
     def __len__(self):
