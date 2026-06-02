@@ -1123,23 +1123,6 @@ def main():
                     pass
                 else:
                     prompts = llama3_retrieval_disassemble_image_prompts
-        elif training_args.task_type == 'it2t':
-            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
-                prompt = img_prompt_no_special_llava_v1_5
-            elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-                prompt = img_prompt_qwen_v2_5
-            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-                prompt = img_prompt_qwen_v3
-            elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                prompt = img_prompt_intern_vl_v2_5
-                if dist.get_rank() == 0:
-                    print(prompt)
-            elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-                prompt = mistral_it2t_query_prompt
-            elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
-                pass
-            else:
-                prompt = it2t_query_prompt
         else:
             if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
                 prompt = img_prompt_no_special_llava_v1_5

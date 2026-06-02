@@ -81,6 +81,11 @@ class RecallMetrics:
             sorted_by_value = sorted(dictionary.items(), key=lambda x: x[1], reverse=True)
             sorted_by_value_dicts = {k: dict(sorted_by_value[:k]) for k in self.recall_k_setting_list}
             search_results = {k: list(sorted_by_value_dicts[k]) for k in self.recall_k_setting_list}
+        elif self.dataset.data_name == 'remuq':
+            # 图文到文本检索，
+            sorted_by_value = sorted(dictionary.items(), key=lambda x: x[1], reverse=True)
+            sorted_by_value_dicts = {k: dict(sorted_by_value[:k]) for k in self.recall_k_setting_list}
+            search_results = {k: list(sorted_by_value_dicts[k]) for k in self.recall_k_setting_list}
         else:
             # 行人检索，与图文检索并不一样，search_results应该再到数据集里面查询一下，根据img_id获取person_id
             sorted_by_value = sorted(dictionary.items(), key=lambda x: x[1], reverse=True)
@@ -127,6 +132,12 @@ class RecallMetrics:
                         continue
                     search_results = self._sort(v['docs'])
                     self._count('dense', search_results, target)
+                elif self.dataset.data_name == 'remuq':
+                    target = self.dataset.get_target(k)
+                    if len(v['docs']) == 0:
+                        continue
+                    search_results = self._sort(v['docs'])
+                    self._count('dense', search_results, target)
                 else:
                     target = self.dataset.get_target_from_text(k)
                     if isinstance(target, list):
@@ -159,6 +170,12 @@ class RecallMetrics:
                     search_results = self._sort(v['docs'])
                     self._count('sparse', search_results, target)
                 elif self.dataset.data_name == 'webqa':
+                    target = self.dataset.get_target(k)
+                    if len(v['docs']) == 0:
+                        continue
+                    search_results = self._sort(v['docs'])
+                    self._count('dense', search_results, target)
+                elif self.dataset.data_name == 'remuq':
                     target = self.dataset.get_target(k)
                     if len(v['docs']) == 0:
                         continue
@@ -203,6 +220,13 @@ class RecallMetrics:
                     search_results = self._sort(v)
                     self._count('fusion', search_results, target)
                 elif self.dataset.data_name == 'webqa':
+                    target = self.dataset.get_target(k)
+                    if len(v) == 0:
+                        continue
+
+                    search_results = self._sort(v)
+                    self._count('fusion', search_results, target)
+                elif self.dataset.data_name == 'remuq':
                     target = self.dataset.get_target(k)
                     if len(v) == 0:
                         continue
