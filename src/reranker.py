@@ -90,7 +90,13 @@ from template import relevant_prompt, in_one_word_relevant_prompt, text_query_re
     llava_34b_person_retrieval_query_relevant_prompt, llava_34b_person_retrieval_reverse_query_relevant_prompt, \
     llava_34b_text_query_relevant_prompt, llava_34b_image_query_relevant_prompt, \
     llava_34b_text_reverse_query_relevant_prompt, \
-    llava_34b_image_reverse_query_relevant_prompt
+    llava_34b_image_reverse_query_relevant_prompt, t2it_retrieval_old_query_relevant_prompt, \
+    t2it_retrieval_query_relevant_prompt, t2it_retrieval_origin_old_query_relevant_prompt, \
+    mistral_t2it_retrieval_origin_old_query_relevant_prompt, mistral_t2it_retrieval_old_query_relevant_prompt, \
+    mistral_t2it_retrieval_query_relevant_prompt, t2it_retrieval_query_generation_paradigm_prompt, \
+    t2it_retrieval_mistral_query_generation_paradigm_prompt, t2it_retrieval_mistral_query_generation_paradigm_prompt_1, \
+    t2it_retrieval_query_generation_paradigm_prompt_1
+from io import BytesIO
 
 flickr_length_dict = {3: 3, 4: 5, 5: 26, 6: 83, 7: 196, 8: 316, 9: 376, 10: 447, 11: 446, 12: 455, 13: 399, 14: 403,
                       15: 343, 16: 287, 17: 213, 18: 179, 19: 134, 20: 127, 21: 82, 22: 78, 23: 83, 24: 45, 25: 40,
@@ -265,6 +271,27 @@ class Reranker:
                         rerank_prompt_template = freeret_text_rerank_prompt
                     else:
                         rerank_prompt_template = person_retrieval_relevant_prompt
+            elif training_args.task_type == 't2it':
+                if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    if rerank_prompt_type == 'old_relevant':
+                        rerank_prompt_template = mistral_t2it_retrieval_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'query_relevant':
+                        rerank_prompt_template = mistral_t2it_retrieval_query_relevant_prompt
+                    elif rerank_prompt_type == 'origin_old_relevant':
+                        rerank_prompt_template = mistral_t2it_retrieval_origin_old_query_relevant_prompt
+                    else:
+                        rerank_prompt_template = mistral_t2it_retrieval_old_query_relevant_prompt
+                else:
+                    if rerank_prompt_type == 'old_relevant':
+                        rerank_prompt_template = t2it_retrieval_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'query_relevant':
+                        rerank_prompt_template = t2it_retrieval_query_relevant_prompt
+                    elif rerank_prompt_type == 'origin_old_relevant':
+                        rerank_prompt_template = t2it_retrieval_origin_old_query_relevant_prompt
+                    else:
+                        rerank_prompt_template = t2it_retrieval_old_query_relevant_prompt
+            elif training_args.task_type == 'it2t':
+                pass
             else:
                 if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                     if rerank_prompt_type == 'relevant':
@@ -653,6 +680,56 @@ class Reranker:
                         if dist.get_rank() == 0:
                             print(sorted_by_value_rerank_run)
                         rerank_fusion_run[k] = sorted_by_value_rerank_run
+                elif training_args.task_type == 't2it':
+                    for k, v in tqdm(fusion_run.items()):
+                        sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
+                        candidate_pool = dict(sorted_by_value[:rerank_num])
+                        rerank_run = {}
+                        image_list = []
+                        text_list = []
+                        count = 0
+                        if dist.get_rank() == 0:
+                            print(k)
+                            print(candidate_pool)
+                        query_text = self.dataset.get_query[k]
+                        for corpus_id, sim_score in candidate_pool.items():
+                            candidate = self.dataset.get_candidate(corpus_id)
+                            raw_image = Image.open(BytesIO(candidate['image']["bytes"])).convert("RGB")
+                            text_input = rerank_prompt_template.replace('<sent>', candidate['text'])
+                            text_input = text_input.replace('<sent>', query_text)
+                            inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
+                                self.model.device)
+                            inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
+                                self.model.device)
+                            output = self.model(**inputs, output_hidden_states=True, return_dict=True)
+                            if data_args.reps_loc == 'after_pad':
+                                logits, embs = output.logits[:, -1, :], output.hidden_states[-1][:, -1, :]
+                            else:
+                                logits = output.logits
+                                # 由于每个批次数据长度不一定相同，为了批处理会有[pad]填充，这里是类似生成任务取next_token，因此不太好直接用最后一个logit和embedding结果，
+                                # 所以使用注意力判断每个样本长度，然后把对应的logit和embedding取出来，这样才能排除[pad]的影响
+                                sequence_lengths = inputs['attention_mask'].sum(dim=-1) - 1
+                                batch_ids = torch.arange(len(inputs['input_ids']), device=logits.device)
+                                logits, embs = output.logits[batch_ids, sequence_lengths], output.hidden_states[-1][
+                                    batch_ids, sequence_lengths]
+                            if rerank_prompt_type != 'freeret':
+                                yes_id = self.vocab_dict['Yes']
+                                no_id = self.vocab_dict['No']
+                            else:
+                                yes_id = self.vocab_dict['A']
+                                no_id = self.vocab_dict['B']
+                            if log_likelihood:
+                                logits = torch.log_softmax(logits, dim=-1)
+                            logit_tensor = torch.stack([logits[:, yes_id], logits[:, no_id]], dim=1)
+                            output_probs = F.softmax(logit_tensor, dim=1)  # 同样指定dim=1
+                            yes_prob = output_probs.squeeze()[0]
+                            rerank_run[corpus_id] = float(yes_prob)
+                        sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
+                        if dist.get_rank() == 0:
+                            print(sorted_by_value_rerank_run)
+                        rerank_fusion_run[k] = sorted_by_value_rerank_run
+                elif training_args.task_type == 't2it':
+                    pass
                 else:
                     for k, v in tqdm(fusion_run.items()):
                         # k是查询的id，v是一个字典，key是候选的id，value是查询和候选的相似度

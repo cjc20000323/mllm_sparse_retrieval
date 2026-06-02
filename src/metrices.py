@@ -243,7 +243,7 @@ class RecallMetrics:
                     else:
                         self.fusion_counts[dress_type][k] += 1
             elif self.dataset.data_name == 'webqa':
-                if target in search_results[k]:
+                if set(target) & set(search_results[k]):
                     if result_type == 'dense':
                         self.dense_counts[k] += 1
                     elif result_type == 'sparse':

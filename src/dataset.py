@@ -510,7 +510,10 @@ class Text2ImagetextRetrievalDataset(Dataset):
             self.query_id_list.append(row['id'])
         df_rel = pd.read_parquet(self.dataset_file['rel'])
         for idx, row in df_rel.iterrows():
-            self.query2candidate[row['query-id']] = row['corpus-id']
+            if row['query-id'] not in self.query2candidate.keys():
+                self.query2candidate[row['query-id']] = [row['corpus-id']]
+            else:
+                self.query2candidate[row['query-id']].append(row['corpus-id'])
 
         for corpus_path in self.dataset_file['corpus']:
             df_corpus = pd.read_parquet(corpus_path)

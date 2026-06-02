@@ -265,6 +265,12 @@ qwen3_person_retrieval_query_relevant_prompt = qwen3_template.format("For the fo
 llava_34b_person_retrieval_query_relevant_prompt = llava_34b_template.format("For the following query sentence and candidate image, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Sentence: <sent> Candidate Image: <image> Output: ")
 llava_34b_person_retrieval_reverse_query_relevant_prompt = llava_34b_template.format("For the following query sentence and candidate person image, judge whether they are relevant. Output 'Yes' or 'No'.\nCandidate Person Image: <image> Query Sentence: <sent> Output: ")
 
+t2it_retrieval_old_query_relevant_prompt = llama3_template.format("Candidate image and text: <image>\n<sent>\nQuery: <sent>\n Does the candidate image and text answer the query text?  Answer 'Yes' or 'No'.  Answer: ")
+t2it_retrieval_query_relevant_prompt = llama3_template.format("For the following query sentence and candidate image and sentence, judge whether they are relevant. Output 'Yes' or 'No'.\nCandidate Image and Sentence: <image> <sent> Query Sentence: <sent> Output: ")
+t2it_retrieval_origin_old_query_relevant_prompt = llama3_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate Image and Sentence: <image>\n<sent>\nQuery: <sent>\nDoes the candidate answer the query? Answer: ")
+mistral_t2it_retrieval_old_query_relevant_prompt = llava_mistral_template.format("Candidate image and sentence: <image>\n<sent>\nQuery: <sent>\n Does the candidate image and text answer the query text?  Answer 'Yes' or 'No'.  Answer: ")
+mistral_t2it_retrieval_query_relevant_prompt = llava_mistral_template.format("For the following query sentence and candidate image and sentence, judge whether they are relevant. Output 'Yes' or 'No'.\nCandidate Image and Sentence: <image> <sent> Query Sentence: <sent> Output: ")
+mistral_t2it_retrieval_origin_old_query_relevant_prompt = llama3_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nCandidate Image and Sentence: <image>\n<sent>\nQuery: <sent>\nDoes the candidate answer the query? Answer: ")
 
 mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image: <image>\nPlease write a caption based on this image.")
 query_generation_paradigm_prompt = llama3_template.format("Image: <image>\nPlease write a caption based on this image.")
@@ -313,6 +319,14 @@ person_retrieval_qwen3_query_generation_paradigm_prompt_1 = qwen3_template.forma
 person_retrieval_llava_34b_query_generation_paradigm_prompt = llava_34b_template.format("Person Image: <image>\nPlease write a caption based on this person image.")
 person_retrieval_llava_34b_query_generation_paradigm_prompt_1 = llava_34b_template.format("Person Image: <image>\nWhat is the caption of the above person image?")
 
+t2it_retrieval_query_generation_paradigm_prompt = llama3_template.format("Image and Sentence: <image>\n<sent>\nPlease write a query question related to the given image and sentence.")
+t2it_retrieval_mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image and Sentence: <image>\n<sent>\nPlease write a query question related to the given image and sentence.")
+t2it_retrieval_query_generation_paradigm_prompt_1 = llama3_template.format("Image and Sentence: <image>\n<sent>\nWhat is the query question related to the given image and sentence?")
+t2it_retrieval_mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Image and Sentence: <image>\n<sent>\nWhat is the query question related to the given image and sentence?")
+# it2t_retrieval_query_generation_paradigm_prompt = llama3_template.format()
+# it2t_retrieval_mistral_query_generation_paradigm_prompt = llava_mistral_template.format()
+# it2t_retrieval_query_generation_paradigm_prompt_1 = llama3_template.format()
+# it2t_retrieval_mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format()
 
 img_prompt_for_concat = 'Summary above image in one word: '
 text_prompt_for_concat = 'Summary above sentence in one word: '
