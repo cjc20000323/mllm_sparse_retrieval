@@ -37,10 +37,6 @@ class RecallMetrics:
                                         self.recall_k_setting_list} for dress_type in self.fashion_iq_list}
             self.fusion_recall_lists = {dress_type: {k: [[None] for _ in range(dist.get_world_size())] for k in
                                         self.recall_k_setting_list} for dress_type in self.fashion_iq_list}
-        elif dataset.data_name == 'webqa':
-            pass
-        elif dataset.data_name == '':
-            pass
         else:
             self.dense_recall_lists = {k: [[None] for _ in range(dist.get_world_size())] for k in
                                        self.recall_k_setting_list}
@@ -77,6 +73,11 @@ class RecallMetrics:
                               self.recall_k_setting_list}
         elif self.dataset.data_name == 'fashion-iq':
             # 合成检索，key值是字符串，所以不能转换成张量
+            sorted_by_value = sorted(dictionary.items(), key=lambda x: x[1], reverse=True)
+            sorted_by_value_dicts = {k: dict(sorted_by_value[:k]) for k in self.recall_k_setting_list}
+            search_results = {k: list(sorted_by_value_dicts[k]) for k in self.recall_k_setting_list}
+        elif self.dataset.data_name == 'webqa':
+            # 文本到图文检索，
             sorted_by_value = sorted(dictionary.items(), key=lambda x: x[1], reverse=True)
             sorted_by_value_dicts = {k: dict(sorted_by_value[:k]) for k in self.recall_k_setting_list}
             search_results = {k: list(sorted_by_value_dicts[k]) for k in self.recall_k_setting_list}
@@ -120,6 +121,12 @@ class RecallMetrics:
 
                     search_results = self._sort(v['docs'])
                     self._count('dense', search_results, target)
+                elif self.dataset.data_name == 'webqa':
+                    target = self.dataset.get_target(k)
+                    if len(v['docs']) == 0:
+                        continue
+                    search_results = self._sort(v['docs'])
+                    self._count('dense', search_results, target)
                 else:
                     target = self.dataset.get_target_from_text(k)
                     if isinstance(target, list):
@@ -151,6 +158,12 @@ class RecallMetrics:
 
                     search_results = self._sort(v['docs'])
                     self._count('sparse', search_results, target)
+                elif self.dataset.data_name == 'webqa':
+                    target = self.dataset.get_target(k)
+                    if len(v['docs']) == 0:
+                        continue
+                    search_results = self._sort(v['docs'])
+                    self._count('dense', search_results, target)
                 else:
                     target = self.dataset.get_target_from_text(k)
                     if isinstance(target, list):
@@ -183,6 +196,13 @@ class RecallMetrics:
                         self.wrong_dict[k] = search_results[1]
                     self._count('fusion', search_results, target)
                 elif self.dataset.data_name == 'fashion-iq':
+                    target = self.dataset.get_target(k)
+                    if len(v) == 0:
+                        continue
+
+                    search_results = self._sort(v)
+                    self._count('fusion', search_results, target)
+                elif self.dataset.data_name == 'webqa':
                     target = self.dataset.get_target(k)
                     if len(v) == 0:
                         continue
@@ -222,6 +242,22 @@ class RecallMetrics:
                         self.sparse_counts[dress_type][k] += 1
                     else:
                         self.fusion_counts[dress_type][k] += 1
+            elif self.dataset.data_name == 'webqa':
+                if target in search_results[k]:
+                    if result_type == 'dense':
+                        self.dense_counts[k] += 1
+                    elif result_type == 'sparse':
+                        self.sparse_counts[k] += 1
+                    else:
+                        self.fusion_counts[k] += 1
+            elif self.dataset.data_name == 'remuq':
+                if target in search_results[k]:
+                    if result_type == 'dense':
+                        self.dense_counts[k] += 1
+                    elif result_type == 'sparse':
+                        self.sparse_counts[k] += 1
+                    else:
+                        self.fusion_counts[k] += 1
             else:
                 # 行人检索
                 if True in torch.isin(search_results[k], target):

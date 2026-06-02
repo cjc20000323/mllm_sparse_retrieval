@@ -98,7 +98,7 @@ def main():
         itr_flickr_dataset = CrossModalRetrievalDataset('flickr', tokenizer, 'test', 'single')
         itr_coco_dataset = CrossModalRetrievalDataset('coco', tokenizer, 'test', 'single')
         cir_dataset = ComposedTextImageRetrievalDataset('fashion-iq', tokenizer, 'val', 'composed')
-        t2it_webqa_dataset = Text2ImagetextRetrievalDataset('webqa', tokenizer, 'test', 'corpus')
+        t2it_webqa_dataset = Text2ImagetextRetrievalDataset('webqa', tokenizer, 'test', 'query')
 
         tbpr_cuhk_pedes_dataloader = Data.DataLoader(dataset=tbpr_cuhk_pedes_dataset, batch_size=1, shuffle=False)
         tbpr_icfg_pedes_dataloader = Data.DataLoader(dataset=tbpr_icfg_pedes_dataset, batch_size=1, shuffle=False)
@@ -182,14 +182,14 @@ def main():
             counter += 1
 
         counter = 0
-        for batch_idx, (corpus_texts, corpus_images, query_ids) in tqdm(
+        for batch_idx, (query_texts, query_ids) in tqdm(
                 enumerate(t2it_webqa_dataloader),
                 total=len(t2it_webqa_dataloader)):
             # print(texts)
 
             # cir_demonstration += f'{counter}. '
-            print(corpus_texts)
-            t2it_webqa_demonstration += corpus_texts[0]
+            print(query_texts)
+            t2it_webqa_demonstration += query_texts[0]
             t2it_webqa_demonstration += '\n'
 
             if counter == prompt_generation_args.demonstration_num:

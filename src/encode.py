@@ -1822,113 +1822,113 @@ def main():
                             logits = logits[:data_args.per_device_batch_size]
                         elif 'disassembleeol' in model_args.eol_type:
                             disassemble_logits = logits
+                    # print(logits.shape)
+                    reps = F.normalize(reps, dim=-1)
 
-                        # print(logits.shape)
-                        reps = F.normalize(reps, dim=-1)
-                        if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                            prompt_length = 5
-                            reps = reps.reshape(-1, prompt_length, reps.shape[1]).mean(1)
-                        lookup_indices.extend(corpus_ids)
+                    if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                        prompt_length = len(retrieval_disassemble_corpus_prompts_t2it_retrieval_for_concat)
+                        reps = reps.reshape(-1, prompt_length, reps.shape[1]).mean(1)
+                    lookup_indices.extend(corpus_ids)
 
-                        encoded.append(reps.cpu().detach().float().numpy())
+                    encoded.append(reps.cpu().detach().float().numpy())
 
-                        ids = corpus_ids
-                        if 'disassembleeol' in model_args.eol_type:
-                            for corpus_indice in range(len(ids)):
-                                id = ids[corpus_indice]
-                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                                    logit = logits[corpus_indice]
-                                text = corpus_texts[corpus_indice]
-                                length = len(retrieval_disassemble_corpus_prompts_t2it_retrieval_for_concat)
-                                disassemble_logit = disassemble_logits[
-                                                    corpus_indice * length:(corpus_indice + 1) * length]
-                                vector = dict()
-                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                                    tokens, values = get_img_valid_disassemble_tokens_values(processor,
-                                                                                             disassemble_logit,
-                                                                                             vocab_dict,
-                                                                                             data_args,
-                                                                                             filtered_ids, logit,
-                                                                                             model_args)
-                                else:
-                                    tokens, values = get_img_valid_disassemble_tokens_values(processor,
-                                                                                             disassemble_logit,
-                                                                                             vocab_dict,
-                                                                                             data_args,
-                                                                                             filtered_ids, None,
-                                                                                             model_args)
-                                for token, v in zip(tokens, values):
-                                    if token in vector.keys():
-                                        if data_args.sparse_value_type == 'replace':
-                                            vector[token] = int(v)
-                                        elif data_args.sparse_value_type == 'sum':
-                                            vector[token] += int(v)
-                                        else:
-                                            if int(v) > vector[token]:
-                                                vector[token] = int(v)
-                                    else:
+                    ids = corpus_ids
+                    if 'disassembleeol' in model_args.eol_type:
+                        for corpus_indice in range(len(ids)):
+                            id = ids[corpus_indice]
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                logit = logits[corpus_indice]
+                            text = corpus_texts[corpus_indice]
+                            length = len(retrieval_disassemble_corpus_prompts_t2it_retrieval_for_concat)
+                            disassemble_logit = disassemble_logits[
+                                                corpus_indice * length:(corpus_indice + 1) * length]
+                            vector = dict()
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                         disassemble_logit,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, logit,
+                                                                                         model_args)
+                            else:
+                                tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                         disassemble_logit,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, None,
+                                                                                         model_args)
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
                                         vector[token] = int(v)
-                                if data_args.sparse_value_mean:
-                                    for token in vector.keys():
-                                        vector[token] //= length
-                                jsonl_data.append(
-                                    dict(
-                                        id=id,
-                                        content="",
-                                        vector=vector,
-                                    )
-                                )
-
-                        else:
-                            for id, logit, text in zip(ids, logits, corpus_texts):
-                                vector = dict()
-                                if model_args.use_output_embedding_cluster:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                        tokens, values = get_img_valid_tokens_values_with_cluster(processor, logit,
-                                                                                                  centroids_dict,
-                                                                                                  origin_to_centroids_dict,
-                                                                                                  data_args,
-                                                                                                  filtered_ids)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
                                     else:
-                                        tokens, values = get_img_valid_tokens_values_with_cluster(
-                                            processor.tokenizer,
-                                            logit,
-                                            centroids_dict,
-                                            origin_to_centroids_dict,
-                                            data_args,
-                                            filtered_ids)
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
                                 else:
-                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                                        tokens, values = get_img_valid_tokens_values(processor, logit, vocab_dict,
+                                    vector[token] = int(v)
+                            if data_args.sparse_value_mean:
+                                for token in vector.keys():
+                                    vector[token] //= length
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
+                                )
+                            )
+
+                    else:
+                        for id, logit, text in zip(ids, logits, corpus_texts):
+                            vector = dict()
+                            if model_args.use_output_embedding_cluster:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values_with_cluster(processor, logit,
+                                                                                              centroids_dict,
+                                                                                              origin_to_centroids_dict,
+                                                                                              data_args,
+                                                                                              filtered_ids)
+                                else:
+                                    tokens, values = get_img_valid_tokens_values_with_cluster(
+                                        processor.tokenizer,
+                                        logit,
+                                        centroids_dict,
+                                        origin_to_centroids_dict,
+                                        data_args,
+                                        filtered_ids)
+                            else:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values(processor, logit, vocab_dict,
+                                                                                 data_args, filtered_ids)
+                                else:
+                                    if model_args.eol_type == 'prompteol_same_length':
+                                        tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                     vocab_dict,
+                                                                                     data_args, filtered_ids,
+                                                                                     text=text)
+                                    else:
+                                        tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                     vocab_dict,
                                                                                      data_args, filtered_ids)
-                                    else:
-                                        if model_args.eol_type == 'prompteol_same_length':
-                                            tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
-                                                                                         vocab_dict,
-                                                                                         data_args, filtered_ids,
-                                                                                         text=text)
-                                        else:
-                                            tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
-                                                                                         vocab_dict,
-                                                                                         data_args, filtered_ids)
-                                for token, v in zip(tokens, values):
-                                    if token in vector.keys():
-                                        if data_args.sparse_value_type == 'replace':
-                                            vector[token] = int(v)
-                                        elif data_args.sparse_value_type == 'sum':
-                                            vector[token] += int(v)
-                                        else:
-                                            if int(v) > vector[token]:
-                                                vector[token] = int(v)
-                                    else:
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
                                         vector[token] = int(v)
-                                jsonl_data.append(
-                                    dict(
-                                        id=id,
-                                        content="",
-                                        vector=vector,
-                                    )
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
                                 )
+                            )
 
 
         else:
@@ -3102,6 +3102,71 @@ def main():
                                     f.write(f'{id}\t{query}\n')
                                 else:
                                     f.write(json.dumps(data) + "\n")
+
+                elif training_args.task_type == 't2it':
+                    print(
+                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}')
+                    os.makedirs(
+                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                        exist_ok=True)
+                    os.makedirs(
+                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                        exist_ok=True)
+
+                    with open(os.path.join(
+                            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                            f'query.pkl') if data_args.encode_is_query else os.path.join(
+                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                        f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                        pickle.dump((encoded, lookup_indices), f)
+
+                    with open(os.path.join(
+                            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                            f'query.tsv') if data_args.encode_is_query else os.path.join(
+                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                        f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                        for data in jsonl_data:
+                            if data_args.encode_is_query:
+                                id = data['id']
+                                vector = data['vector']
+                                query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                                if len(query.strip()) == 0:
+                                    continue
+                                f.write(f'{id}\t{query}\n')
+                            else:
+                                f.write(json.dumps(data) + "\n")
+                elif training_args.task_type == 'it2t':
+                    print(
+                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}')
+                    os.makedirs(
+                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                        exist_ok=True)
+                    os.makedirs(
+                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                        exist_ok=True)
+
+                    with open(os.path.join(
+                            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                            f'query.pkl') if data_args.encode_is_query else os.path.join(
+                        f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                        f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                        pickle.dump((encoded, lookup_indices), f)
+
+                    with open(os.path.join(
+                            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                            f'query.tsv') if data_args.encode_is_query else os.path.join(
+                        f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                        f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                        for data in jsonl_data:
+                            if data_args.encode_is_query:
+                                id = data['id']
+                                vector = data['vector']
+                                query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                                if len(query.strip()) == 0:
+                                    continue
+                                f.write(f'{id}\t{query}\n')
+                            else:
+                                f.write(json.dumps(data) + "\n")
                 else:
                     if data_args.prompt_generation:
                         print(
