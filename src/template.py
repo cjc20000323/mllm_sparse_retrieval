@@ -855,6 +855,22 @@ retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat = [
     'Summary the time in above sentence in one word: ',
 ]
 
+retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat = [
+    'Summary the people or objects in above sentence in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above sentence in one word: ',
+    'Summary the environment, weather or places in above sentence in one word: ',
+    'Summary the actions or movements of main people or objects in above sentence in one word: ',
+    'Summary the appearance, such as color, material, decoration, shape and so on, of main people or objects in above sentence in one word: '
+]
+
+retrieval_disassemble_query_prompts_llava_it2t_retrieval_for_concat = [
+    'Summary the people or objects in above image and sentence in one word: ',
+    'Summary the relations, such as belongings or spatial position, between main people or objects in above image and sentence in one word: ',
+    'Summary the environment, geographical locations, weather or places in above image and sentence in one word: ',
+    'Summary the actions or movements of main people or objects in above image and sentence in one word: ',
+    'Summary the appearance, such as color, material, decoration, shape and so on, of main people or objects in above image and sentence in one word: '
+]
+
 
 retrieval_disassemble_image_prompts_person_retrieval_for_concat_1 = [
     'Describe the gender of this person in one word based on the image: ',

@@ -56,7 +56,8 @@ from template import img_prompt, \
     retrieval_disassemble_image_prompts_person_retrieval_7_for_concat, llava_34b_template_image_prefix, \
     llava_34b_template_content_element, retrieval_disassemble_query_prompts_t2it_retrieval_for_concat, \
     mistral_it2t_query_prompt, it2t_query_prompt, llava_mistral_template_fusion_prefix, llama3_template_fusion_prefix, \
-    fusion_prompt_for_concat, retrieval_disassemble_query_prompts_it2t_retrieval_for_concat
+    fusion_prompt_for_concat, retrieval_disassemble_query_prompts_it2t_retrieval_for_concat, \
+    retrieval_disassemble_query_prompts_llava_it2t_retrieval_for_concat
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
     get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, \
     get_text_valid_tokens_values_fusion, get_text_valid_disassemble_tokens_values_fusion, \
@@ -2259,10 +2260,6 @@ def main():
 
         elif training_args.task_type == 'it2t':
             with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-                if search_args.query_type == 'text':
-                    lookup_indices.extend(text_ids)
-                else:
-                    lookup_indices.extend(img_ids)
                 if model_args.model_name_or_path == './checkpoints/llava-hf-llava-1.5-7b-hf':
                     prompt = img_prompt_no_special_llava_v1_5
                 elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
@@ -2291,6 +2288,7 @@ def main():
                     else:
                         prompts = llama3_retrieval_disassemble_image_prompts
                 for batch_idx, (query_texts, query_images, query_ids) in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
+                    lookup_indices.extend(query_ids)
                     if model_args.calculate_type == 'separate':
                         '''
                         if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
@@ -2311,18 +2309,30 @@ def main():
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                 prompt_template += llava_mistral_template_content_element.format(
                                     fusion_prompt_for_concat)
-                            for llava_mistral_retrieval_disassemble_query_prompt in retrieval_disassemble_query_prompts_it2t_retrieval_for_concat:
-                                content_element = llava_mistral_template_content_element.format(
-                                    llava_mistral_retrieval_disassemble_query_prompt)
-                                prompt_template += content_element
+                            if data_args.dataset_name == 'llava':
+                                for llava_mistral_retrieval_disassemble_corpus_prompt in retrieval_disassemble_query_prompts_llava_it2t_retrieval_for_concat:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_corpus_prompt)
+                                    prompt_template += content_element
+                            else:
+                                for llava_mistral_retrieval_disassemble_query_prompt in retrieval_disassemble_query_prompts_it2t_retrieval_for_concat:
+                                    content_element = llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_query_prompt)
+                                    prompt_template += content_element
                         else:
                             prompt_template = llama3_template_fusion_prefix
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                 prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                            for llama3_retrieval_disassemble_query_prompt in retrieval_disassemble_query_prompts_it2t_retrieval_for_concat:
-                                content_element = llama3_template_content_element.format(
-                                    llama3_retrieval_disassemble_query_prompt)
-                                prompt_template += content_element
+                            if data_args.dataset_name == 'llava':
+                                for llama3_retrieval_disassemble_corpus_prompt in retrieval_disassemble_query_prompts_llava_it2t_retrieval_for_concat:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_corpus_prompt)
+                                    prompt_template += content_element
+                            else:
+                                for llama3_retrieval_disassemble_query_prompt in retrieval_disassemble_query_prompts_it2t_retrieval_for_concat:
+                                    content_element = llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_query_prompt)
+                                    prompt_template += content_element
                         raw_images = [Image.open(BytesIO(corpus_image)).convert("RGB") for corpus_image in
                                       query_images]
                         img_inputs = processor(images=raw_images,
@@ -2377,7 +2387,11 @@ def main():
                                 if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                     logit = query_logits[query_indice]
                                 text = query_texts[query_indice]
-                                length = len(retrieval_disassemble_query_prompts_it2t_retrieval_for_concat)
+                                if data_args.dataset_name == 'llava':
+                                    length = len(
+                                        retrieval_disassemble_query_prompts_llava_it2t_retrieval_for_concat)
+                                else:
+                                    length = len(retrieval_disassemble_query_prompts_it2t_retrieval_for_concat)
                                 disassemble_logit = disassemble_logits[
                                                     query_indice * length:(query_indice + 1) * length]
                                 vector = dict()

@@ -12,6 +12,7 @@ icfg_pedes_flie_path = './data/ICFG-PEDES/'
 rstpreid_file_path = './data/RSTPReid/'
 webqa_file_path = './data/WebQA/'
 remuq_file_path = './data/UMRB-ReMuQ/'
+llava_file_path = './data/UMRB-LLaVA/'
 
 
 @dataclass

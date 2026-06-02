@@ -67,7 +67,8 @@ from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qw
     llava_34b_template_image_prefix, llava_34b_template_content_element, t2it_corpus_prompt, mistral_t2it_corpus_prompt, \
     llava_mistral_template_fusion_prefix, llama3_template_fusion_prefix, \
     retrieval_disassemble_corpus_prompts_t2it_retrieval_for_concat, fusion_prompt_for_concat, it2t_query_prompt, \
-    mistral_it2t_query_prompt, retrieval_disassemble_query_prompts_it2t_retrieval_for_concat
+    mistral_it2t_query_prompt, retrieval_disassemble_query_prompts_it2t_retrieval_for_concat, \
+    retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat
 from utils import load_image
 from io import BytesIO
 
@@ -1959,7 +1960,10 @@ def main():
                     reps = F.normalize(reps, dim=-1)
                     if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                         if model_args.calculate_type == 'concat':
-                            prompt_length = len(retrieval_disassemble_query_prompts_it2t_retrieval_for_concat)
+                            if data_args.dataset_name == 'llava':
+                                prompt_length = len(retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat)
+                            else:
+                                prompt_length = len(retrieval_disassemble_query_prompts_it2t_retrieval_for_concat)
                         else:
                             prompt_length = len(retrieval_disassemble_query_prompts_it2t_retrieval_for_concat)
                         reps = reps.reshape(-1, prompt_length, reps.shape[1]).mean(1)
@@ -1973,7 +1977,9 @@ def main():
                             if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                 logit = logits[corpus_indice]
                             corpus_text = corpus_texts[corpus_indice]
-                            if data_args.prompt_type == 'prompt_5':
+                            if data_args.dataset_name == 'llava':
+                                length = len(retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat)
+                            else:
                                 length = len(retrieval_disassemble_query_prompts_it2t_retrieval_for_concat)
                             disassemble_logit = disassemble_logits[
                                                 corpus_indice * length:(corpus_indice + 1) * length]
@@ -2008,7 +2014,7 @@ def main():
                                     vector[token] = int(v)
                             if data_args.sparse_value_mean:
                                 for token in vector.keys():
-                                    vector[token] //= len(retrieval_disassemble_query_prompts_it2t_retrieval_for_concat)
+                                    vector[token] //= length
                             jsonl_data.append(
                                 dict(
                                     id=id,

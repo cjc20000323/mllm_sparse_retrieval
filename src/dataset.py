@@ -8,7 +8,7 @@ import torch
 from PIL import Image
 import tevatron.retriever.arguments
 from arguments import coco_file_path, flickr_file_path, fashion_iq_file_path, cuhk_pedes_file_path, \
-    icfg_pedes_flie_path, rstpreid_file_path, webqa_file_path, remuq_file_path
+    icfg_pedes_flie_path, rstpreid_file_path, webqa_file_path, remuq_file_path, llava_file_path
 from template import llama3_template, text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
     img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5
 from tevatron.retriever.dataset import EncodeDataset
@@ -552,7 +552,7 @@ class Imagetext2TextRetrievalDataset(Dataset):
     def __init__(self, data_name, processor, split, mode, data_args=None):
         super(Imagetext2TextRetrievalDataset, self).__init__()
         self.data_name = data_name
-        assert self.data_name in ['remuq']
+        assert self.data_name in ['remuq', 'llava']
         self.split = split
         self.id2query = {}
         self.query_id_list = []
@@ -561,6 +561,8 @@ class Imagetext2TextRetrievalDataset(Dataset):
         self.query2candidate = {}  # 字典Key保存输入，保存输出
         if self.data_name == 'remuq':
             self.data_path = remuq_file_path
+        elif self.data_name == 'llava':
+            self.data_path = llava_file_path
         else:
             ValueError('Data name is not in the candidates list.')
 

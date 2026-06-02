@@ -44,7 +44,8 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     retrieval_disassemble_text_prompts_person_retrieval_for_concat_mistral_generation, llava_34b_template_content_element, \
     llava_34b_template_text_prefix, t2it_query_prompt, mistral_t2it_query_prompt, \
     retrieval_disassemble_query_prompts_t2it_retrieval_for_concat, \
-    it2t_corpus_prompt, mistral_it2t_corpus_prompt, retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat
+    it2t_corpus_prompt, mistral_it2t_corpus_prompt, retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat, \
+    retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat
 import torch.nn.functional as F
 
 
@@ -3151,19 +3152,30 @@ class MLLMRetrievalModel(nn.Module):
             prompt_template = llava_mistral_template_text_prefix
             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                 prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
-            for llava_mistral_retrieval_disassemble_corpus_prompt in retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat:
-                content_element = llava_mistral_template_content_element.format(
-                    llava_mistral_retrieval_disassemble_corpus_prompt)
-                prompt_template += content_element
+            if data_args.dataset_name == 'llava':
+                for llava_mistral_retrieval_disassemble_corpus_prompt in retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat:
+                    content_element = llava_mistral_template_content_element.format(
+                        llava_mistral_retrieval_disassemble_corpus_prompt)
+                    prompt_template += content_element
+            else:
+                for llava_mistral_retrieval_disassemble_corpus_prompt in retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat:
+                    content_element = llava_mistral_template_content_element.format(
+                        llava_mistral_retrieval_disassemble_corpus_prompt)
+                    prompt_template += content_element
 
         else:
             prompt_template = llama3_template_text_prefix
 
             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                 prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
-            for llama3_retrieval_disassemble_corpus_prompt in retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat:
-                content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_corpus_prompt)
-                prompt_template += content_element
+            if data_args.dataset_name == 'llava':
+                for llama3_retrieval_disassemble_corpus_prompt in retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat:
+                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_corpus_prompt)
+                    prompt_template += content_element
+            else:
+                for llama3_retrieval_disassemble_corpus_prompt in retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat:
+                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_corpus_prompt)
+                    prompt_template += content_element
         if input_type == 'corpus':
             text_inputs = processor(text=[prompt_template.replace('<sent>', text) for text in input],
                                     return_tensors="pt", padding=True).to(device)
