@@ -509,17 +509,21 @@ class Text2ImagetextRetrievalDataset(Dataset):
             self.id2query[row['id']] = row['text']
             self.query_id_list.append(row['id'])
         df_rel = pd.read_parquet(self.dataset_file['rel'])
+        target_set = set()
         for idx, row in df_rel.iterrows():
             if row['query-id'] not in self.query2candidate.keys():
                 self.query2candidate[row['query-id']] = [row['corpus-id']]
             else:
                 self.query2candidate[row['query-id']].append(row['corpus-id'])
+            target_set.add(row['corpus-id'])
+
 
         for corpus_path in self.dataset_file['corpus']:
             df_corpus = pd.read_parquet(corpus_path)
             for idx, row in df_corpus.iterrows():
-                self.id2candidate[row['id']] = {'text': row['text'], 'image': row['image']}
-                self.candidate_id_list.append(row['id'])
+                if row['id'] in target_set:
+                    self.id2candidate[row['id']] = {'text': row['text'], 'image': row['image']}
+                    self.candidate_id_list.append(row['id'])
 
     def __len__(self):
         if self.mode == 'query':

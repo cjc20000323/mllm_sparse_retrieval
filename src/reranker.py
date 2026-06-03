@@ -717,8 +717,8 @@ class Reranker:
                         for corpus_id, sim_score in candidate_pool.items():
                             candidate = self.dataset.get_candidate(corpus_id)
                             raw_image = Image.open(BytesIO(candidate['image']["bytes"])).convert("RGB")
-                            text_input = rerank_prompt_template.replace('<sent>', candidate['text'])
-                            text_input = text_input.replace('<sent>', query_text)
+                            text_input = rerank_prompt_template.replace('<sent>', candidate['text'], 1)
+                            text_input = text_input.replace('<sent>', query_text, 1)
                             inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
                                 self.model.device)
                             output = self.model(**inputs, output_hidden_states=True, return_dict=True)
@@ -766,8 +766,8 @@ class Reranker:
                         raw_image = Image.open(BytesIO(query_image["bytes"])).convert("RGB")
                         for corpus_id, sim_score in candidate_pool.items():
                             corpus_text = self.dataset.get_candidate(corpus_id)
-                            text_input = rerank_prompt_template.replace('<sent>', query_text)
-                            text_input = text_input.replace('<sent>', corpus_text)
+                            text_input = rerank_prompt_template.replace('<sent>', query_text, 1)
+                            text_input = text_input.replace('<sent>', corpus_text, 1)
                             inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
                                 self.model.device)
                             output = self.model(**inputs, output_hidden_states=True, return_dict=True)
@@ -929,6 +929,11 @@ class Reranker:
                     rerank_prompt_template = t2it_retrieval_mistral_query_generation_paradigm_prompt
                 else:
                     rerank_prompt_template = t2it_retrieval_mistral_query_generation_paradigm_prompt_1
+            elif training_args.task_type == 'it2t':
+                if rerank_prompt_type == 'caption_generation':
+                    rerank_prompt_template = it2t_retrieval_mistral_query_generation_paradigm_prompt
+                else:
+                    rerank_prompt_template = it2t_retrieval_mistral_query_generation_paradigm_prompt_1
             else:
                 if rerank_prompt_type == 'caption_generation':
                     rerank_prompt_template = mistral_query_generation_paradigm_prompt
@@ -1004,6 +1009,11 @@ class Reranker:
                     rerank_prompt_template = t2it_retrieval_query_generation_paradigm_prompt
                 else:
                     rerank_prompt_template = t2it_retrieval_query_generation_paradigm_prompt_1
+            elif training_args.task_type == 'it2t':
+                if rerank_prompt_type == 'caption_generation':
+                    rerank_prompt_template = it2t_retrieval_query_generation_paradigm_prompt
+                else:
+                    rerank_prompt_template = it2t_retrieval_query_generation_paradigm_prompt_1
             else:
                 if rerank_prompt_type == 'caption_generation':
                     rerank_prompt_template = query_generation_paradigm_prompt
@@ -1423,6 +1433,19 @@ class Reranker:
                     else:
                         for text_id, nll in zip(corpus_id_list, sharded_nll_list):
                             rerank_run[text_id] = -float(nll)
+
+                    sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
+                    if search_args.modify_type == 'modify_single':
+                        sorted_by_value_single_nll_rerank_run = dict(
+                            sorted(single_nll_rerank_run.items(), key=lambda x: x[1], reverse=True))
+                        sorted_by_value_nll_rerank_run = dict(
+                            sorted(nll_rerank_run.items(), key=lambda x: x[1], reverse=True))
+                    if dist.get_rank() == 0:
+                        print(sorted_by_value_rerank_run)
+                    rerank_fusion_run[k] = sorted_by_value_rerank_run
+                    if search_args.modify_type == 'modify_single':
+                        single_nll_rerank_fusion_run[k] = sorted_by_value_single_nll_rerank_run
+                        nll_rerank_fusion_run[k] = sorted_by_value_nll_rerank_run
             else:
                 token_sum = 0
                 data_sum = 0
