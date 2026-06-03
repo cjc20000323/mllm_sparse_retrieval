@@ -2164,10 +2164,6 @@ def main():
                                                  search_args.remove_query))
         elif training_args.task_type == 'it2t':
             with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-                if search_args.query_type == 'text':
-                    lookup_indices.extend(text_ids)
-                else:
-                    lookup_indices.extend(img_ids)
                 if model_args.model_name_or_path == './checkpoints/llava-hf-llava-1.5-7b-hf':
                     prompt = img_prompt_no_special_llava_v1_5
                 elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
@@ -2197,6 +2193,7 @@ def main():
                         prompts = llama3_retrieval_disassemble_image_prompts
                 for batch_idx, (query_texts, query_images, query_ids) in tqdm(enumerate(test_dataloader),
                                                                               total=len(test_dataloader)):
+                    lookup_indices.extend(query_ids)
                     if model_args.calculate_type == 'separate':
                         '''
                         if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
@@ -3365,12 +3362,24 @@ def main():
     elif training_args.task_type == 'tbpr':
         choice_dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'train',
                                                            'full')
+    elif training_args.task_type == 'it2t':
+        choice_dataset = Imagetext2TextRetrievalDataset(data_args.dataset_name, processor, 'train',
+                                                           'query')
+    elif training_args.task_type == 't2it':
+        choice_dataset = Text2ImagetextRetrievalDataset(data_args.dataset_name, processor, 'train',
+                                                           'query')
     else:
         choice_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'train', 'full')
 
     if training_args.task_type == 'cir':
         ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict, None,
                           dataset.img_dict, processor.tokenizer.get_vocab(), dataset)
+    elif training_args.task_type == 'it2t':
+        ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.id2candidate, None,
+                          dataset.id2query, processor.tokenizer.get_vocab(), dataset)
+    elif training_args.task_type == 't2it':
+        ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.id2query, None,
+                          dataset.id2candidate, processor.tokenizer.get_vocab(), dataset)
     else:
         if data_args.dataset_name == 'coco':
             ranker = Reranker(encoder, processor, data_args.dataset_name, search_args.query_type, dataset.text_dict,

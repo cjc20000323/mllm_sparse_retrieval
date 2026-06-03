@@ -81,7 +81,7 @@ class RecallMetrics:
             sorted_by_value = sorted(dictionary.items(), key=lambda x: x[1], reverse=True)
             sorted_by_value_dicts = {k: dict(sorted_by_value[:k]) for k in self.recall_k_setting_list}
             search_results = {k: list(sorted_by_value_dicts[k]) for k in self.recall_k_setting_list}
-        elif self.dataset.data_name == 'remuq':
+        elif self.dataset.data_name == 'remuq' or self.dataset.data_name == 'llava':
             # 图文到文本检索，
             sorted_by_value = sorted(dictionary.items(), key=lambda x: x[1], reverse=True)
             sorted_by_value_dicts = {k: dict(sorted_by_value[:k]) for k in self.recall_k_setting_list}
@@ -132,7 +132,7 @@ class RecallMetrics:
                         continue
                     search_results = self._sort(v['docs'])
                     self._count('dense', search_results, target)
-                elif self.dataset.data_name == 'remuq':
+                elif self.dataset.data_name == 'remuq' or self.dataset.data_name == 'llava':
                     target = self.dataset.get_target(k)
                     if len(v['docs']) == 0:
                         continue
@@ -174,13 +174,13 @@ class RecallMetrics:
                     if len(v['docs']) == 0:
                         continue
                     search_results = self._sort(v['docs'])
-                    self._count('dense', search_results, target)
-                elif self.dataset.data_name == 'remuq':
+                    self._count('sparse', search_results, target)
+                elif self.dataset.data_name == 'remuq' or self.dataset.data_name == 'llava':
                     target = self.dataset.get_target(k)
                     if len(v['docs']) == 0:
                         continue
                     search_results = self._sort(v['docs'])
-                    self._count('dense', search_results, target)
+                    self._count('sparse', search_results, target)
                 else:
                     target = self.dataset.get_target_from_text(k)
                     if isinstance(target, list):
@@ -226,7 +226,7 @@ class RecallMetrics:
 
                     search_results = self._sort(v)
                     self._count('fusion', search_results, target)
-                elif self.dataset.data_name == 'remuq':
+                elif self.dataset.data_name == 'remuq' or self.dataset.data_name == 'llava':
                     target = self.dataset.get_target(k)
                     if len(v) == 0:
                         continue
@@ -274,7 +274,7 @@ class RecallMetrics:
                         self.sparse_counts[k] += 1
                     else:
                         self.fusion_counts[k] += 1
-            elif self.dataset.data_name == 'remuq':
+            elif self.dataset.data_name == 'remuq' or self.dataset.data_name == 'llava':
                 if target in search_results[k]:
                     if result_type == 'dense':
                         self.dense_counts[k] += 1
