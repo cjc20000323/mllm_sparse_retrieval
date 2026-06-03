@@ -8,99 +8,139 @@ from PIL import Image
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from template import relevant_prompt, in_one_word_relevant_prompt, text_query_relevant_prompt, \
-    image_query_relevant_prompt, precise_caption_prompt, please_relevant_prompt, old_text_query_relevant_prompt, \
-    old_image_query_relevant_prompt, origin_old_text_query_relevant_prompt, origin_old_image_query_relevant_prompt, \
-    role_relevant_prompt, role_precise_caption_prompt, role_old_image_query_relevant_prompt, \
-    role_old_text_query_relevant_prompt, first_precise_caption_prompt, mistral_relevant_prompt, \
-    mistral_in_one_word_relevant_prompt, mistral_text_query_relevant_prompt, mistral_image_query_relevant_prompt, \
-    mistral_precise_caption_prompt, mistral_please_relevant_prompt, mistral_old_text_query_relevant_prompt, \
-    mistral_old_image_query_relevant_prompt, mistral_origin_old_text_query_relevant_prompt, \
-    mistral_origin_old_image_query_relevant_prompt, mistral_role_relevant_prompt, mistral_role_precise_caption_prompt, \
-    mistral_role_old_text_query_relevant_prompt, mistral_role_old_image_query_relevant_prompt, \
-    mistral_first_precise_caption_prompt, mistral_query_generation_paradigm_prompt, query_generation_paradigm_prompt, \
-    mistral_query_generation_paradigm_prompt_1, query_generation_paradigm_prompt_1, \
-    detailed_mistral_query_generation_paradigm_prompt, detailed_query_generation_paradigm_prompt, \
-    detailed_query_generation_paradigm_prompt_1, detailed_mistral_query_generation_paradigm_prompt_1, \
-    mistral_query_generation_paradigm_prompt_5, mistral_query_generation_paradigm_prompt_4, \
-    query_generation_paradigm_prompt_4, query_generation_paradigm_prompt_5, query_generation_paradigm_prompt_2, \
-    query_generation_paradigm_prompt_3, mistral_query_generation_paradigm_prompt_2, \
-    mistral_query_generation_paradigm_prompt_3, query_generation_paradigm_prompt_6, query_generation_paradigm_prompt_7, \
-    mistral_query_generation_paradigm_prompt_6, mistral_query_generation_paradigm_prompt_7, \
-    fashion_iq_query_relevant_prompt, fashion_iq_origin_old_query_relevant_prompt, fashion_iq_relevant_prompt, \
-    fashion_iq_old_query_relevant_prompt, mistral_fashion_iq_relevant_prompt, \
-    mistral_fashion_iq_origin_old_query_relevant_prompt, mistral_fashion_iq_old_query_relevant_prompt, \
-    mistral_fashion_iq_query_relevant_prompt, mistral_person_retrieval_relevant_prompt, \
-    person_retrieval_relevant_prompt, mistral_person_retrieval_old_query_relevant_prompt, \
-    person_retrieval_old_query_relevant_prompt, mistral_person_retrieval_origin_old_query_relevant_prompt, \
-    person_retrieval_origin_old_query_relevant_prompt, mistral_person_retrieval_query_relevant_prompt, \
-    person_retrieval_query_relevant_prompt, person_retrieval_query_generation_paradigm_prompt, \
-    person_retrieval_mistral_query_generation_paradigm_prompt, person_retrieval_query_generation_paradigm_prompt_1, \
-    person_retrieval_mistral_query_generation_paradigm_prompt_1, person_retrieval_query_generation_paradigm_prompt_2, \
-    person_retrieval_mistral_query_generation_paradigm_prompt_2, mistral_fashion_iq_role_old_query_relevant_prompt, \
-    mistral_fashion_iq_role_relevant_prompt, mistral_fashion_iq_in_one_word_relevant_prompt, \
-    mistral_fashion_iq_please_relevant_prompt, mistral_origin_old_image_reverse_query_relevant_prompt, \
-    mistral_origin_old_text_reverse_query_relevant_prompt, origin_old_image_reverse_query_relevant_prompt, \
-    origin_old_text_reverse_query_relevant_prompt, mistral_old_text_reverse_query_relevant_prompt, \
-    mistral_old_image_reverse_query_relevant_prompt, old_text_reverse_query_relevant_prompt, \
-    old_image_reverse_query_relevant_prompt, qwen2_5_relevant_prompt, qwen2_5_old_text_query_relevant_prompt, \
-    qwen2_5_old_image_query_relevant_prompt, qwen2_5_text_query_relevant_prompt, qwen2_5_image_query_relevant_prompt, \
-    qwen2_5_origin_old_text_query_relevant_prompt, qwen2_5_origin_old_image_query_relevant_prompt, \
-    qwen2_5_query_generation_paradigm_prompt_1, qwen3_query_generation_paradigm_prompt_1, \
-    qwen2_5_query_generation_paradigm_prompt, qwen3_query_generation_paradigm_prompt, qwen3_relevant_prompt, \
-    qwen3_old_image_query_relevant_prompt, qwen3_old_text_query_relevant_prompt, \
-    qwen3_origin_old_image_query_relevant_prompt, qwen3_origin_old_text_query_relevant_prompt, \
-    qwen3_image_query_relevant_prompt, qwen3_text_query_relevant_prompt, qwen3_please_relevant_prompt, \
-    qwen3_in_one_word_relevant_prompt, qwen3_precise_caption_prompt, \
-    qwen3_origin_old_image_reverse_query_relevant_prompt, qwen3_origin_old_text_reverse_query_relevant_prompt, \
-    qwen3_role_relevant_prompt, qwen3_role_precise_caption_prompt, qwen3_role_old_image_query_relevant_prompt, \
-    qwen3_role_old_text_query_relevant_prompt, qwen3_first_precise_caption_prompt, \
-    qwen3_old_image_reverse_query_relevant_prompt, qwen3_old_text_reverse_query_relevant_prompt, \
-    qwen2_5_old_image_reverse_query_relevant_prompt, qwen2_5_old_text_reverse_query_relevant_prompt, \
-    qwen2_5_please_relevant_prompt, qwen2_5_in_one_word_relevant_prompt, qwen2_5_precise_caption_prompt, \
-    qwen2_5_origin_old_image_reverse_query_relevant_prompt, qwen2_5_origin_old_text_reverse_query_relevant_prompt, \
-    qwen2_5_role_relevant_prompt, qwen2_5_role_precise_caption_prompt, qwen2_5_role_old_image_query_relevant_prompt, \
-    qwen2_5_role_old_text_query_relevant_prompt, qwen2_5_first_precise_caption_prompt, \
-    qwen3_person_retrieval_query_relevant_prompt, qwen3_person_retrieval_old_query_relevant_prompt, \
-    qwen3_person_retrieval_relevant_prompt, qwen3_person_retrieval_origin_old_query_relevant_prompt, \
-    person_retrieval_qwen3_query_generation_paradigm_prompt, person_retrieval_qwen3_query_generation_paradigm_prompt_1, \
-    text_reverse_query_relevant_prompt, image_reverse_query_relevant_prompt, mistral_text_reverse_query_relevant_prompt, \
-    mistral_image_reverse_query_relevant_prompt, person_retrieval_reverse_query_relevant_prompt, \
-    person_retrieval_reverse_old_query_relevant_prompt, person_retrieval_reverse_origin_old_query_relevant_prompt, \
-    mistral_person_retrieval_reverse_old_query_relevant_prompt, mistral_person_retrieval_reverse_query_relevant_prompt, \
-    mistral_person_retrieval_reverse_origin_old_query_relevant_prompt, vicuna_query_generation_paradigm_prompt, \
-    vicuna_query_generation_paradigm_prompt_1, person_retrieval_vicuna_query_generation_paradigm_prompt_1, \
-    person_retrieval_vicuna_query_generation_paradigm_prompt, vicuna_person_retrieval_old_query_relevant_prompt, \
-    vicuna_person_retrieval_query_relevant_prompt, vicuna_person_retrieval_origin_old_query_relevant_prompt, \
-    vicuna_person_retrieval_reverse_query_relevant_prompt, \
-    vicuna_person_retrieval_reverse_origin_old_query_relevant_prompt, \
-    vicuna_person_retrieval_reverse_old_query_relevant_prompt, vicuna_old_image_reverse_query_relevant_prompt, \
-    vicuna_old_text_reverse_query_relevant_prompt, vicuna_old_image_query_relevant_prompt, \
-    vicuna_old_text_query_relevant_prompt, \
-    vicuna_origin_old_image_query_relevant_prompt, vicuna_origin_old_text_query_relevant_prompt, \
-    vicuna_text_query_relevant_prompt, \
-    vicuna_image_query_relevant_prompt, vicuna_image_reverse_query_relevant_prompt, \
-    vicuna_text_reverse_query_relevant_prompt, \
-    vicuna_origin_old_text_reverse_query_relevant_prompt, vicuna_origin_old_image_reverse_query_relevant_prompt, \
-    vicuna_freeret_image_rerank_prompt, vicuna_freeret_text_rerank_prompt, mistral_freeret_image_rerank_prompt, \
-    mistral_freeret_text_rerank_prompt, freeret_text_rerank_prompt, freeret_image_rerank_prompt, \
-    person_retrieval_llava_34b_query_generation_paradigm_prompt_1, \
-    person_retrieval_llava_34b_query_generation_paradigm_prompt, \
-    llava_34b_query_generation_paradigm_prompt, llava_34b_query_generation_paradigm_prompt_1, \
-    llava_34b_person_retrieval_query_relevant_prompt, llava_34b_person_retrieval_reverse_query_relevant_prompt, \
-    llava_34b_text_query_relevant_prompt, llava_34b_image_query_relevant_prompt, \
-    llava_34b_text_reverse_query_relevant_prompt, \
-    llava_34b_image_reverse_query_relevant_prompt, t2it_retrieval_old_query_relevant_prompt, \
-    t2it_retrieval_query_relevant_prompt, t2it_retrieval_origin_old_query_relevant_prompt, \
-    mistral_t2it_retrieval_origin_old_query_relevant_prompt, mistral_t2it_retrieval_old_query_relevant_prompt, \
-    mistral_t2it_retrieval_query_relevant_prompt, t2it_retrieval_query_generation_paradigm_prompt, \
-    t2it_retrieval_mistral_query_generation_paradigm_prompt, t2it_retrieval_mistral_query_generation_paradigm_prompt_1, \
-    t2it_retrieval_query_generation_paradigm_prompt_1, it2t_retrieval_query_relevant_prompt, \
-    it2t_retrieval_old_query_relevant_prompt, it2t_retrieval_origin_old_query_relevant_prompt, \
-    mistral_it2t_retrieval_query_relevant_prompt, mistral_it2t_retrieval_old_query_relevant_prompt, \
-    mistral_it2t_retrieval_origin_old_query_relevant_prompt, it2t_retrieval_query_generation_paradigm_prompt, \
-    it2t_retrieval_mistral_query_generation_paradigm_prompt, it2t_retrieval_mistral_query_generation_paradigm_prompt_1, \
-    it2t_retrieval_query_generation_paradigm_prompt_1
+from template import (relevant_prompt, in_one_word_relevant_prompt, text_query_relevant_prompt, \
+                      image_query_relevant_prompt, precise_caption_prompt, please_relevant_prompt,
+                      old_text_query_relevant_prompt, \
+                      old_image_query_relevant_prompt, origin_old_text_query_relevant_prompt,
+                      origin_old_image_query_relevant_prompt, \
+                      role_relevant_prompt, role_precise_caption_prompt, role_old_image_query_relevant_prompt, \
+                      role_old_text_query_relevant_prompt, first_precise_caption_prompt, mistral_relevant_prompt, \
+                      mistral_in_one_word_relevant_prompt, mistral_text_query_relevant_prompt,
+                      mistral_image_query_relevant_prompt, \
+                      mistral_precise_caption_prompt, mistral_please_relevant_prompt,
+                      mistral_old_text_query_relevant_prompt, \
+                      mistral_old_image_query_relevant_prompt, mistral_origin_old_text_query_relevant_prompt, \
+                      mistral_origin_old_image_query_relevant_prompt, mistral_role_relevant_prompt,
+                      mistral_role_precise_caption_prompt, \
+                      mistral_role_old_text_query_relevant_prompt, mistral_role_old_image_query_relevant_prompt, \
+                      mistral_first_precise_caption_prompt, mistral_query_generation_paradigm_prompt,
+                      query_generation_paradigm_prompt, \
+                      mistral_query_generation_paradigm_prompt_1, query_generation_paradigm_prompt_1, \
+                      detailed_mistral_query_generation_paradigm_prompt, detailed_query_generation_paradigm_prompt, \
+                      detailed_query_generation_paradigm_prompt_1, detailed_mistral_query_generation_paradigm_prompt_1, \
+                      mistral_query_generation_paradigm_prompt_5, mistral_query_generation_paradigm_prompt_4, \
+                      query_generation_paradigm_prompt_4, query_generation_paradigm_prompt_5,
+                      query_generation_paradigm_prompt_2, \
+                      query_generation_paradigm_prompt_3, mistral_query_generation_paradigm_prompt_2, \
+                      mistral_query_generation_paradigm_prompt_3, query_generation_paradigm_prompt_6,
+                      query_generation_paradigm_prompt_7, \
+                      mistral_query_generation_paradigm_prompt_6, mistral_query_generation_paradigm_prompt_7, \
+                      fashion_iq_query_relevant_prompt, fashion_iq_origin_old_query_relevant_prompt,
+                      fashion_iq_relevant_prompt, \
+                      fashion_iq_old_query_relevant_prompt, mistral_fashion_iq_relevant_prompt, \
+                      mistral_fashion_iq_origin_old_query_relevant_prompt, mistral_fashion_iq_old_query_relevant_prompt, \
+                      mistral_fashion_iq_query_relevant_prompt, mistral_person_retrieval_relevant_prompt, \
+                      person_retrieval_relevant_prompt, mistral_person_retrieval_old_query_relevant_prompt, \
+                      person_retrieval_old_query_relevant_prompt,
+                      mistral_person_retrieval_origin_old_query_relevant_prompt, \
+                      person_retrieval_origin_old_query_relevant_prompt, mistral_person_retrieval_query_relevant_prompt, \
+                      person_retrieval_query_relevant_prompt, person_retrieval_query_generation_paradigm_prompt, \
+                      person_retrieval_mistral_query_generation_paradigm_prompt,
+                      person_retrieval_query_generation_paradigm_prompt_1, \
+                      person_retrieval_mistral_query_generation_paradigm_prompt_1,
+                      person_retrieval_query_generation_paradigm_prompt_2, \
+                      person_retrieval_mistral_query_generation_paradigm_prompt_2,
+                      mistral_fashion_iq_role_old_query_relevant_prompt, \
+                      mistral_fashion_iq_role_relevant_prompt, mistral_fashion_iq_in_one_word_relevant_prompt, \
+                      mistral_fashion_iq_please_relevant_prompt, mistral_origin_old_image_reverse_query_relevant_prompt, \
+                      mistral_origin_old_text_reverse_query_relevant_prompt,
+                      origin_old_image_reverse_query_relevant_prompt, \
+                      origin_old_text_reverse_query_relevant_prompt, mistral_old_text_reverse_query_relevant_prompt, \
+                      mistral_old_image_reverse_query_relevant_prompt, old_text_reverse_query_relevant_prompt, \
+                      old_image_reverse_query_relevant_prompt, qwen2_5_relevant_prompt,
+                      qwen2_5_old_text_query_relevant_prompt, \
+                      qwen2_5_old_image_query_relevant_prompt, qwen2_5_text_query_relevant_prompt,
+                      qwen2_5_image_query_relevant_prompt, \
+                      qwen2_5_origin_old_text_query_relevant_prompt, qwen2_5_origin_old_image_query_relevant_prompt, \
+                      qwen2_5_query_generation_paradigm_prompt_1, qwen3_query_generation_paradigm_prompt_1, \
+                      qwen2_5_query_generation_paradigm_prompt, qwen3_query_generation_paradigm_prompt,
+                      qwen3_relevant_prompt, \
+                      qwen3_old_image_query_relevant_prompt, qwen3_old_text_query_relevant_prompt, \
+                      qwen3_origin_old_image_query_relevant_prompt, qwen3_origin_old_text_query_relevant_prompt, \
+                      qwen3_image_query_relevant_prompt, qwen3_text_query_relevant_prompt, qwen3_please_relevant_prompt, \
+                      qwen3_in_one_word_relevant_prompt, qwen3_precise_caption_prompt, \
+                      qwen3_origin_old_image_reverse_query_relevant_prompt,
+                      qwen3_origin_old_text_reverse_query_relevant_prompt, \
+                      qwen3_role_relevant_prompt, qwen3_role_precise_caption_prompt,
+                      qwen3_role_old_image_query_relevant_prompt, \
+                      qwen3_role_old_text_query_relevant_prompt, qwen3_first_precise_caption_prompt, \
+                      qwen3_old_image_reverse_query_relevant_prompt, qwen3_old_text_reverse_query_relevant_prompt, \
+                      qwen2_5_old_image_reverse_query_relevant_prompt, qwen2_5_old_text_reverse_query_relevant_prompt, \
+                      qwen2_5_please_relevant_prompt, qwen2_5_in_one_word_relevant_prompt,
+                      qwen2_5_precise_caption_prompt, \
+                      qwen2_5_origin_old_image_reverse_query_relevant_prompt,
+                      qwen2_5_origin_old_text_reverse_query_relevant_prompt, \
+                      qwen2_5_role_relevant_prompt, qwen2_5_role_precise_caption_prompt,
+                      qwen2_5_role_old_image_query_relevant_prompt, \
+                      qwen2_5_role_old_text_query_relevant_prompt, qwen2_5_first_precise_caption_prompt, \
+                      qwen3_person_retrieval_query_relevant_prompt, qwen3_person_retrieval_old_query_relevant_prompt, \
+                      qwen3_person_retrieval_relevant_prompt, qwen3_person_retrieval_origin_old_query_relevant_prompt, \
+                      person_retrieval_qwen3_query_generation_paradigm_prompt,
+                      person_retrieval_qwen3_query_generation_paradigm_prompt_1, \
+                      text_reverse_query_relevant_prompt, image_reverse_query_relevant_prompt,
+                      mistral_text_reverse_query_relevant_prompt, \
+                      mistral_image_reverse_query_relevant_prompt, person_retrieval_reverse_query_relevant_prompt, \
+                      person_retrieval_reverse_old_query_relevant_prompt,
+                      person_retrieval_reverse_origin_old_query_relevant_prompt, \
+                      mistral_person_retrieval_reverse_old_query_relevant_prompt,
+                      mistral_person_retrieval_reverse_query_relevant_prompt, \
+                      mistral_person_retrieval_reverse_origin_old_query_relevant_prompt,
+                      vicuna_query_generation_paradigm_prompt, \
+                      vicuna_query_generation_paradigm_prompt_1,
+                      person_retrieval_vicuna_query_generation_paradigm_prompt_1, \
+                      person_retrieval_vicuna_query_generation_paradigm_prompt,
+                      vicuna_person_retrieval_old_query_relevant_prompt, \
+                      vicuna_person_retrieval_query_relevant_prompt,
+                      vicuna_person_retrieval_origin_old_query_relevant_prompt, \
+                      vicuna_person_retrieval_reverse_query_relevant_prompt, \
+                      vicuna_person_retrieval_reverse_origin_old_query_relevant_prompt, \
+                      vicuna_person_retrieval_reverse_old_query_relevant_prompt,
+                      vicuna_old_image_reverse_query_relevant_prompt, \
+                      vicuna_old_text_reverse_query_relevant_prompt, vicuna_old_image_query_relevant_prompt, \
+                      vicuna_old_text_query_relevant_prompt, \
+                      vicuna_origin_old_image_query_relevant_prompt, vicuna_origin_old_text_query_relevant_prompt, \
+                      vicuna_text_query_relevant_prompt, \
+                      vicuna_image_query_relevant_prompt, vicuna_image_reverse_query_relevant_prompt, \
+                      vicuna_text_reverse_query_relevant_prompt, \
+                      vicuna_origin_old_text_reverse_query_relevant_prompt,
+                      vicuna_origin_old_image_reverse_query_relevant_prompt, \
+                      vicuna_freeret_image_rerank_prompt, vicuna_freeret_text_rerank_prompt,
+                      mistral_freeret_image_rerank_prompt, \
+                      mistral_freeret_text_rerank_prompt, freeret_text_rerank_prompt, freeret_image_rerank_prompt, \
+                      person_retrieval_llava_34b_query_generation_paradigm_prompt_1, \
+                      person_retrieval_llava_34b_query_generation_paradigm_prompt, \
+                      llava_34b_query_generation_paradigm_prompt, llava_34b_query_generation_paradigm_prompt_1, \
+                      llava_34b_person_retrieval_query_relevant_prompt,
+                      llava_34b_person_retrieval_reverse_query_relevant_prompt, \
+                      llava_34b_text_query_relevant_prompt, llava_34b_image_query_relevant_prompt, \
+                      llava_34b_text_reverse_query_relevant_prompt, \
+                      llava_34b_image_reverse_query_relevant_prompt, t2it_retrieval_old_query_relevant_prompt, \
+                      t2it_retrieval_query_relevant_prompt, t2it_retrieval_origin_old_query_relevant_prompt, \
+                      mistral_t2it_retrieval_origin_old_query_relevant_prompt,
+                      mistral_t2it_retrieval_old_query_relevant_prompt, \
+                      mistral_t2it_retrieval_query_relevant_prompt, t2it_retrieval_query_generation_paradigm_prompt, \
+                      t2it_retrieval_mistral_query_generation_paradigm_prompt,
+                      t2it_retrieval_mistral_query_generation_paradigm_prompt_1, \
+                      t2it_retrieval_query_generation_paradigm_prompt_1, it2t_retrieval_query_relevant_prompt, \
+                      it2t_retrieval_old_query_relevant_prompt, it2t_retrieval_origin_old_query_relevant_prompt, \
+                      mistral_it2t_retrieval_query_relevant_prompt, mistral_it2t_retrieval_old_query_relevant_prompt, \
+                      mistral_it2t_retrieval_origin_old_query_relevant_prompt,
+                      it2t_retrieval_query_generation_paradigm_prompt, \
+                      it2t_retrieval_mistral_query_generation_paradigm_prompt,
+                      it2t_retrieval_mistral_query_generation_paradigm_prompt_1, \
+                      it2t_retrieval_query_generation_paradigm_prompt_1, lamra_2_text_relevant_prompt,
+                      lamra_2_image_relevant_prompt,
+                      it2t_retrieval_answer_relevant_prompt, mistral_it2t_retrieval_answer_relevant_prompt)
 from io import BytesIO
 
 flickr_length_dict = {3: 3, 4: 5, 5: 26, 6: 83, 7: 196, 8: 316, 9: 376, 10: 447, 11: 446, 12: 455, 13: 399, 14: 403,
@@ -257,6 +297,11 @@ class Reranker:
                         rerank_prompt_template = qwen3_person_retrieval_origin_old_query_relevant_prompt
                     else:
                         rerank_prompt_template = qwen3_person_retrieval_relevant_prompt
+                elif 'LamRA' in model_args.model_name_or_path:
+                    if self.query_type == 'image':
+                        rerank_prompt_template = lamra_2_image_relevant_prompt
+                    else:
+                        rerank_prompt_template = lamra_2_text_relevant_prompt
                 else:
                     if rerank_prompt_type == 'relevant':
                         rerank_prompt_template = person_retrieval_relevant_prompt
@@ -303,6 +348,8 @@ class Reranker:
                         rerank_prompt_template = mistral_it2t_retrieval_query_relevant_prompt
                     elif rerank_prompt_type == 'origin_old_relevant':
                         rerank_prompt_template = mistral_it2t_retrieval_origin_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'answer_relevant':
+                        rerank_prompt_template = mistral_it2t_retrieval_answer_relevant_prompt
                     else:
                         rerank_prompt_template = mistral_it2t_retrieval_old_query_relevant_prompt
                 else:
@@ -312,6 +359,8 @@ class Reranker:
                         rerank_prompt_template = it2t_retrieval_query_relevant_prompt
                     elif rerank_prompt_type == 'origin_old_relevant':
                         rerank_prompt_template = it2t_retrieval_origin_old_query_relevant_prompt
+                    elif rerank_prompt_type == 'answer_relevant':
+                        rerank_prompt_template = it2t_retrieval_answer_relevant_prompt
                     else:
                         rerank_prompt_template = it2t_retrieval_old_query_relevant_prompt
             else:
@@ -517,6 +566,11 @@ class Reranker:
                         rerank_prompt_template = qwen3_first_precise_caption_prompt
                     else:
                         rerank_prompt_template = qwen3_relevant_prompt
+                elif 'LamRA' in model_args.model_name_or_path:
+                    if self.query_type == 'image':
+                        rerank_prompt_template = lamra_2_image_relevant_prompt
+                    else:
+                        rerank_prompt_template = lamra_2_text_relevant_prompt
                 else:
                     if rerank_prompt_type == 'relevant':
                         rerank_prompt_template = relevant_prompt
@@ -608,7 +662,7 @@ class Reranker:
                         img_name = self.img_path_map[k[:indice]]
                         image_path = f'./data/{self.data_name}/images/images/{img_name}'
                         raw_image = Image.open(image_path).convert('RGB')
-                        text = self.dataset.get_text(k[indice+1:])
+                        text = self.dataset.get_text(k[indice + 1:])
                         dress_type = self.dataset.get_dress_type(k[:indice])
                         if dress_type == 'toptee':
                             dress_type = 'shirt'
@@ -1321,7 +1375,8 @@ class Reranker:
                     for indice in tqdm(range(0, len(candidate_id_list), rerank_batch_size)):
                         image_shard = candidate_image_list[indice: indice + rerank_batch_size]
                         text_shard = candidate_text_list[indice: indice + rerank_batch_size]
-                        text_input = [rerank_prompt_template.replace('<sent>', corpus_text) for corpus_text in text_shard]
+                        text_input = [rerank_prompt_template.replace('<sent>', corpus_text) for corpus_text in
+                                      text_shard]
                         text_input = [text_in + query_text for text_in in text_input]
                         inputs = self.processor(images=image_shard, text=text_input, return_tensors="pt").to(
                             self.model.device)
@@ -1380,7 +1435,8 @@ class Reranker:
 
                     for indice in tqdm(range(0, len(corpus_id_list), rerank_batch_size)):
                         text_shard = corpus_text_list[indice: indice + rerank_batch_size]
-                        text_input = [rerank_prompt_template.replace('<sent>', query_text) + corpus_text for corpus_text in text_shard]
+                        text_input = [rerank_prompt_template.replace('<sent>', query_text) + corpus_text for corpus_text
+                                      in text_shard]
                         image_shard = [raw_image] * len(text_shard)
                         inputs = self.processor(images=image_shard, text=text_input, return_tensors="pt").to(
                             self.model.device)
@@ -1527,7 +1583,8 @@ class Reranker:
                                 text_logits = text_output.logits
                                 text_shift_logits = text_logits[..., :-1, :].contiguous()
                                 text_shift_labels = text_labels_view[..., 1:].contiguous()
-                                text_nll = loss_func(text_shift_logits.view(-1, text_shift_logits.size(-1)), text_shift_labels.view(-1))
+                                text_nll = loss_func(text_shift_logits.view(-1, text_shift_logits.size(-1)),
+                                                     text_shift_labels.view(-1))
                                 text_nll = text_nll.view(text_shift_labels.size())
                                 text_avg_nll = torch.sum(text_nll, dim=1)
                                 text_valid_tokens = (text_labels_view != -100).sum(dim=1).float()
@@ -1538,7 +1595,8 @@ class Reranker:
                                 single_sharded_nll_list.extend(text_avg_nll.tolist())
 
                         if search_args.modify_type == 'modify_single':
-                            for text_id, nll, single_nll in zip(text_id_list, sharded_nll_list, single_sharded_nll_list):
+                            for text_id, nll, single_nll in zip(text_id_list, sharded_nll_list,
+                                                                single_sharded_nll_list):
                                 rerank_run[text_id] = -float(nll) + float(single_nll)
                                 single_nll_rerank_run[text_id] = -float(single_nll)
                                 nll_rerank_run[text_id] = -float(nll)
@@ -1618,8 +1676,10 @@ class Reranker:
                             rerank_run[img_id] = -float(nll)
                     sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
                     if search_args.modify_type == 'modify_single':
-                        sorted_by_value_single_nll_rerank_run = dict(sorted(single_nll_rerank_run.items(), key=lambda x: x[1], reverse=True))
-                        sorted_by_value_nll_rerank_run = dict(sorted(nll_rerank_run.items(), key=lambda x: x[1], reverse=True))
+                        sorted_by_value_single_nll_rerank_run = dict(
+                            sorted(single_nll_rerank_run.items(), key=lambda x: x[1], reverse=True))
+                        sorted_by_value_nll_rerank_run = dict(
+                            sorted(nll_rerank_run.items(), key=lambda x: x[1], reverse=True))
                     if dist.get_rank() == 0:
                         print(sorted_by_value_rerank_run)
                     rerank_fusion_run[k] = sorted_by_value_rerank_run
