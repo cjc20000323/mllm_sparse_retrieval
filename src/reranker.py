@@ -709,7 +709,10 @@ class Reranker:
                         rerank_fusion_run[k] = sorted_by_value_rerank_run
                 elif training_args.task_type == 'tbpr':
                     for k, v in tqdm(fusion_run.items()):
-                        sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
+                        if 'LamRA' in model_args.model_name_or_path:
+                            sorted_by_value = sorted(v['docs'].items(), key=lambda x: x[1], reverse=True)
+                        else:
+                            sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
                         candidate_pool = dict(sorted_by_value[:rerank_num])
                         rerank_run = {}
                         image_list = []
@@ -854,7 +857,10 @@ class Reranker:
                 else:
                     for k, v in tqdm(fusion_run.items()):
                         # k是查询的id，v是一个字典，key是候选的id，value是查询和候选的相似度
-                        sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
+                        if 'LamRA' in model_args.model_name_or_path:
+                            sorted_by_value = sorted(v['docs'].items(), key=lambda x: x[1], reverse=True)
+                        else:
+                            sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
                         candidate_pool = dict(sorted_by_value[:rerank_num])
                         rerank_run = {}
                         image_list = []
@@ -1458,7 +1464,7 @@ class Reranker:
                         valid_tokens = (labels_view != -100).sum(dim=1).float()
                         avg_nll /= valid_tokens
                         if search_args.modify_type == 'modify_single':
-                            text_inputs = self.processor(text=text_input, return_tensors="pt").to(self.model.device)
+                            text_inputs = self.processor(text=[rerank_prompt_template + text for text in text_shard], return_tensors="pt").to(self.model.device)
                             text_max_inputs_sum = text_inputs['input_ids'].shape[1]
                             text_labels = [
                                 self.processor(text=text, return_tensors="pt")['input_ids'].squeeze().tolist() for

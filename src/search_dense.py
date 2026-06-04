@@ -252,6 +252,7 @@ def main():
         if dense_retriever_indices:
             index_files = glob.glob(os.path.join(dense_retriever_indices[i], 'corpus*.pkl'))
             if dist.get_rank() == 0:
+                print(dense_retriever_indices)
                 print(f'Pattern match found {len(index_files)} files; loading them into dense index.')
 
             p_reps_0, p_lookup_0 = pickle_load(index_files[0])
