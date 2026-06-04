@@ -101,6 +101,7 @@ def main():
         t2it_webqa_dataset = Text2ImagetextRetrievalDataset('webqa', tokenizer, 'test', 'corpus')
         it2t_remuq_dataset = Imagetext2TextRetrievalDataset('remuq', tokenizer, 'test', 'query')
         it2t_llava_dataset = Imagetext2TextRetrievalDataset('llava', tokenizer, 'test', 'corpus')
+        t2it_edis_dataset = Text2ImagetextRetrievalDataset('edis', tokenizer, 'test', 'corpus')
 
         tbpr_cuhk_pedes_dataloader = Data.DataLoader(dataset=tbpr_cuhk_pedes_dataset, batch_size=1, shuffle=False)
         tbpr_icfg_pedes_dataloader = Data.DataLoader(dataset=tbpr_icfg_pedes_dataset, batch_size=1, shuffle=False)
@@ -110,6 +111,7 @@ def main():
         t2it_webqa_dataloader = Data.DataLoader(dataset=t2it_webqa_dataset, batch_size=1, shuffle=False)
         it2t_remuq_dataloader = Data.DataLoader(dataset=it2t_remuq_dataset, batch_size=1, shuffle=False)
         it2t_llava_dataloader = Data.DataLoader(dataset=it2t_llava_dataset, batch_size=1, shuffle=False)
+        t2it_edis_dataloader = Data.DataLoader(dataset=t2it_edis_dataset, batch_size=1, shuffle=False)
 
         counter = 0
         tbpr_cuhk_pedes_demonstration = ''
@@ -120,6 +122,7 @@ def main():
         t2it_webqa_demonstration = ''
         it2t_remuq_demonstration = ''
         it2t_llava_demonstration = ''
+        t2it_edis_demonstration = ''
         for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(tbpr_cuhk_pedes_dataloader),
                                                                      total=len(tbpr_cuhk_pedes_dataloader)):
             # print(texts)
@@ -228,6 +231,21 @@ def main():
 
         # print(cir_demonstration)
 
+        counter = 0
+        for batch_idx, (corpus_texts, corpus_ids, query_ids) in tqdm(
+                enumerate(t2it_webqa_dataloader),
+                total=len(t2it_webqa_dataloader)):
+            # print(texts)
+
+            # cir_demonstration += f'{counter}. '
+            print(corpus_texts)
+            t2it_edis_demonstration += corpus_texts[0]
+            t2it_edis_demonstration += '\n'
+
+            if counter == prompt_generation_args.demonstration_num:
+                break
+            counter += 1
+
         if prompt_generation_args.prompt_generation_type == 'prompt_schema':
             text_input = prompt.replace('<sent>', itr_flickr_demonstration, 1)
         elif prompt_generation_args.prompt_generation_type == 'prompt_schema_1':
@@ -331,6 +349,28 @@ def main():
 
         print('it2t')
         print(it2t_llava_demonstration)
+        print('Here is the original output')
+        print(tokenizer.decode(output[0], skip_special_tokens=True))
+        print('Here is the filtered output')
+        print(tokenizer.decode(output[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True))
+
+        if prompt_generation_args.prompt_generation_type == 'prompt_schema':
+            text_input = prompt.replace('<sent>', t2it_edis_demonstration, 1)
+        elif prompt_generation_args.prompt_generation_type == 'prompt_schema_1':
+            text_input = prompt.replace('<sent>', itr_coco_demonstration, 1)
+            text_input = text_input.replace('<sent>', itr_five_aspects, 1)
+            text_input = text_input.replace('<sent>', t2it_edis_demonstration, 1)
+        else:
+            text_input = prompt.replace('<sent>', itr_coco_demonstration, 1)
+            text_input = text_input.replace('<sent>', itr_five_aspects, 1)
+            text_input = text_input.replace('<sent>', tbpr_cuhk_pedes_demonstration, 1)
+            text_input = text_input.replace('<sent>', tbpr_five_aspects, 1)
+            text_input = text_input.replace('<sent>', t2it_edis_demonstration, 1)
+        inputs = tokenizer(text_input, return_tensors="pt").to(model.device)
+        output = model.generate(**inputs, max_new_tokens=100)
+
+        print('t2it')
+        print(t2it_edis_demonstration)
         print('Here is the original output')
         print(tokenizer.decode(output[0], skip_special_tokens=True))
         print('Here is the filtered output')

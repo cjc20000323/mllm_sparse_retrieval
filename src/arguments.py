@@ -13,6 +13,7 @@ rstpreid_file_path = './data/RSTPReid/'
 webqa_file_path = './data/WebQA/'
 remuq_file_path = './data/UMRB-ReMuQ/'
 llava_file_path = './data/UMRB-LLaVA/'
+edis_file_path = './data/EDIS/'
 
 
 @dataclass

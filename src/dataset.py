@@ -8,7 +8,7 @@ import torch
 from PIL import Image
 import tevatron.retriever.arguments
 from arguments import coco_file_path, flickr_file_path, fashion_iq_file_path, cuhk_pedes_file_path, \
-    icfg_pedes_flie_path, rstpreid_file_path, webqa_file_path, remuq_file_path, llava_file_path
+    icfg_pedes_flie_path, rstpreid_file_path, webqa_file_path, remuq_file_path, llava_file_path, edis_file_path
 from template import llama3_template, text_prompt, img_prompt, text_prompt_no_one_word, img_prompt_no_one_word, \
     img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, img_prompt_intern_vl_v2_5
 from tevatron.retriever.dataset import EncodeDataset
@@ -475,7 +475,7 @@ class Text2ImagetextRetrievalDataset(Dataset):
     def __init__(self, data_name, processor, split, mode, data_args=None):
         super(Text2ImagetextRetrievalDataset, self).__init__()
         self.data_name = data_name
-        assert self.data_name in ['webqa']
+        assert self.data_name in ['webqa', 'edis']
         self.processor = processor
         self.split = split
         self.id2query = {}
@@ -485,6 +485,8 @@ class Text2ImagetextRetrievalDataset(Dataset):
         self.query2candidate = {}  # 字典Key保存输入，保存输出
         if self.data_name == 'webqa':
             self.data_path = webqa_file_path
+        elif self.data_name == 'edis':
+            self.data_path = edis_file_path
         else:
             ValueError('Data name is not in the candidates list.')
 
@@ -495,6 +497,16 @@ class Text2ImagetextRetrievalDataset(Dataset):
                 'rel': self.data_path + 'qrels-00000-of-00001.parquet',
                 'corpus': [self.data_path + 'corpus-00000-of-00002.parquet',
                            self.data_path + 'corpus-00001-of-00002.parquet']
+            }
+        elif self.data_name == 'edis':
+            self.dataset_file = {
+                'query': self.data_path + 'query-00000-of-00001.parquet',
+                'rel': self.data_path + 'qrels-00000-of-00001.parquet',
+                'corpus': [self.data_path + 'corpus-00000-of-00004.parquet',
+                           self.data_path + 'corpus-00001-of-00004.parquet',
+                           self.data_path + 'corpus-00002-of-00004.parquet',
+                           self.data_path + 'corpus-00003-of-00004.parquet',
+                           ]
             }
         else:
             self.dataset_file = {
