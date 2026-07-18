@@ -193,6 +193,8 @@ coco_length_list_100 = [(2, 3, 4), (5,), (6,), (7,), (8,), (9,), (10,), (11,), (
                         (48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 67, 68, 70, 71, 72, 73, 74,
                          77, 79, 85)]
 
+path_prefix = '/root/autodl-tmp'
+
 
 class Reranker:
 
@@ -660,7 +662,7 @@ class Reranker:
                         # 正常情况下，cir任务的k应该是composed2img的keys，_前是图像id，_后是文本id，取出来的值也是图像id
                         indice = k.index('_')
                         img_name = self.img_path_map[k[:indice]]
-                        image_path = f'./data/{self.data_name}/images/images/{img_name}'
+                        image_path = path_prefix + f'data/{self.data_name}/images/images/{img_name}'
                         raw_image = Image.open(image_path).convert('RGB')
                         text = self.dataset.get_text(k[indice + 1:])
                         dress_type = self.dataset.get_dress_type(k[:indice])
@@ -676,7 +678,7 @@ class Reranker:
                         # target_image = Image.open(target_path).convert('RGB')
                         for img_id, sim_score in candidate_pool.items():
                             text_input = template.replace('<sent>', text)
-                            candidate_image_path = f'./data/{self.data_name}/images/images/{img_id}.png'
+                            candidate_image_path = path_prefix + f'data/{self.data_name}/images/images/{img_id}.png'
                             candidate_raw_image = Image.open(candidate_image_path).convert('RGB')
                             if rerank_prompt_type == 'origin_old_relevant':
                                 image_list = [candidate_raw_image, raw_image]
@@ -725,9 +727,9 @@ class Reranker:
                         for img_id, sim_score in candidate_pool.items():
                             img_path = self.img_path_map[img_id]
                             if self.dataset.data_name == 'CUHK-PEDES' or self.dataset.data_name == 'ICFG-PEDES' or self.dataset.data_name == 'RSTPReid':
-                                image_path = f'./data/{self.data_name}/imgs/{img_path}'
+                                image_path = path_prefix + f'data/{self.data_name}/imgs/{img_path}'
                             else:
-                                image_path = f'./data/{self.data_name}/imgs/{img_path}'
+                                image_path = path_prefix + f'data/{self.data_name}/imgs/{img_path}'
                             raw_image = Image.open(image_path).convert('RGB')
                             text_input = rerank_prompt_template.replace('<sent>', text)
                             inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
@@ -873,12 +875,12 @@ class Reranker:
                             if self.img_filepath_map is not None:
                                 img_file_path = self.img_filepath_map[k]
                                 img_path = self.img_path_map[k]
-                                image_path = f'./data/{self.data_name}/{img_file_path}/{img_path}'
+                                image_path = path_prefix + f'data/{self.data_name}/{img_file_path}/{img_path}'
                                 raw_image = Image.open(image_path).convert('RGB')
                                 # raw_image = raw_image.resize((336, 336), Image.Resampling.BILINEAR)
                             else:
                                 img_path = self.img_path_map[k]
-                                image_path = f'./data/{self.data_name}/flickr30k-images/{img_path}'
+                                image_path = path_prefix + f'data/{self.data_name}/flickr30k-images/{img_path}'
                                 raw_image = Image.open(image_path).convert('RGB')
                                 # raw_image = raw_image.resize((336, 336), Image.Resampling.BILINEAR)
                             # image_list = []
@@ -921,11 +923,11 @@ class Reranker:
                                 if self.img_filepath_map is not None:
                                     img_file_path = self.img_filepath_map[img_id]
                                     img_path = self.img_path_map[img_id]
-                                    image_path = f'./data/{self.data_name}/{img_file_path}/{img_path}'
+                                    image_path = path_prefix + f'data/{self.data_name}/{img_file_path}/{img_path}'
                                     raw_image = Image.open(image_path).convert('RGB')
                                 else:
                                     img_path = self.img_path_map[img_id]
-                                    image_path = f'./data/{self.data_name}/flickr30k-images/{img_path}'
+                                    image_path = path_prefix + f'data/{self.data_name}/flickr30k-images/{img_path}'
                                     raw_image = Image.open(image_path).convert('RGB')
                                 text_input = rerank_prompt_template.replace('<sent>', text)
                                 inputs = self.processor(images=raw_image, text=text_input, return_tensors="pt").to(
@@ -1313,7 +1315,7 @@ class Reranker:
                     sim_score_list = []
                     for img_id, sim_score in candidate_pool.items():
                         img_path = self.img_path_map[img_id]
-                        image_path = f'./data/{self.data_name}/imgs/{img_path}'
+                        image_path = path_prefix + f'data/{self.data_name}/imgs/{img_path}'
                         raw_image = Image.open(image_path).convert('RGB')
                         '''
                         if 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
@@ -1525,11 +1527,11 @@ class Reranker:
                         if self.img_filepath_map is not None:
                             img_file_path = self.img_filepath_map[k]
                             img_path = self.img_path_map[k]
-                            image_path = f'./data/{self.data_name}/{img_file_path}/{img_path}'
+                            image_path = path_prefix + f'data/{self.data_name}/{img_file_path}/{img_path}'
                             raw_image = Image.open(image_path).convert('RGB')
                         else:
                             img_path = self.img_path_map[k]
-                            image_path = f'./data/{self.data_name}/flickr30k-images/{img_path}'
+                            image_path = path_prefix + f'data/{self.data_name}/flickr30k-images/{img_path}'
                             raw_image = Image.open(image_path).convert('RGB')
                         '''
                         if 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
@@ -1634,11 +1636,11 @@ class Reranker:
                             if self.img_filepath_map is not None:
                                 img_file_path = self.img_filepath_map[img_id]
                                 img_path = self.img_path_map[img_id]
-                                image_path = f'./data/{self.data_name}/{img_file_path}/{img_path}'
+                                image_path = path_prefix + f'data/{self.data_name}/{img_file_path}/{img_path}'
                                 raw_image = Image.open(image_path).convert('RGB')
                             else:
                                 img_path = self.img_path_map[img_id]
-                                image_path = f'./data/{self.data_name}/flickr30k-images/{img_path}'
+                                image_path = path_prefix + f'data/{self.data_name}/flickr30k-images/{img_path}'
                                 raw_image = Image.open(image_path).convert('RGB')
                             '''
                             if 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
