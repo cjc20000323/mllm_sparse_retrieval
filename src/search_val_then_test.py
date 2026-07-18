@@ -1,10 +1,10 @@
+import gc
 import glob
 import glob
 import os
 import pickle
 from contextlib import nullcontext
 from itertools import chain
-import gc
 
 import faiss
 import numpy as np
@@ -75,10 +75,6 @@ stopwords = set(stopwords.words('english') + list(string.punctuation))
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-model_begin_indice = 29
-path_prefix = '/root/autodl-tmp/'
 
 
 def pickle_load(path):
@@ -155,6 +151,13 @@ def sparse_search(sparse_retriever, batch_topics, batch_ids, search_args):
         sparse_scores.append([hit.score for hit in hits])
         sparse_rankings.append(ranking)
     return sparse_scores, sparse_rankings
+
+
+def build_sparse_retriever(index_root, LuceneImpactSearcher, JWhiteSpaceAnalyzer):
+    sparse_retriever = LuceneImpactSearcher(os.path.join(index_root, 'index'), None)
+    analyzer = JWhiteSpaceAnalyzer()
+    sparse_retriever.set_analyzer(analyzer)
+    return sparse_retriever, analyzer
 
 
 def close_sparse_retriever(sparse_retriever, analyzer=None):
@@ -363,15 +366,18 @@ def main():
     sparse_run = {}
     val_dense_run = {}
     val_sparse_run = {}
-    fusion_run = [{}] * 9
-    val_fusion_run = [{}] * 9
+    fusion_run = [{} for _ in range(9)]
+    val_fusion_run_1 = {}
+    val_fusion_run_2 = {}
+    val_fusion_run_3 = {}
+    val_fusion_run_4 = {}
+    val_fusion_run_5 = {}
 
     dense_retriever_indices = []
     sparse_retriever_indices = []
     val_dense_retriever_indices = []
     val_sparse_retriever_indices = []
 
-    
     if search_args.val_passage_reps is not None:
         val_dense_retriever_indices = [search_args.val_passage_reps]
 
@@ -430,9 +436,8 @@ def main():
                                                                             ngpu=num_gpus)
 
         if val_sparse_retriever_indices:
-            val_sparse_retriever = LuceneImpactSearcher(os.path.join(val_sparse_retriever_indices[i], 'index'), None)
-            val_analyzer = JWhiteSpaceAnalyzer()
-            val_sparse_retriever.set_analyzer(val_analyzer)
+            val_sparse_retriever, val_analyzer = build_sparse_retriever(
+                val_sparse_retriever_indices[i], LuceneImpactSearcher, JWhiteSpaceAnalyzer)
 
         with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(val_dataloader),
@@ -665,324 +670,32 @@ def main():
                                 query_logits = logits.reshape(-1, len(task_image_prompts), logits.shape[1]).mean(1)
                                 query_dense_reps = reps.reshape(-1, len(task_image_prompts), reps.shape[1]).mean(1)
                 else:
-                    if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-                        if data_args.prompt_type == 'prompt_5':
-                            prompt_template = llava_mistral_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_mistral_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
-                                content_element = llava_mistral_template_content_element.format(
-                                    llava_mistral_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_1':
-                            prompt_template = llava_mistral_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_mistral_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_1_for_concat:
-                                content_element = llava_mistral_template_content_element.format(
-                                    llava_mistral_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_2':
-                            prompt_template = llava_mistral_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_mistral_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_2_for_concat:
-                                content_element = llava_mistral_template_content_element.format(
-                                    llava_mistral_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_3':
-                            prompt_template = llava_mistral_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_mistral_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
-                                content_element = llava_mistral_template_content_element.format(
-                                    llava_mistral_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_4':
-                            prompt_template = llava_mistral_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_mistral_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_4_for_concat:
-                                content_element = llava_mistral_template_content_element.format(
-                                    llava_mistral_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_6':
-                            prompt_template = llava_mistral_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_mistral_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_6_for_concat:
-                                content_element = llava_mistral_template_content_element.format(
-                                    llava_mistral_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_7':
-                            prompt_template = llava_mistral_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_mistral_template_content_element.format(
-                                    img_prompt_for_concat)
-                            if data_args.prompt_generation:
-                                if data_args.prompt_generation_model == 'llama':
-                                    for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat_llama_generation:
-                                        content_element = llava_mistral_template_content_element.format(
-                                            llava_mistral_retrieval_disassemble_image_prompt)
-                                        prompt_template += content_element
-                                else:
-                                    for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat_mistral_generation:
-                                        content_element = llava_mistral_template_content_element.format(
-                                            llava_mistral_retrieval_disassemble_image_prompt)
-                                        prompt_template += content_element
-                            else:
-                                for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
-                                    content_element = llava_mistral_template_content_element.format(
-                                        llava_mistral_retrieval_disassemble_image_prompt)
-                                    prompt_template += content_element
-                        else:
-                            pass
-
-                    elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
-                        if data_args.prompt_type == 'prompt_5':
-                            prompt_template = llava_vicuna_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_vicuna_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
-                                content_element = llava_vicuna_template_content_element.format(
-                                    llava_vicuna_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_1':
-                            prompt_template = llava_vicuna_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_vicuna_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_1_for_concat:
-                                content_element = llava_vicuna_template_content_element.format(
-                                    llava_vicuna_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_2':
-                            prompt_template = llava_vicuna_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_vicuna_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_2_for_concat:
-                                content_element = llava_vicuna_template_content_element.format(
-                                    llava_vicuna_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_3':
-                            prompt_template = llava_vicuna_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_vicuna_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
-                                content_element = llava_vicuna_template_content_element.format(
-                                    llava_vicuna_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_4':
-                            prompt_template = llava_vicuna_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_vicuna_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_4_for_concat:
-                                content_element = llava_vicuna_template_content_element.format(
-                                    llava_vicuna_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_6':
-                            prompt_template = llava_vicuna_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_vicuna_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_6_for_concat:
-                                content_element = llava_vicuna_template_content_element.format(
-                                    llava_vicuna_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_7':
-                            prompt_template = llava_vicuna_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_vicuna_template_content_element.format(
-                                    img_prompt_for_concat)
-                            if data_args.prompt_generation:
-                                if data_args.prompt_generation_model == 'llama':
-                                    for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat_llama_generation:
-                                        content_element = llava_vicuna_template_content_element.format(
-                                            llava_vicuna_retrieval_disassemble_image_prompt)
-                                        prompt_template += content_element
-                                else:
-                                    for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat_mistral_generation:
-                                        content_element = llava_vicuna_template_content_element.format(
-                                            llava_vicuna_retrieval_disassemble_image_prompt)
-                                        prompt_template += content_element
-                            else:
-                                for llava_vicuna_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
-                                    content_element = llava_vicuna_template_content_element.format(
-                                        llava_vicuna_retrieval_disassemble_image_prompt)
-                                    prompt_template += content_element
-                        else:
-                            pass
-
-                    elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
-                        if data_args.prompt_type == 'prompt_5':
-                            prompt_template = llava_34b_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_34b_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for llava_34b_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
-                                content_element = llava_34b_template_content_element.format(
-                                    llava_34b_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_3':
-                            prompt_template = llava_34b_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_34b_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for llava_34b_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
-                                content_element = llava_34b_template_content_element.format(
-                                    llava_34b_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_7':
-                            prompt_template = llava_34b_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llava_34b_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for llava_34b_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
-                                content_element = llava_34b_template_content_element.format(
-                                    llava_34b_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        else:
-                            pass
-
-                    elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
-                        if data_args.prompt_type == 'prompt_5':
-                            prompt_template = qwen2_5_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += qwen2_5_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for qwen2_5_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
-                                content_element = qwen2_5_template_content_element.format(
-                                    qwen2_5_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_3':
-                            prompt_template = qwen2_5_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += qwen2_5_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for qwen2_5_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
-                                content_element = qwen2_5_template_content_element.format(
-                                    qwen2_5_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_7':
-                            prompt_template = qwen2_5_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += qwen2_5_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for qwen2_5_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
-                                content_element = qwen2_5_template_content_element.format(
-                                    qwen2_5_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                    elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-                        if data_args.prompt_type == 'prompt_5':
-                            prompt_template = qwen3_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += qwen3_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for qwen3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
-                                content_element = qwen3_template_content_element.format(
-                                    qwen3_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_3':
-                            prompt_template = qwen3_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += qwen3_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for qwen3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
-                                content_element = qwen3_template_content_element.format(
-                                    qwen3_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_7':
-                            prompt_template = qwen3_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += qwen3_template_content_element.format(
-                                    img_prompt_for_concat)
-                            for qwen3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
-                                content_element = qwen3_template_content_element.format(
-                                    qwen3_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        else:
-                            pass
+                    if data_args.prompt_type == 'prompt_5':
+                        prompt_template = llama3_template_image_prefix
+                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                            prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                        for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
+                            content_element = llama3_template_content_element.format(
+                                llama3_retrieval_disassemble_image_prompt)
+                            prompt_template += content_element
+                    elif data_args.prompt_type == 'prompt_3':
+                        prompt_template = llama3_template_image_prefix
+                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                            prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                        for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
+                            content_element = llama3_template_content_element.format(
+                                llama3_retrieval_disassemble_image_prompt)
+                            prompt_template += content_element
+                    elif data_args.prompt_type == 'prompt_7':
+                        prompt_template = llama3_template_image_prefix
+                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                            prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                        for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
+                            content_element = llama3_template_content_element.format(
+                                llama3_retrieval_disassemble_image_prompt)
+                            prompt_template += content_element
                     else:
-                        if data_args.prompt_type == 'prompt_5':
-                            prompt_template = llama3_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat:
-                                content_element = llama3_template_content_element.format(
-                                    llama3_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_1':
-                            prompt_template = llama3_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_1_for_concat:
-                                content_element = llama3_template_content_element.format(
-                                    llama3_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_2':
-                            prompt_template = llama3_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_2_for_concat:
-                                content_element = llama3_template_content_element.format(
-                                    llama3_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_3':
-                            prompt_template = llama3_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_3_for_concat:
-                                content_element = llama3_template_content_element.format(
-                                    llama3_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_4':
-                            prompt_template = llama3_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_4_for_concat:
-                                content_element = llama3_template_content_element.format(
-                                    llama3_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_6':
-                            prompt_template = llama3_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                            for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_6_for_concat:
-                                content_element = llama3_template_content_element.format(
-                                    llama3_retrieval_disassemble_image_prompt)
-                                prompt_template += content_element
-                        elif data_args.prompt_type == 'prompt_7':
-                            prompt_template = llama3_template_image_prefix
-                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                                prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                            if data_args.prompt_generation:
-                                if data_args.prompt_generation_model == 'llama':
-                                    for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat_llama_generation:
-                                        content_element = llama3_template_content_element.format(
-                                            llava_mistral_retrieval_disassemble_image_prompt)
-                                        prompt_template += content_element
-                                else:
-                                    for llava_mistral_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_for_concat_mistral_generation:
-                                        content_element = llama3_template_content_element.format(
-                                            llava_mistral_retrieval_disassemble_image_prompt)
-                                        prompt_template += content_element
-                            else:
-                                for llama3_retrieval_disassemble_image_prompt in retrieval_disassemble_image_prompts_7_for_concat:
-                                    content_element = llama3_template_content_element.format(
-                                        llama3_retrieval_disassemble_image_prompt)
-                                    prompt_template += content_element
-                        else:
-                            pass
+                        pass
                     if search_args.query_type == 'text':
                         query_logits, query_dense_reps = model.encode_data_concat(texts, 'text', processor, device,
                                                                                   model_args, data_args)
@@ -1441,125 +1154,103 @@ def main():
             gc.collect()
             torch.cuda.empty_cache()
 
+    val_fusion_run_1.update(
+        fuse(
+            runs=[val_dense_run, val_sparse_run],
+            weights=[0.5, 0.5]
+        )
+    )
+    val_fusion_run_2.update(
+        fuse(
+            runs=[val_dense_run, val_sparse_run],
+            weights=[0.6, 0.4]
+        )
+    )
+    val_fusion_run_3.update(
+        fuse(
+            runs=[val_dense_run, val_sparse_run],
+            weights=[0.7, 0.3]
+        )
+    )
+    val_fusion_run_4.update(
+        fuse(
+            runs=[val_dense_run, val_sparse_run],
+            weights=[0.8, 0.2]
+        )
+    )
+    val_fusion_run_5.update(
+        fuse(
+            runs=[val_dense_run, val_sparse_run],
+            weights=[0.9, 0.1]
+        )
+    )
     max_val_fusion_metric = 0
     best_weight = 0.5
 
-    if data_args.is_filtered:
-        filtered = "filter"
-    else:
-        filtered = "no_filter"
+    val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_1, val_look_up,
+                               val_lookup_indices, search_args)
+    val_metric.sort_and_count()
+    val_metric.all_gather_object()
 
-    if data_args.sparse_manual:
-        manual = 'manual'
-    else:
-        manual = "no_manual"
+    fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if dist.get_rank() == 0:
+        print((fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3)
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.5
 
-    if model_args.use_output_embedding_cluster:
-        cluster = f'cluster_{model_args.cluster_sum}'
-    else:
-        cluster = 'no_cluster'
+    val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_2, val_look_up,
+                               val_lookup_indices, search_args)
+    val_metric.sort_and_count()
+    val_metric.all_gather_object()
 
-    if data_args.sparse_value_mean:
-        use_sparse_value_mean = 'mean'
-    else:
-        use_sparse_value_mean = 'no_mean'
+    fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.6
 
+    val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_3, val_look_up,
+                               val_lookup_indices, search_args)
+    val_metric.sort_and_count()
+    val_metric.all_gather_object()
 
-    for i in range(9):
-        val_fusion_run[i].update(
-            fuse(
-                runs=[val_dense_run, val_sparse_run],
-                weights=[float((i+1)/10), 1-float((i+1)/10)]
-            )
-        )
-        if training_args.task_type == 'cir':
-            os.makedirs(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                exist_ok=True)
+    fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.7
 
-            output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                f'0_{i + 1}_0_{10 - i - 1}_val.xlsx')
-        elif training_args.task_type == 'tbpr':
-            if data_args.prompt_generation:
-                os.makedirs(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
-                    exist_ok=True)
+    val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_4, val_look_up,
+                               val_lookup_indices, search_args)
+    val_metric.sort_and_count()
+    val_metric.all_gather_object()
 
-                output_path = os.path.join(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
-                    f'0_{i + 1}_0_{10 - i - 1}_val.xlsx')
-            else:
-                os.makedirs(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                    exist_ok=True)
+    fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+        best_weight = 0.8
 
-                output_path = os.path.join(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                    f'0_{i + 1}_0_{10 - i - 1}_val.xlsx')
-        elif training_args.task_type == 't2it':
-            os.makedirs(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                exist_ok=True)
+    val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run_5, val_look_up,
+                               val_lookup_indices, search_args)
+    val_metric.sort_and_count()
+    val_metric.all_gather_object()
 
-            output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                f'0_{i + 1}_0_{10 - i - 1}_val.xlsx')
-        elif training_args.task_type == 'it2t':
-            os.makedirs(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                exist_ok=True)
-
-            output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                f'0_{i + 1}_0_{10 - i - 1}_val.xlsx')
-        else:
-            if data_args.prompt_generation:
-                os.makedirs(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
-                    exist_ok=True)
-
-                output_path = os.path.join(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
-                    f'0_{i + 1}_0_{10 - i - 1}_val.xlsx')
-            else:
-                os.makedirs(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                    exist_ok=True)
-
-                output_path = os.path.join(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                    f'0_{i + 1}_0_{10 - i - 1}_val.xlsx')
-
-        val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run[i], val_look_up, val_lookup_indices, search_args)
-        val_metric.sort_and_count()
-
-        val_metric.all_gather_object()
-        # fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
-        if data_args.dataset_name != 'fashion-iq':
-            fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
-            if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
-                max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
-                best_weight = float((i+1) / 10)
-        else:
-            fusion_recalls = {dress: {k: sum(val_metric.fusion_recall_lists[dress][k]) for k in val_metric.recall_k_setting_list} for dress in val_metric.fashion_iq_list}
-            if (fusion_recalls['dress'][10] + fusion_recalls['dress'][50] + fusion_recalls['shirt'][10] +
-                fusion_recalls['shirt'][50] + fusion_recalls['toptee'][10] + fusion_recalls['toptee'][50]) / 6 > \
-                    max_val_fusion_metric:
-                max_val_fusion_metric = (fusion_recalls['dress'][10] + fusion_recalls['dress'][50] +
-                                         fusion_recalls['shirt'][10] + fusion_recalls['shirt'][50] +
-                                         fusion_recalls['toptee'][10] + fusion_recalls['toptee'][50]) / 6
-                best_weight = float((i+1) / 10)
-        val_metric.print_recall(output_path)
+    fusion_recalls = {k: sum(val_metric.fusion_recall_lists[k]) for k in val_metric.recall_k_setting_list}
+    if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+        best_weight = 0.9
 
     del val_metric
     del fusion_recalls
     del val_dense_run
     del val_sparse_run
+    del val_fusion_run_1
+    del val_fusion_run_2
+    del val_fusion_run_3
+    del val_fusion_run_4
+    del val_fusion_run_5
     del val_dataset
     del val_dataloader
     gc.collect()
-
+    
     if search_args.passage_reps is not None:
         # 目前尚不清楚这里是怎么工作的
         # 另外，这里源代码里有multi_reps，暂时先不管，后面再加
@@ -1622,9 +1313,8 @@ def main():
                                                                             ngpu=num_gpus)
 
         if sparse_retriever_indices:
-            sparse_retriever = LuceneImpactSearcher(os.path.join(sparse_retriever_indices[i], 'index'), None)
-            analyzer = JWhiteSpaceAnalyzer()
-            sparse_retriever.set_analyzer(analyzer)
+            sparse_retriever, analyzer = build_sparse_retriever(
+                sparse_retriever_indices[i], LuceneImpactSearcher, JWhiteSpaceAnalyzer)
 
         if training_args.task_type == 'cir':
             with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
@@ -2871,6 +2561,14 @@ def main():
                                     img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
                                                            return_tensors="pt",
                                                            padding=True)
+                                    '''
+                                    if dist.get_rank() == 0:
+                                        print([prompt] * len(imgs_path))
+                                        print(img_inputs['input_ids'])
+                                        print(img_inputs['input_ids'].shape)
+                                        print(img_inputs['attention_mask'])
+                                        print(img_inputs['attention_mask'].shape)
+                                    '''
                                     imgs = img_inputs.to(device)
                                     query_logits, query_dense_reps = model.encode_data(imgs, 'image', processor, device,
                                                                                        model_args,
@@ -3917,10 +3615,17 @@ def main():
             del dense_retriever
             torch.cuda.empty_cache()
 
+        if sparse_retriever:
+            close_sparse_retriever(sparse_retriever, analyzer)
+            sparse_retriever = None
+            analyzer = None
+            torch.cuda.empty_cache()
+
     del model
 
+    validation_best_weight = best_weight
     max_val_fusion_metric = 0
-    # best_weight = 0.5
+    best_weight = validation_best_weight
 
     if data_args.is_filtered:
         filtered = "filter"
@@ -3951,62 +3656,62 @@ def main():
         )
         if training_args.task_type == 'cir':
             os.makedirs(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
                 exist_ok=True)
 
             output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                f'0_{i + 1}_0_{10 - i - 1}_test.xlsx')
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                f'0_{i + 1}_0_{10 - i - 1}.xlsx')
         elif training_args.task_type == 'tbpr':
             if data_args.prompt_generation:
                 os.makedirs(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                    f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
                     exist_ok=True)
 
                 output_path = os.path.join(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
-                    f'0_{i + 1}_0_{10 - i - 1}_test.xlsx')
+                    f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                    f'0_{i + 1}_0_{10 - i - 1}.xlsx')
             else:
                 os.makedirs(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
                     exist_ok=True)
 
                 output_path = os.path.join(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                    f'0_{i + 1}_0_{10 - i - 1}_test.xlsx')
+                    f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    f'0_{i + 1}_0_{10 - i - 1}.xlsx')
         elif training_args.task_type == 't2it':
             os.makedirs(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
                 exist_ok=True)
 
             output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                f'0_{i + 1}_0_{10 - i - 1}_test.xlsx')
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                f'0_{i + 1}_0_{10 - i - 1}.xlsx')
         elif training_args.task_type == 'it2t':
             os.makedirs(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
                 exist_ok=True)
 
             output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                f'0_{i + 1}_0_{10 - i - 1}_test.xlsx')
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                f'0_{i + 1}_0_{10 - i - 1}.xlsx')
         else:
             if data_args.prompt_generation:
                 os.makedirs(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                    f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
                     exist_ok=True)
 
                 output_path = os.path.join(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
-                    f'0_{i + 1}_0_{10 - i - 1}_test.xlsx')
+                    f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                    f'0_{i + 1}_0_{10 - i - 1}.xlsx')
             else:
                 os.makedirs(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
                     exist_ok=True)
 
                 output_path = os.path.join(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                    f'0_{i + 1}_0_{10 - i - 1}_test.xlsx')
+                    f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    f'0_{i + 1}_0_{10 - i - 1}.xlsx')
 
         metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run[i], look_up, lookup_indices, search_args)
         metric.sort_and_count()
@@ -4017,7 +3722,7 @@ def main():
             fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
             if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
                 max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
-                # best_weight = float((i+1) / 10)
+                best_weight = float((i+1) / 10)
         else:
             fusion_recalls = {dress: {k: sum(metric.fusion_recall_lists[dress][k]) for k in metric.recall_k_setting_list} for dress in metric.fashion_iq_list}
             if (fusion_recalls['dress'][10] + fusion_recalls['dress'][50] + fusion_recalls['shirt'][10] +
@@ -4026,8 +3731,14 @@ def main():
                 max_val_fusion_metric = (fusion_recalls['dress'][10] + fusion_recalls['dress'][50] +
                                          fusion_recalls['shirt'][10] + fusion_recalls['shirt'][50] +
                                          fusion_recalls['toptee'][10] + fusion_recalls['toptee'][50]) / 6
-                # best_weight = float((i+1) / 10)
+                best_weight = float((i+1) / 10)
         metric.print_recall(output_path)
+
+    test_diagnostic_best_weight = best_weight
+    best_weight = validation_best_weight
+    if dist.get_rank() == 0:
+        print(f'Validation-selected fusion weight: {best_weight}')
+        print(f'Test-set diagnostic best weight, not used for best.xlsx: {test_diagnostic_best_weight}')
 
     best_test_fusion_run = {}
     best_test_fusion_run.update(
@@ -4039,33 +3750,33 @@ def main():
 
     if training_args.task_type == 'cir':
         output_path = os.path.join(
-            path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
             f'best.xlsx')
     elif training_args.task_type == 'tbpr':
         if data_args.prompt_generation:
             output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
                 f'best.xlsx')
         else:
             output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
                 f'best.xlsx')
     elif training_args.task_type == 't2it':
         output_path = os.path.join(
-            path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
             f'best.xlsx')
     elif training_args.task_type == 'it2t':
         output_path = os.path.join(
-            path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
             f'best.xlsx')
     else:
         if data_args.prompt_generation:
             output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
                 f'best.xlsx')
         else:
             output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
                 f'best.xlsx')
 
     metric = RecallMetrics(dataset, dense_run, sparse_run, best_test_fusion_run, look_up, lookup_indices, search_args)
@@ -4075,14 +3786,138 @@ def main():
     metric.all_gather_object()
     metric.print_recall(output_path)
 
-    '''
     if dist.get_rank() == 0:
         print(metric.right_set)
         print(metric.right_dict)
         print(metric.wrong_set)
         print(metric.wrong_dict)
-    '''
 
+    '''
+    if not model_args.lora and not model_args.use_output_embedding_cluster:
+        sparse_correct_dict = {}
+        sparse_wrong_dict = {}
+        dense_correct_dict = {}
+        dense_wrong_dict = {}
+        hybrid_correct_dict = {}
+        hybrid_wrong_dict = {}
+
+        normalize_sparse_run = normalize(metric.sparse_run)
+        normalize_dense_run = normalize(metric.dense_run)
+        for k, v in tqdm(normalize_sparse_run.items()):
+            target = metric.dataset.get_target(k, metric.search_args.query_type)
+            if isinstance(target, list):
+                target = torch.tensor([int(i) for i in target]).cuda()
+            else:
+                target = int(target)
+            if len(v) == 0:
+                continue
+
+            search_results, search_scores = metric._sort_return_id_and_value(v)
+            if True in torch.isin(search_results[1], target):
+                sparse_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
+                                          'r@1': True in torch.isin(search_results[1], target),
+                                          'r@5': True in torch.isin(search_results[5], target),
+                                          'r@10': True in torch.isin(search_results[10], target)}
+            else:
+                sparse_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
+                                        'r@1': True in torch.isin(search_results[1], target),
+                                        'r@5': True in torch.isin(search_results[5], target),
+                                        'r@10': True in torch.isin(search_results[10], target)}
+
+        for k, v in tqdm(normalize_dense_run.items()):
+            target = metric.dataset.get_target(k, metric.search_args.query_type)
+            if isinstance(target, list):
+                target = torch.tensor([int(i) for i in target]).cuda()
+            else:
+                target = int(target)
+            if len(v) == 0:
+                continue
+
+            search_results, search_scores = metric._sort_return_id_and_value(v)
+            if True in torch.isin(search_results[1], target):
+                dense_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
+                                         'r@1': True in torch.isin(search_results[1], target),
+                                         'r@5': True in torch.isin(search_results[5], target),
+                                         'r@10': True in torch.isin(search_results[10], target)}
+            else:
+                dense_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
+                                       'r@1': True in torch.isin(search_results[1], target),
+                                       'r@5': True in torch.isin(search_results[5], target),
+                                       'r@10': True in torch.isin(search_results[10], target)}
+
+        for k, v in tqdm(metric.fusion_run.items()):
+            target = metric.dataset.get_target(k, metric.search_args.query_type)
+            if isinstance(target, list):
+                target = torch.tensor([int(i) for i in target]).cuda()
+            else:
+                target = int(target)
+            if len(v) == 0:
+                continue
+
+            search_results, search_scores = metric._sort_return_id_and_value(v)
+            if True in torch.isin(search_results[1], target):
+                hybrid_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
+                                          'r@1': True in torch.isin(search_results[1], target),
+                                          'r@5': True in torch.isin(search_results[5], target),
+                                          'r@10': True in torch.isin(search_results[10], target)}
+            else:
+                hybrid_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
+                                        'r@1': True in torch.isin(search_results[1], target),
+                                        'r@5': True in torch.isin(search_results[5], target),
+                                        'r@10': True in torch.isin(search_results[10], target)}
+
+        os.makedirs(f'./case_study', exist_ok=True)
+        if data_args.sparse_manual:
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_sparse_search_correct_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                json.dump(sparse_correct_dict, f)
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_sparse_search_wrong_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                json.dump(sparse_wrong_dict, f)
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_dense_search_correct_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                json.dump(dense_correct_dict, f)
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_dense_search_wrong_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                json.dump(dense_wrong_dict, f)
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_hybrid_search_correct_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                json.dump(hybrid_correct_dict, f)
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_hybrid_search_wrong_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                json.dump(hybrid_wrong_dict, f)
+        else:
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_correct_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                json.dump(sparse_correct_dict, f)
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_sparse_search_wrong_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                json.dump(sparse_wrong_dict, f)
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_correct_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                json.dump(dense_correct_dict, f)
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_dense_search_wrong_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                json.dump(dense_wrong_dict, f)
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_correct_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                json.dump(hybrid_correct_dict, f)
+            with open(
+                    f'./case_study/{model_args.model_name_or_path[14:]}_{data_args.dataset_name}_{search_args.query_type}_{data_args.sparse_manual}_{data_args.sparse_length}_hybrid_search_wrong_results_{dist.get_rank()}.txt',
+                    'w') as f:
+                json.dump(hybrid_wrong_dict, f)
+    '''
 
     # 训练结束后添加同步屏障
     dist.barrier()
