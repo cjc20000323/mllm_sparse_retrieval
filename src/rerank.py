@@ -3831,6 +3831,35 @@ def main():
     metric.all_gather_object()
     metric.print_recall(output_path)
 
+    if training_args.task_type == 'it2t' or training_args.task_type == 't2it':
+        counter = 0
+        sum_counter = 0
+        both_right_counter = 0
+        right_1_wrong_2_counter = 0
+        for k, v in best_test_fusion_run.items():
+            sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
+            candidate_pool = dict(sorted_by_value[:1])
+            compare = dict(sorted_by_value[:search_args.rerank_num])
+            target = dataset.get_target(k)
+            if target in compare.keys():
+                sum_counter += 1
+                rerank_sorted_by_value = sorted(rerank_best_test_fusion_run[k].items(), key=lambda x: x[1],
+                                                reverse=True)
+                rerank_candidate_pool = dict(rerank_sorted_by_value[:1])
+                for k1, v1 in candidate_pool.items():
+                    results_1_stage = k1
+                for k1, v1 in rerank_candidate_pool.items():
+                    results_2_stage = k1
+                if results_1_stage == target and results_2_stage != target:
+                    counter += 1
+                if results_1_stage == target and results_2_stage == target:
+                    both_right_counter += 1
+                if results_1_stage != target and results_2_stage == target:
+                    right_1_wrong_2_counter += 1
+        print('sum: ', sum_counter)
+        print('counter: ', counter)
+        print('both right counter: ', both_right_counter)
+        print('right_1_wrong_2_counter: ', right_1_wrong_2_counter)
 
     # 训练结束后添加同步屏障
     dist.barrier()
