@@ -193,7 +193,7 @@ coco_length_list_100 = [(2, 3, 4), (5,), (6,), (7,), (8,), (9,), (10,), (11,), (
                         (48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 67, 68, 70, 71, 72, 73, 74,
                          77, 79, 85)]
 
-path_prefix = '/root/autodl-tmp'
+path_prefix = '/root/autodl-tmp/'
 
 
 class Reranker:
@@ -766,6 +766,7 @@ class Reranker:
                         sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
                         candidate_pool = dict(sorted_by_value[:rerank_num])
                         rerank_run = {}
+                        _rerank_run = {}
                         image_list = []
                         text_list = []
                         count = 0
@@ -801,11 +802,19 @@ class Reranker:
                                 logits = torch.log_softmax(logits, dim=-1)
                             logit_tensor = torch.stack([logits[:, yes_id], logits[:, no_id]], dim=1)
                             output_probs = F.softmax(logit_tensor, dim=1)  # 同样指定dim=1
+                            _yes_id = self.vocab_dict['▁Yes']
+                            _no_id = self.vocab_dict['▁No']
+                            _logit_tensor = torch.stack([logits[:, _yes_id], logits[:, _no_id]], dim=1)
+                            _output_probs = F.softmax(_logit_tensor, dim=1)  # 同样指定dim=1
                             yes_prob = output_probs.squeeze()[0]
+                            _yes_prob = _output_probs.squeeze()[0]
                             rerank_run[corpus_id] = float(yes_prob)
+                            _rerank_run[corpus_id] = float(_yes_prob)
                         sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
+                        _sorted_by_value_rerank_run = dict(sorted(_rerank_run.items(), key=lambda x: x[1], reverse=True))
                         if dist.get_rank() == 0:
                             print(sorted_by_value_rerank_run)
+                            print(_sorted_by_value_rerank_run)
                         rerank_fusion_run[k] = sorted_by_value_rerank_run
                 elif training_args.task_type == 'it2t':
                     for k, v in tqdm(fusion_run.items()):
@@ -813,6 +822,7 @@ class Reranker:
                         sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
                         candidate_pool = dict(sorted_by_value[:rerank_num])
                         rerank_run = {}
+                        _rerank_run = {}
                         image_list = []
                         text_list = []
                         count = 0
@@ -850,11 +860,20 @@ class Reranker:
                                 logits = torch.log_softmax(logits, dim=-1)
                             logit_tensor = torch.stack([logits[:, yes_id], logits[:, no_id]], dim=1)
                             output_probs = F.softmax(logit_tensor, dim=1)  # 同样指定dim=1
+                            _yes_id = self.vocab_dict['▁Yes']
+                            _no_id = self.vocab_dict['▁No']
+                            _logit_tensor = torch.stack([logits[:, _yes_id], logits[:, _no_id]], dim=1)
+                            _output_probs = F.softmax(_logit_tensor, dim=1)  # 同样指定dim=1
                             yes_prob = output_probs.squeeze()[0]
+                            _yes_prob = _output_probs.squeeze()[0]
                             rerank_run[corpus_id] = float(yes_prob)
+                            _rerank_run[corpus_id] = float(_yes_prob)
                         sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
+                        _sorted_by_value_rerank_run = dict(
+                            sorted(_rerank_run.items(), key=lambda x: x[1], reverse=True))
                         if dist.get_rank() == 0:
                             print(sorted_by_value_rerank_run)
+                            print(_sorted_by_value_rerank_run)
                         rerank_fusion_run[k] = sorted_by_value_rerank_run
                 else:
                     for k, v in tqdm(fusion_run.items()):
