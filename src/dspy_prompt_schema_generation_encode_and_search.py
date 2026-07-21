@@ -806,7 +806,7 @@ def dspy_metric(example, pred, trace=None):
 
 
 
-def load_candidates(passage_reps, sparse_index):
+def load_candidates(passage_reps, sparse_index, use_gpu):
     from tevatron.retriever.searcher import FaissFlatSearcher
     from pyserini.search.lucene import LuceneImpactSearcher
     from pyserini.analysis import JWhiteSpaceAnalyzer
@@ -834,7 +834,7 @@ def load_candidates(passage_reps, sparse_index):
         look_up += p_lookup
     if dist.get_rank() == 0:
         print(len(look_up))
-    if search_args.use_gpu:
+    if use_gpu:
         num_gpus = faiss.get_num_gpus()
         if num_gpus == 0:
             logger.error("No GPU found. Back to CPU.")
@@ -1355,14 +1355,14 @@ def main():
         passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
         sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
     else:
-        val_text_passage_reps =
-        val_image_passage_reps =
-        val_text_sparse_index =
-        val_image_sparse_index =
-        text_passage_reps =
-        image_passage_reps =
-        text_sparse_index =
-        image_sparse_index =
+        val_text_passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+        val_image_passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+        val_text_sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+        val_image_sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+        text_passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+        image_passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+        text_sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+        image_sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
 
 
 
