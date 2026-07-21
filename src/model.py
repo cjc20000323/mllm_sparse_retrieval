@@ -1454,34 +1454,6 @@ class MLLMRetrievalModel(nn.Module):
             for i in range(len(begin_of_text_indices[1])):
                 if 'Qwen' in model_args.model_name_or_path:
                     begin_col_list.append(begin_of_text_indices[1][i].item())
-                    '''
-                    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                        if data_args.prompt_type == 'prompt_5':
-                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                        elif data_args.prompt_type == 'prompt_3':
-                            if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                        elif data_args.prompt_type == 'prompt_7':
-                            if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                        else:
-                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                    else:
-                        if data_args.prompt_type == 'prompt_5':
-                            if i % len(retrieval_disassemble_text_prompts_for_concat) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                        elif data_args.prompt_type == 'prompt_3':
-                            if i % len(retrieval_disassemble_text_prompts_3_for_concat) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                        elif data_args.prompt_type == 'prompt_7':
-                            if i % len(retrieval_disassemble_text_prompts_7_for_concat) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                        else:
-                            if i % len(retrieval_disassemble_text_prompts_for_concat) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                    '''
                 elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
                     begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
@@ -1577,11 +1549,6 @@ class MLLMRetrievalModel(nn.Module):
             )
 
             text_inputs['attention_mask'] = causal_mask
-            '''
-            with open(f'tensor_values_{dist.get_rank()}.txt', 'w') as f:
-                for mask in causal_mask:
-                    f.write(str(mask.squeeze()))
-            '''
             output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
             end_col_list = (torch.tensor(end_col_list) - 1).to(device)
             batch_size = text_inputs['input_ids'].shape[0]
@@ -1607,18 +1574,6 @@ class MLLMRetrievalModel(nn.Module):
                 embs = output.hidden_states[-1][:, end_col_list[0], :]
             return logits, embs
         elif input_type == 'image':
-            '''
-            length = len(input.pixel_values)
-            # print('length is ', length)
-            for key in input.keys():
-                input[key] = input[key].squeeze()  # 数据集读取的时候，是直接多了一个维度计数，因此会有一个维度是1，把这个维度去掉
-                # print(input[key].shape)
-            if length == 1:
-                for key in input.keys():
-                    input[key] = input[key].unsqueeze(0)  # 如果批次中数据只有1个，那么上面的操作同时将batch_size维度去掉了，这里是补充回来
-                    # print(input[key].shape)
-            '''
-
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path or \
                     'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or \
                     'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
@@ -1642,34 +1597,6 @@ class MLLMRetrievalModel(nn.Module):
             for i in range(len(begin_of_text_indices[1])):
                 if 'Qwen' in model_args.model_name_or_path:
                     begin_col_list.append(begin_of_text_indices[1][i].item())
-                    '''
-                    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                        if data_args.prompt_type == 'prompt_5':
-                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                        elif data_args.prompt_type == 'prompt_3':
-                            if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                        elif data_args.prompt_type == 'prompt_7':
-                            if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                        else:
-                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                    else:
-                        if data_args.prompt_type == 'prompt_5':
-                            if i % len(retrieval_disassemble_text_prompts_for_concat) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                        elif data_args.prompt_type == 'prompt_3':
-                            if i % len(retrieval_disassemble_text_prompts_3_for_concat) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                        elif data_args.prompt_type == 'prompt_7':
-                            if i % len(retrieval_disassemble_text_prompts_7_for_concat) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                        else:
-                            if i % len(retrieval_disassemble_text_prompts_for_concat) != 0:
-                                begin_col_list.append(begin_of_text_indices[1][i].item())
-                    '''
                 elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
                     begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
@@ -1766,16 +1693,6 @@ class MLLMRetrievalModel(nn.Module):
             )
 
             input['attention_mask'] = causal_mask
-
-            '''
-            if dist.get_rank() == 1:
-                print(input['attention_mask'])
-                print(input['attention_mask'].shape)
-                print(input['input_ids'])
-                print(input['input_ids'].shape)
-            '''
-
-
             output = self.encoder(**input, output_hidden_states=True, return_dict=True, use_cache=True)
             # 这里对应原文的log+relu操作
             end_col_list = (torch.tensor(end_col_list) - 1).to(device)
@@ -1806,6 +1723,325 @@ class MLLMRetrievalModel(nn.Module):
         else:
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
 
+
+    def encode_data_concat_dspy(self, dspy_input, dspy_generated_prompt_template, aspects_prompt_list, input_type, processor, device, model_args, data_args):
+        if input_type == 'text':
+            text_inputs = processor(text=[dspy_generated_prompt_template.replace('<sent>', text) for text in dspy_input],
+                                    return_tensors="pt", padding=True).to(device)
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|startoftext|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|endoftext|>']
+            elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<tool_call>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</tool_call>']
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|box_start|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|box_end|>']
+            else:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
+            begin_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(begin_of_text_id))
+            end_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(end_of_text_id))
+            begin_col_list = []
+            for i in range(len(begin_of_text_indices[1])):
+                if 'Qwen' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
+                elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
+                else:
+                    if i % (len(aspects_prompt_list) + 1) != 0:
+                        begin_col_list.append(begin_of_text_indices[1][i].item())
+            begin_col_list = sorted(list(set(begin_col_list)))
+            end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
+
+            text_inputs_embeds = self.encoder.get_input_embeddings()(text_inputs['input_ids'])
+            dtype, device = text_inputs_embeds.dtype, text_inputs_embeds.device
+            min_dtype = torch.finfo(dtype).min
+            causal_mask = torch.full(
+                (text_inputs_embeds.shape[1], text_inputs['attention_mask'].shape[-1]),
+                fill_value=min_dtype, dtype=dtype, device=device
+            )
+            causal_mask = torch.triu(causal_mask, diagonal=1)
+            edit_causal_mask = causal_mask.clone()
+            start_indice = 0
+            for i in range(len(list(zip(begin_col_list, end_col_list)))):
+                if i == 0:
+                    start_indice = begin_col_list[i]
+                else:
+                    current_begin_col_indice = begin_col_list[i]
+                    current_end_col_indice = end_col_list[i]
+                    edit_causal_mask[current_begin_col_indice:current_end_col_indice + 1,
+                    start_indice:current_begin_col_indice] = 1
+            edit_causal_mask = edit_causal_mask[None, None, :, :].expand(text_inputs['attention_mask'].shape[0], 1, -1, -1)
+            cache_position = torch.arange(
+                0, 0 + text_inputs_embeds.shape[1],
+                device=text_inputs_embeds.device
+            )
+            causal_mask *= torch.arange(text_inputs['attention_mask'].shape[-1],
+                                        device=device) > cache_position.reshape(-1, 1)
+            causal_mask = causal_mask[None, None, :, :].expand(text_inputs['attention_mask'].shape[0], 1, -1, -1)
+            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+            mask_length = text_inputs['attention_mask'].shape[-1]
+            padding_mask = causal_mask[:, :, :, :mask_length] + text_inputs['attention_mask'][:, None, None, :].to(causal_mask.device)
+            padding_mask = padding_mask == 0
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                padding_mask, min_dtype
+            )
+            edit_causal_mask = edit_causal_mask == 1
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                edit_causal_mask, min_dtype
+            )
+
+            text_inputs['attention_mask'] = causal_mask
+            output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
+            end_col_list = (torch.tensor(end_col_list) - 1).to(device)
+            batch_size = text_inputs['input_ids'].shape[0]
+            logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
+            logits = torch.log(1 + torch.relu(logits))
+            embs = output.hidden_states[-1][:, end_col_list[0], :]
+            return logits, embs
+        elif input_type == 'image':
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|startoftext|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|endoftext|>']
+            elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<tool_call>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</tool_call>']
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|box_start|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|box_end|>']
+            else:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
+            begin_of_text_indices = torch.where(dspy_input['input_ids'] == torch.tensor(begin_of_text_id))
+            end_of_text_indices = torch.where(dspy_input['input_ids'] == torch.tensor(end_of_text_id))
+            begin_col_list = []
+            for i in range(len(begin_of_text_indices[1])):
+                if i % (len(aspects_prompt_list) + 1) != 0:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
+            begin_col_list = sorted(list(set(begin_col_list)))
+            end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
+            img_inputs_embeds = self.encoder.get_input_embeddings()(dspy_input['input_ids'])
+            dtype, device = img_inputs_embeds.dtype, img_inputs_embeds.device
+            min_dtype = torch.finfo(dtype).min
+            causal_mask = torch.full(
+                (img_inputs_embeds.shape[1], dspy_input['attention_mask'].shape[-1]),
+                fill_value=min_dtype, dtype=dtype, device=device
+            )
+            edit_causal_mask = causal_mask.clone()
+            start_indice = 0
+            for i in range(len(list(zip(begin_col_list, end_col_list)))):
+                if i == 0:
+                    start_indice = begin_col_list[i]
+                else:
+                    current_begin_col_indice = begin_col_list[i]
+                    current_end_col_indice = end_col_list[i]
+                    edit_causal_mask[current_begin_col_indice:current_end_col_indice + 1,
+                    start_indice:current_begin_col_indice] = 1
+
+            edit_causal_mask = edit_causal_mask[None, None, :, :].expand(dspy_input['attention_mask'].shape[0], 1, -1, -1)
+            cache_position = torch.arange(
+                0, 0 + img_inputs_embeds.shape[1],
+                device=img_inputs_embeds.device
+            )
+            causal_mask *= torch.arange(dspy_input['attention_mask'].shape[-1],
+                                        device=device) > cache_position.reshape(-1, 1)
+            causal_mask = causal_mask[None, None, :, :].expand(dspy_input['attention_mask'].shape[0], 1, -1, -1)
+            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+            mask_length = dspy_input['attention_mask'].shape[-1]
+            padding_mask = causal_mask[:, :, :, :mask_length] + dspy_input['attention_mask'][:, None, None, :].to(
+                causal_mask.device
+            )
+            padding_mask = padding_mask == 0
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                padding_mask, min_dtype
+            )
+            edit_causal_mask = edit_causal_mask == 1
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                edit_causal_mask, min_dtype
+            )
+
+            dspy_input['attention_mask'] = causal_mask
+            output = self.encoder(**dspy_input, output_hidden_states=True, return_dict=True, use_cache=True)
+            # 这里对应原文的log+relu操作
+            end_col_list = (torch.tensor(end_col_list) - 1).to(device)
+            batch_size = dspy_input['input_ids'].shape[0]
+            logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
+            logits = torch.log(1 + torch.relu(logits))
+            embs = output.hidden_states[-1][:, end_col_list[0], :]
+            return logits, embs
+        else:
+            return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
+
+
+    def encode_data_concat_for_tbpr_dspy(self, dspy_input, dspy_generated_prompt_template, aspects_prompt_list, input_type, processor, device, model_args, data_args):
+        if input_type == 'text':
+            text_inputs = processor(text=[dspy_generated_prompt_template.replace('<sent>', text) for text in dspy_input],
+                                    return_tensors="pt", padding=True).to(device)
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|startoftext|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|endoftext|>']
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<think>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</think>']
+            else:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
+            begin_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(begin_of_text_id))
+            end_of_text_indices = torch.where(text_inputs['input_ids'] == torch.tensor(end_of_text_id))
+            begin_col_list = []
+            for i in range(len(begin_of_text_indices[1])):
+                if 'Qwen' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
+                elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
+                else:
+                    if i % (len(aspects_prompt_list) + 1) != 0:
+                        begin_col_list.append(begin_of_text_indices[1][i].item())
+            begin_col_list = sorted(list(set(begin_col_list)))
+            end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
+
+            text_inputs_embeds = self.encoder.get_input_embeddings()(text_inputs['input_ids'])
+            dtype, device = text_inputs_embeds.dtype, text_inputs_embeds.device
+            min_dtype = torch.finfo(dtype).min
+            causal_mask = torch.full(
+                (text_inputs_embeds.shape[1], text_inputs['attention_mask'].shape[-1]),
+                fill_value=min_dtype, dtype=dtype, device=device
+            )
+            causal_mask = torch.triu(causal_mask, diagonal=1)
+            edit_causal_mask = causal_mask.clone()
+            start_indice = 0
+            for i in range(len(list(zip(begin_col_list, end_col_list)))):
+                if i == 0:
+                    start_indice = begin_col_list[i]
+                else:
+                    current_begin_col_indice = begin_col_list[i]
+                    current_end_col_indice = end_col_list[i]
+                    edit_causal_mask[current_begin_col_indice:current_end_col_indice + 1,
+                    start_indice:current_begin_col_indice] = 1
+            edit_causal_mask = edit_causal_mask[None, None, :, :].expand(text_inputs['attention_mask'].shape[0], 1, -1, -1)
+            cache_position = torch.arange(
+                0, 0 + text_inputs_embeds.shape[1],
+                device=text_inputs_embeds.device
+            )
+            causal_mask *= torch.arange(text_inputs['attention_mask'].shape[-1],
+                                        device=device) > cache_position.reshape(-1, 1)
+            causal_mask = causal_mask[None, None, :, :].expand(text_inputs['attention_mask'].shape[0], 1, -1, -1)
+            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+            mask_length = text_inputs['attention_mask'].shape[-1]
+            padding_mask = causal_mask[:, :, :, :mask_length] + text_inputs['attention_mask'][:, None, None, :].to(causal_mask.device)
+            padding_mask = padding_mask == 0
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                padding_mask, min_dtype
+            )
+            edit_causal_mask = edit_causal_mask == 1
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                edit_causal_mask, min_dtype
+            )
+
+            text_inputs['attention_mask'] = causal_mask
+            output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
+            end_col_list = (torch.tensor(end_col_list) - 1).to(device)
+            batch_size = text_inputs['input_ids'].shape[0]
+            logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
+            logits = torch.log(1 + torch.relu(logits))
+            embs = output.hidden_states[-1][:, end_col_list[0], :]
+            return logits, embs
+
+        elif input_type == 'image':
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<s>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</s>']
+            elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|startoftext|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|endoftext|>']
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<think>']
+                end_of_text_id = processor.tokenizer.get_vocab()['</think>']
+            else:
+                begin_of_text_id = processor.tokenizer.get_vocab()['<|begin_of_text|>']
+                end_of_text_id = processor.tokenizer.get_vocab()['<|end_of_text|>']
+            begin_of_text_indices = torch.where(dspy_input['input_ids'] == torch.tensor(begin_of_text_id))
+            end_of_text_indices = torch.where(dspy_input['input_ids'] == torch.tensor(end_of_text_id))
+            begin_col_list = []
+            for i in range(len(begin_of_text_indices[1])):
+                if 'Qwen' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
+                elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                    begin_col_list.append(begin_of_text_indices[1][i].item())
+                else:
+                    if i % (len(aspects_prompt_list) + 1) != 0:
+                        begin_col_list.append(begin_of_text_indices[1][i].item())
+            begin_col_list = sorted(list(set(begin_col_list)))
+            end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
+            img_inputs_embeds = self.encoder.get_input_embeddings()(dspy_input['input_ids'])
+            dtype, device = img_inputs_embeds.dtype, img_inputs_embeds.device
+            min_dtype = torch.finfo(dtype).min
+            causal_mask = torch.full(
+                (img_inputs_embeds.shape[1], dspy_input['attention_mask'].shape[-1]),
+                fill_value=min_dtype, dtype=dtype, device=device
+            )
+            edit_causal_mask = causal_mask.clone()
+            start_indice = 0
+            for i in range(len(list(zip(begin_col_list, end_col_list)))):
+                if i == 0:
+                    start_indice = begin_col_list[i]
+                else:
+                    current_begin_col_indice = begin_col_list[i]
+                    current_end_col_indice = end_col_list[i]
+                    edit_causal_mask[current_begin_col_indice:current_end_col_indice + 1,
+                    start_indice:current_begin_col_indice] = 1
+
+            edit_causal_mask = edit_causal_mask[None, None, :, :].expand(dspy_input['attention_mask'].shape[0], 1, -1, -1)
+            cache_position = torch.arange(
+                0, 0 + img_inputs_embeds.shape[1],
+                device=img_inputs_embeds.device
+            )
+            causal_mask *= torch.arange(dspy_input['attention_mask'].shape[-1],
+                                        device=device) > cache_position.reshape(-1, 1)
+            causal_mask = causal_mask[None, None, :, :].expand(dspy_input['attention_mask'].shape[0], 1, -1, -1)
+            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+            mask_length = dspy_input['attention_mask'].shape[-1]
+            padding_mask = causal_mask[:, :, :, :mask_length] + dspy_input['attention_mask'][:, None, None, :].to(
+                causal_mask.device
+            )
+            padding_mask = padding_mask == 0
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                padding_mask, min_dtype
+            )
+            edit_causal_mask = edit_causal_mask == 1
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                edit_causal_mask, min_dtype
+            )
+
+            dspy_input['attention_mask'] = causal_mask
+
+            output = self.encoder(**dspy_input, output_hidden_states=True, return_dict=True, use_cache=True)
+            # 这里对应原文的log+relu操作
+            end_col_list = (torch.tensor(end_col_list) - 1).to(device)
+            batch_size = dspy_input['input_ids'].shape[0]
+            logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
+            logits = torch.log(1 + torch.relu(logits))
+            embs = output.hidden_states[-1][:, end_col_list[0], :]
+            return logits, embs
+        return None
 
     def encode_data_concat_for_cir(self, text_input, image_input, dress_type, input_type, processor, device, model_args, data_args):
         if data_args.cir_type == 'classify_type':

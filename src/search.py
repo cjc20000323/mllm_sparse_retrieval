@@ -1,10 +1,10 @@
 import glob
+import gc
 import glob
 import os
 import pickle
 from contextlib import nullcontext
 from itertools import chain
-import gc
 
 import faiss
 import numpy as np
@@ -39,22 +39,13 @@ from template import img_prompt, \
     llama3_template_content_element, retrieval_disassemble_image_prompts_3_for_concat, \
     retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, \
     retrieval_disassemble_image_prompts_7_for_concat, mistral_img_prompt, llava_mistral_template_image_prefix, \
-    llava_mistral_template_content_element, person_retrieval_img_prompt_for_concat, person_retrieval_img_prompt_for_concat_1, \
-    retrieval_disassemble_image_prompts_person_retrieval_for_concat, \
-    retrieval_disassemble_image_prompts_person_retrieval_for_concat_1, \
-    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, person_retrieval_img_prompt_for_concat_2, \
-    img_prompt_qwen_v3, qwen2_5_img_prompt, qwen3_img_prompt, qwen2_5_template_image_prefix, \
+    llava_mistral_template_content_element, img_prompt_qwen_v3, qwen2_5_img_prompt, qwen3_img_prompt, qwen2_5_template_image_prefix, \
     qwen3_template_image_prefix, qwen2_5_template_content_element, qwen3_template_content_element, \
     retrieval_disassemble_image_prompts_1_for_concat, retrieval_disassemble_image_prompts_2_for_concat, \
     retrieval_disassemble_image_prompts_4_for_concat, retrieval_disassemble_image_prompts_6_for_concat, \
     retrieval_disassemble_image_prompts_for_concat_llama_generation, retrieval_disassemble_image_prompts_for_concat_mistral_generation, \
     vicuna_img_prompt, llava_vicuna_template_content_element, llava_vicuna_template_image_prefix, \
-    retrieval_disassemble_image_prompts_person_retrieval_1_for_concat, \
-    retrieval_disassemble_image_prompts_person_retrieval_2_for_concat, \
-    retrieval_disassemble_image_prompts_person_retrieval_3_for_concat, \
-    retrieval_disassemble_image_prompts_person_retrieval_4_for_concat, \
-    retrieval_disassemble_image_prompts_person_retrieval_6_for_concat, \
-    retrieval_disassemble_image_prompts_person_retrieval_7_for_concat, llava_34b_template_image_prefix, \
+    llava_34b_template_image_prefix, \
     llava_34b_template_content_element, retrieval_disassemble_query_prompts_t2it_retrieval_for_concat, \
     mistral_it2t_query_prompt, it2t_query_prompt, llava_mistral_template_fusion_prefix, llama3_template_fusion_prefix, \
     fusion_prompt_for_concat, retrieval_disassemble_query_prompts_it2t_retrieval_for_concat, \
@@ -77,8 +68,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-model_begin_indice = 29
-path_prefix = '/root/autodl-tmp/'
+model_begin_indice = 28
+path_prefix = '/root/autodl-fs/'
 
 
 def pickle_load(path):

@@ -888,11 +888,13 @@ class Reranker:
                         sorted_by_value_rerank_run_1 = dict(sorted(rerank_run_1.items(), key=lambda x: x[1], reverse=True))
                         _sorted_by_value_rerank_run_1 = dict(
                             sorted(_rerank_run_1.items(), key=lambda x: x[1], reverse=True))
+                        '''
                         if dist.get_rank() == 0:
                             print(sorted_by_value_rerank_run)
                             print(_sorted_by_value_rerank_run)
                             print(sorted_by_value_rerank_run_1)
                             print(_sorted_by_value_rerank_run_1)
+                        '''
 
                         rerank_fusion_run[k] = sorted_by_value_rerank_run
                 else:

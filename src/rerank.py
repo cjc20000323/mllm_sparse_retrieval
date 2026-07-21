@@ -64,8 +64,8 @@ from io import BytesIO
 
 stopwords = set(stopwords.words('english') + list(string.punctuation))
 
-model_begin_indice = 29
-path_prefix = '/root/autodl-tmp/'
+model_begin_indice = 28
+path_prefix = '/root/autodl-fs/'
 
 import logging
 

@@ -4,16 +4,20 @@ import transformers
 
 import tevatron.retriever.arguments
 
-coco_file_path = './data/coco/'
-flickr_file_path = './data/flickr/'
-fashion_iq_file_path = './data/fashion-iq/'
-cuhk_pedes_file_path = './data/CUHK-PEDES/'
-icfg_pedes_flie_path = './data/ICFG-PEDES/'
-rstpreid_file_path = './data/RSTPReid/'
-webqa_file_path = './data/WebQA/'
-remuq_file_path = './data/UMRB-ReMuQ/'
-llava_file_path = './data/UMRB-LLaVA/'
-edis_file_path = './data/EDIS/'
+model_begin_indice = 29
+dataset_path_prefix = '/root/autodl-tmp/'
+model_path_prefix = '/root/autodl-fs/'
+
+coco_file_path = dataset_path_prefix + 'data/coco/'
+flickr_file_path = dataset_path_prefix + 'data/flickr/'
+fashion_iq_file_path = dataset_path_prefix + 'data/fashion-iq/'
+cuhk_pedes_file_path =dataset_path_prefix + 'data/CUHK-PEDES/'
+icfg_pedes_flie_path = dataset_path_prefix + 'data/ICFG-PEDES/'
+rstpreid_file_path = dataset_path_prefix + 'data/RSTPReid/'
+webqa_file_path = dataset_path_prefix + 'data/WebQA/'
+remuq_file_path = dataset_path_prefix + 'data/UMRB-ReMuQ/'
+llava_file_path = dataset_path_prefix + 'data/UMRB-LLaVA/'
+edis_file_path = dataset_path_prefix + 'data/EDIS/'
 
 
 @dataclass
@@ -41,12 +45,13 @@ class TrainingArguments(transformers.TrainingArguments):
 @dataclass
 class ModelArguments(tevatron.retriever.arguments.ModelArguments):
     lora_bias: Literal["none", "all", "lora_only"] = field(default="none")
-    base_model_path: str = field(default='./checkpoints/llava-hf-llama3-llava-next-8b-hf')
+    base_model_path: str = field(default=model_path_prefix + f'checkpoints/llava-hf-llama3-llava-next-8b-hf')
     lora_model_path: str = field(default='./output/llava-hf-llama3-llava-next-8b-hf')
     use_output_embedding_cluster: bool = field(default=False)
     cluster_sum: int = field(default=8000)
     eol_type: str = field(default='prompteol')
     calculate_type: str = field(default='separate')
+    dspy_model_path: str = field(default=model_path_prefix + f'checkpoints/Meta-Llama-3.1-8B-Instruct')
     # 当eol_type为all_disassembleeol时，稀疏特征和密集特征都用各方面prompt综合编码
     # 当eol_type为disassembleeol_concrete时，密集特征用原来的，稀疏特征由各方面选词，让后到原来的logit去找
     # 当eol_type为disassembleeol_separate时，密集特征用原来的，稀疏特征用各方面prompt综合编码
@@ -126,5 +131,5 @@ class PromptGenerationArguments:
     prompt_generation_image: str = field(default='None')
     prompt_generation_type: str = field(default='t2t')
     demonstration_num: int = field(default=1)
-    # prompt_generation_model: str = field(default=None)
+    prompt_generation_model: str = field(default=None)
     case_type: str = field(default='caption')
