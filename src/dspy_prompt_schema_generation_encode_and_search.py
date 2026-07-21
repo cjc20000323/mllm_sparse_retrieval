@@ -1,11 +1,19 @@
 import os
+import gc
 from contextlib import nullcontext
 import string
+import pickle
+import json
+import subprocess
+import glob
+import faiss
+from itertools import chain
 
 import select
 import torch
 import torch.distributed as dist
 import torch.utils.data as Data
+from accelerate.test_utils.scripts.test_distributed_data_loop import test_data_loader
 from tqdm import tqdm
 from transformers import (
     HfArgumentParser,
@@ -17,7 +25,7 @@ from transformers import (LlamaForCausalLM, MistralForCausalLM, LlamaTokenizer, 
                           AutoProcessor, Qwen3VLProcessor, Qwen3VLForConditionalGeneration)
 
 from arguments import PromptRepsLLMDataArguments, ModelArguments
-from arguments import TrainingArguments, PromptGenerationArguments
+from arguments import TrainingArguments, PromptGenerationArguments, PromptRepsLLMSearchArguments
 from dataset import CrossModalRetrievalDataset, TextPersonRetrievalDataset, ComposedTextImageRetrievalDataset, \
     Text2ImagetextRetrievalDataset, Imagetext2TextRetrievalDataset
 from template import (prompt_schema_generation_text_prompt, prompt_schema_generation_text_prompt_1, \
@@ -34,6 +42,22 @@ import torch.nn.functional as F
 from nltk import word_tokenize
 from nltk.corpus import stopwords
 import numpy as np
+from hybrid import fuse
+
+from metrices import RecallMetrics
+from model import MLLMRetrievalModel
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+model_begin_indice = 28
+path_prefix = '/root/autodl-fs/'
+
+def pickle_load(path):
+    with open(path, 'rb') as f:
+        reps, lookup = pickle.load(f)
+    return np.array(reps), lookup
 
 
 def get_filtered_ids(tokenizer):
@@ -266,6 +290,19 @@ def get_img_valid_disassemble_tokens_values(tokenizer, disassemble_logits, vocab
     return tokens, values
 
 
+def close_sparse_retriever(sparse_retriever, analyzer=None):
+    for resource in (sparse_retriever, analyzer):
+        if resource is None:
+            continue
+        close = getattr(resource, 'close', None)
+        if callable(close):
+            try:
+                close()
+            except Exception as exc:
+                logger.warning("Failed to close sparse retrieval resource %r: %s", resource, exc)
+    gc.collect()
+
+
 class GenerateSchemaAspects(dspy.Signature):
     """Generate 3 to 7 retrieval-useful ontology aspects from 20-30 dataset texts."""
 
@@ -288,7 +325,7 @@ class SchemaAspectProgram(dspy.Module):
         )
 
 
-class RetrievalAction():
+class RetrievalAction:
     def __init__(self, training_args, data_args, model_args, search_args, model, processor, vocab_dict):
         super().__init__()
         self.training_args = training_args
@@ -337,27 +374,26 @@ class RetrievalAction():
                     prompt_template += content_element
         return prompt_template
 
-    def encode(self, test_dataloader, aspects_prompt_list, filtered_ids, device):
+    def encode(self, test_dataloader, aspects_prompt_list, filtered_ids, encode_type, device):
         encoded = []
         jsonl_data = []
         lookup_indices = []
         if self.training_args.task_type == 'tbpr':
+            prompt_template = self.generate_concat_prompts(aspects_prompt_list, self.training_args.encode_type)
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
-                prompt_template = self.generate_concat_prompts(aspects_prompt_list, self.training_args.encode_type)
                 raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
                 img_inputs = self.processor(images=raw_images, text=[prompt_template] * len(imgs_path),
                                             return_tensors="pt",
                                             padding=True)
                 imgs = img_inputs.to(device)
-                logits, reps = self.model.encode_data_concat_for_tbpr_dspy(imgs, 'image', self.processor, device,
+                logits, reps = self.model.encode_data_concat_for_tbpr_dspy(imgs, prompt_template, aspects_prompt_list, 'image', self.processor, device,
                                                                            self.model_args,
                                                                            self.data_args)
                 disassemble_logits = logits
 
                 reps = F.normalize(reps, dim=-1)
 
-                reps = reps.reshape(-1, len(aspects_prompt_list), reps.shape[1]).mean(1)
                 lookup_indices.extend(img_ids)
 
                 encoded.append(reps.cpu().detach().float().numpy())
@@ -398,13 +434,13 @@ class RetrievalAction():
                     )
 
         else:
+            prompt_template = self.generate_concat_prompts(aspects_prompt_list, self.training_args.encode_type)
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
                 with torch.cuda.amp.autocast() if self.training_args.fp16 else nullcontext():
-                    prompt_template = self.generate_concat_prompts(aspects_prompt_list, self.training_args.encode_type)
 
-                    if self.training_args.encode_type == 'text':
-                        logits, reps = self.model.encode_data_concat_dspy(texts, prompt_template, 'text',
+                    if encode_type == 'text':
+                        logits, reps = self.model.encode_data_concat_dspy(texts, prompt_template, aspects_prompt_list, 'text',
                                                                           self.processor, device, self.model_args,
                                                                           self.data_args)
                         disassemble_logits = logits
@@ -414,13 +450,12 @@ class RetrievalAction():
                                                     return_tensors="pt",
                                                     padding=True)
                         imgs = img_inputs.to(device)
-                        logits, reps = self.model.encode_data_concat_dspy(imgs, prompt_template, 'image',
+                        logits, reps = self.model.encode_data_concat_dspy(imgs, prompt_template, aspects_prompt_list, 'image',
                                                                           self.processor, device, self.model_args,
                                                                           self.data_args)
                         disassemble_logits = logits
 
                     reps = F.normalize(reps, dim=-1)
-                    reps = reps.reshape(-1, len(aspects_prompt_list), reps.shape[1]).mean(1)
                     if self.training_args.encode_type == 'text':
                         lookup_indices.extend(text_ids)
                     else:
@@ -501,7 +536,7 @@ class RetrievalAction():
 
         return encoded, jsonl_data, lookup_indices
 
-    def search(self, test_dataloader, aspects_prompt_list, filtered_ids, dense_retriever, sparse_retriever, look_up, device):
+    def search(self, test_dataloader, aspects_prompt_list, filtered_ids, dense_retriever, sparse_retriever, analyzer, look_up, dataset, split, best_weight, device):
         dense_run = {}
         sparse_run = {}
         fusion_run = [{}] * 9
@@ -509,25 +544,66 @@ class RetrievalAction():
 
         if self.training_args.task_type == 'tbpr':
             with torch.no_grad(), torch.cuda.amp.autocast() if self.training_args.fp16 else nullcontext():
+                prompt_template = self.generate_concat_prompts(aspects_prompt_list, self.training_args.encode_type)
                 for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                              total=len(test_dataloader)):
+
                     lookup_indices.extend(text_ids)
-                    query_logits, query_dense_reps = self.model.encode_data_concat_for_tbpr(texts, 'text', self.processor, device,
+                    query_logits, query_dense_reps = self.model.encode_data_concat_for_tbpr(texts, prompt_template,
+                                                                                            aspects_prompt_list, 'text', self.processor, device,
                                                                                        self.model_args, self.data_args)
                     disassemble_logits = query_logits
 
                     batch_ids = text_ids
 
                     query_dense_reps = F.normalize(query_dense_reps, dim=-1)
-                    if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
-                        prompt_length = 5
-                        query_dense_reps = query_dense_reps.reshape(-1, prompt_length,
-                                                                    query_dense_reps.shape[1]).mean(1)
                     query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
                     dense_scores, dense_rankings = search_queries(dense_retriever, query_dense_reps, look_up,
                                                                   self.search_args)
                     dense_run.update(
                         get_run_dict(batch_ids, dense_scores, dense_rankings, self.search_args.remove_query))
+
+                    batch_topics = []
+                    for text_indice in range(len(batch_ids)):
+                        text = texts[text_indice]
+
+                        length = len(aspects_prompt_list)
+                        disassemble_logit = disassemble_logits[
+                            text_indice * length:(text_indice + 1) * length]
+                        vector = dict()
+                        tokens, values = get_text_valid_disassemble_tokens_values(text,
+                                                                                  self.processor.tokenizer,
+                                                                                  disassemble_logit,
+                                                                                  self.vocab_dict,
+                                                                                  self.data_args,
+                                                                                  filtered_ids,
+                                                                                  None,
+                                                                                  self.model_args)
+
+                        for token, v in zip(tokens, values):
+                            if token in vector.keys():
+                                if self.data_args.sparse_value_type == 'replace':
+                                    vector[token] = int(v)
+                                elif self.data_args.sparse_value_type == 'sum':
+                                    vector[token] += int(v)
+                                else:
+                                    if int(v) > vector[token]:
+                                        vector[token] = int(v)
+                            else:
+                                vector[token] = int(v)
+                        if self.data_args.sparse_value_mean:
+                            for token in vector.keys():
+                                vector[token] //= length
+                        query = ""
+                        for token, v in vector.items():
+                            query += (' ' + token) * v
+                        batch_topics.append(query.strip())
+                    sparse_scores, sparse_rankings = sparse_search(sparse_retriever, batch_topics,
+                                                                   batch_ids,
+                                                                   self.search_args)
+                    sparse_run.update(
+                        get_run_dict(batch_ids, sparse_scores, sparse_rankings,
+                                     self.search_args.remove_query))
         else:
             with torch.no_grad(), torch.cuda.amp.autocast() if self.training_args.fp16 else nullcontext():
                 for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
@@ -540,7 +616,7 @@ class RetrievalAction():
                     prompt_template = self.generate_concat_prompts(aspects_prompt_list, self.training_args.encode_type)
 
                     if self.search_args.query_type == 'text':
-                        query_logits, query_dense_reps = self.model.encode_data_concat_dspy(texts, 'text',
+                        query_logits, query_dense_reps = self.model.encode_data_concat_dspy(texts, prompt_template, aspects_prompt_list, 'text',
                                                                                             self.processor, device,
                                                                                             self.model_args,
                                                                                             self.data_args)
@@ -552,7 +628,7 @@ class RetrievalAction():
                                                     return_tensors="pt",
                                                     padding=True)
                         imgs = img_inputs.to(device)
-                        query_logits, query_dense_reps = self.model.encode_data_concat(imgs, 'image', self.processor,
+                        query_logits, query_dense_reps = self.model.encode_data_concat_dspy(imgs, prompt_template, aspects_prompt_list, 'image', self.processor,
                                                                                        device,
                                                                                        self.model_args,
                                                                                        self.data_args)
@@ -564,8 +640,6 @@ class RetrievalAction():
                         batch_ids = img_ids
 
                     query_dense_reps = F.normalize(query_dense_reps, dim=-1)
-                    query_dense_reps = query_dense_reps.reshape(-1, len(aspects_prompt_list),
-                                                                query_dense_reps.shape[1]).mean(1)
 
                     query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
                     dense_scores, dense_rankings = search_queries(dense_retriever, query_dense_reps, look_up,
@@ -651,6 +725,52 @@ class RetrievalAction():
                         sparse_run.update(
                             get_run_dict(batch_ids, sparse_scores, sparse_rankings, self.search_args.remove_query))
 
+        max_val_fusion_metric = 0
+        best_weight = 0.5
+
+        close_sparse_retriever(sparse_retriever, analyzer)
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        if split == 'val':
+            for i in range(9):
+                fusion_run[i].update(
+                    fuse(
+                        runs=[dense_run, sparse_run],
+                        weights=[float((i + 1) / 10), 1 - float((i + 1) / 10)]
+                    )
+                )
+
+                metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run[i], look_up, lookup_indices,
+                                       self.search_args)
+                metric.sort_and_count()
+
+                metric.all_gather_object()
+                fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
+                if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
+                    max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
+                    best_weight = float((i + 1) / 10)
+
+            best_test_fusion_run = {}
+            best_test_fusion_run.update(
+                fuse(
+                    runs=[dense_run, sparse_run],
+                    weights=[best_weight, 1 - best_weight]
+                )
+            )
+
+            return dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight
+        else:
+            best_test_fusion_run = {}
+            best_test_fusion_run.update(
+                fuse(
+                    runs=[dense_run, sparse_run],
+                    weights=[best_weight, 1 - best_weight]
+                )
+            )
+
+            return dense_run, sparse_run, best_test_fusion_run, lookup_indices
+
 
 def construct_prompt(aspects, task_type):
     if task_type == 'itr':
@@ -681,15 +801,69 @@ def construct_prompt(aspects, task_type):
     return constructed_text_prompts, constructed_img_prompts
 
 
-def dspy_metric(pred, trace=None):
+def dspy_metric(example, pred, trace=None):
     pass
+
+
+
+def load_candidates(passage_reps, sparse_index):
+    from tevatron.retriever.searcher import FaissFlatSearcher
+    from pyserini.search.lucene import LuceneImpactSearcher
+    from pyserini.analysis import JWhiteSpaceAnalyzer
+
+    index_files = glob.glob(os.path.join(passage_reps, 'corpus*.pkl'))
+    if dist.get_rank() == 0:
+        print(f'Pattern match found {len(index_files)} files; loading them into dense index.')
+
+    p_reps_0, p_lookup_0 = pickle_load(index_files[0])
+    print(p_reps_0.shape)
+    dense_retriever = FaissFlatSearcher(p_reps_0)
+    # 经DeepSeek老师讲解，他说FaissFlatSearcher初始化时仅分配了内存结构，未添加任何数据。所以这里再重新加一下，
+    # 这也和源代码中重复add了p_reps_0一致，希望D老师没骗我吧
+    # dense_retriever.add(p_reps_0)
+
+    # 在源代码里，并没有将所有数据都转移到某个GPU上面保存，而是各自保存，这样的话corpus会有多个编号，因此会有下面这一段处理多个corpus的代码，
+    # 但是我们这里是先集中后保存，这样就只有一个文件，所以就先注释掉了
+    # 经过修改，现在是每个gpu在encode的时候处理各自数据并各自保存一个文件，所以现在应当按照原来的方式处理
+    shards = chain([(p_reps_0, p_lookup_0)], map(pickle_load, index_files[1:]))
+    if len(index_files) > 1:
+        shards = tqdm(shards, desc='Loading shards into index', total=len(index_files))
+    look_up = []
+    for p_reps, p_lookup in shards:
+        dense_retriever.add(p_reps)
+        look_up += p_lookup
+    if dist.get_rank() == 0:
+        print(len(look_up))
+    if search_args.use_gpu:
+        num_gpus = faiss.get_num_gpus()
+        if num_gpus == 0:
+            logger.error("No GPU found. Back to CPU.")
+        else:
+            logger.info(f"Using {num_gpus} GPU")
+            if num_gpus == 1:
+                co = faiss.GpuClonerOptions()
+                co.useFloat16 = True
+                res = faiss.StandardGpuResources()
+                dense_retriever.index = faiss.index_cpu_to_gpu(res, 0, dense_retriever.index, co)
+            else:
+                co = faiss.GpuMultipleClonerOptions()
+                co.shard = True
+                co.useFloat16 = True
+                dense_retriever.index = faiss.index_cpu_to_all_gpus(dense_retriever.index, co,
+                                                                        ngpu=num_gpus)
+
+    sparse_retriever = LuceneImpactSearcher(os.path.join(sparse_index, 'index'), None)
+    analyzer = JWhiteSpaceAnalyzer()
+    sparse_retriever.set_analyzer(analyzer)
+
+    return dense_retriever, sparse_retriever, analyzer
 
 
 def main():
     parser = HfArgumentParser(
-        (ModelArguments, PromptRepsLLMDataArguments, TrainingArguments, PromptGenerationArguments))
+        (ModelArguments, PromptRepsLLMSearchArguments, PromptRepsLLMDataArguments, TrainingArguments, PromptGenerationArguments))
 
-    model_args, data_args, training_args, prompt_generation_args = parser.parse_args_into_dataclasses()
+    model_args, search_args, data_args, training_args, prompt_generation_args = parser.parse_args_into_dataclasses()
     model_args: ModelArguments
     data_args: PromptRepsLLMDataArguments
     training_args: TrainingArguments
@@ -710,21 +884,6 @@ def main():
     optimizer = dspy.MIPROv2(
         metric=dspy_metric,
         auto="light",
-    )
-
-    trainset = [
-        dspy.Example(
-            dataset_name="flickr",
-            task_type="itr",
-            seed_texts="sentence 1\nsentence 2\n...",
-            eval_split="dev_small",
-        ).with_inputs("dataset_name", "task_type", "seed_texts"),
-    ]
-
-    compiled = optimizer.compile(
-        program,
-        trainset=trainset,
-        valset=devset,
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -755,20 +914,6 @@ def main():
         torch_type = torch.float16
     else:
         torch_type = torch.float32
-
-    # 指定模型
-    if 'Meta-Llama-3-8B-Instruct' in model_args.dspy_model_path:
-        dspy_model = LlamaForCausalLM.from_pretrained(model_args.dspy_model_path,
-                                                      device_map=device_map, torch_dtype=torch_type)
-        tokenizer = AutoTokenizer.from_pretrained(model_args.dspy_model_path)
-    elif 'Mistral-7B-Instruct-v0.3' in model_args.dspy_model_path:
-        dspy_model = MistralForCausalLM.from_pretrained(model_args.dspy_model_path,
-                                                        device_map=device_map, torch_dtype=torch_type)
-        tokenizer = AutoTokenizer.from_pretrained(model_args.dspy_model_path)
-    else:
-        dspy_model = LlamaForCausalLM.from_pretrained(model_args.dspy_model_path,
-                                                      device_map=device_map, torch_dtype=torch_type)
-        tokenizer = LlamaTokenizer.from_pretrained(model_args.dspy_model_path)
 
     if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
         encoder = LlavaForConditionalGeneration.from_pretrained(model_args.model_name_or_path, device_map=device_map,
@@ -827,8 +972,6 @@ def main():
     if data_args.reps_loc == 'after_pad':
         processor.tokenizer.padding_side = "left"
         processor.tokenizer.padding = True
-        tokenizer.padding_side = "left"
-        tokenizer.padding = True
 
     # 加载词表并获取过滤后的单词id，但目前尚不清楚filtered_ids是做什么的
     if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
@@ -839,6 +982,51 @@ def main():
         filtered_ids = get_filtered_ids(processor.tokenizer)
     vocab_dict = {v: k for k, v in vocab_dict.items()}
     print(len(vocab_dict))
+
+    if training_args.task_type == 'cir':
+        val_dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'val',
+                                                    training_args.encode_type)
+    elif training_args.task_type == 'tbpr':
+        val_dataset_single = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'val', 'single')
+        val_dataset_full = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'val', 'full')
+    elif training_args.task_type == 't2it':
+        val_dataset = Text2ImagetextRetrievalDataset(data_args.dataset_name, processor, 'val', 'corpus')
+    elif training_args.task_type == 'it2t':
+        val_dataset = Imagetext2TextRetrievalDataset(data_args.dataset_name, processor, 'val', 'corpus')
+    else:
+        val_dataset_full = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'val', 'full')
+        val_dataset_single = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'val', 'single')
+    sampler = Data.DistributedSampler(val_dataset_single, num_replicas=dist.get_world_size(), shuffle=True, rank=dist.get_rank())
+    val_dataloader_single = Data.DataLoader(dataset=val_dataset_single, sampler=sampler, pin_memory=True,
+                                      batch_size=data_args.per_device_batch_size, shuffle=False)
+    sampler = Data.DistributedSampler(val_dataset_full, num_replicas=dist.get_world_size(), shuffle=True,
+                                      rank=dist.get_rank())
+    val_dataloader_full = Data.DataLoader(dataset=val_dataset_full, sampler=sampler, pin_memory=True,
+                                          batch_size=data_args.per_device_batch_size, shuffle=False)
+
+
+    if training_args.task_type == 'cir':
+        dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'test',
+                                                    training_args.encode_type)
+    elif training_args.task_type == 'tbpr':
+        dataset_single = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
+        dataset_full = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
+    elif training_args.task_type == 't2it':
+        dataset = Text2ImagetextRetrievalDataset(data_args.dataset_name, processor, 'test', 'corpus')
+    elif training_args.task_type == 'it2t':
+        dataset = Imagetext2TextRetrievalDataset(data_args.dataset_name, processor, 'test', 'corpus')
+    else:
+        dataset_full = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
+        dataset_single = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
+    sampler = Data.DistributedSampler(dataset_single, num_replicas=dist.get_world_size(), shuffle=True,
+                                      rank=dist.get_rank())
+    test_dataloader_single = Data.DataLoader(dataset=dataset_single, sampler=sampler, pin_memory=True,
+                                      batch_size=data_args.per_device_batch_size, shuffle=False)
+    sampler = Data.DistributedSampler(dataset_full, num_replicas=dist.get_world_size(), shuffle=True,
+                                      rank=dist.get_rank())
+    test_dataloader_full = Data.DataLoader(dataset=dataset_full, sampler=sampler, pin_memory=True,
+                                             batch_size=data_args.per_device_batch_size, shuffle=False)
+
 
     with torch.no_grad():
         if prompt_generation_args.prompt_generation_type == 'prompt_schema':
@@ -856,6 +1044,337 @@ def main():
                 prompt = mistral_prompt_schema_generation_text_prompt_2
             else:
                 prompt = prompt_schema_generation_text_prompt_2
+
+    seed_text = """
+        'You are an experienced knowledge engineer and you are modeling schemas for knowledge graph construction. '
+        'Given a set of sentences, you need to give several proper words or phrases for the abstract schemas of entities, relations and events in these sentences.'
+        'You must return your answer in the following format: 1. phrases1\n2.phrases2\n3.phrases3\n...'
+        'You can\'t return anything other than answers.'
+        'These abstract intention words should fulfill the following requirements.'
+        '1. The abstract schemas phrases can well represent the entities, relations and events, and it could be the type of the entities, relations and events or the related concepts of the entities, relations and events.'
+        '2. Strictly follow the provided format, do not add extra characters or words.'
+        '3. Write 3 to 7 word or phrase items at the highest possible abstract level if possible.'
+        '4. Do not repeat the same word and the input in the answer.'
+        '5. Stop immediately if you can\'t think of any more phrases, and no explanation is needed.'
+        '6. Strictly limit the sum of answers between 3 and 7 items.'
+        '\n'
+        '\n'
+        'Input sentences:\n<sent>\n'
+        """
+
+    counter = 0
+    demonstration_string = ''
+    for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(val_dataloader_single),
+                                                                 total=len(val_dataloader_single)):
+        # print(texts)
+        counter += 1
+
+        # itr_coco_demonstration += f'{counter}. '
+        demonstration_string += texts[0]
+        demonstration_string += '\n'
+
+        if counter == prompt_generation_args.demonstration_num:
+            break
+
+    seed_text = seed_text.replace('<sent>', demonstration_string)
+
+    trainset = [
+        dspy.Example(
+            dataset_name=data_args.dataset_name,
+            task_type='text-based person retrieval' if training_args.task_type == 'tbpr' else "image-text retrieval",
+            seed_texts=seed_text,
+            eval_split="dev_small",
+            training_args=training_args,
+            model_args=model_args,
+            data_args=data_args,
+            search_args=search_args,
+            prompt_generation_args=prompt_generation_args,
+            val_dataset_single=val_dataset_single,
+            val_dataset_full=val_dataset_full
+        ).with_inputs("dataset_name", "task_type", "seed_texts"),
+    ]
+
+    compiled = optimizer.compile(
+        program,
+        trainset=trainset,
+        valset=trainset,
+    )
+
+    prediction = compiled(
+        dataset_name="flickr",
+        task_type="itr",
+        seed_texts=seed_text,
+    )
+
+    retrieval_action = RetrievalAction(training_args, data_args, model_args, search_args, encoder, processor,
+                                       vocab_dict)
+
+    aspects_prompt_list = prediction.aspects
+
+    if data_args.is_filtered:
+        filtered = "filter"
+    else:
+        filtered = "no_filter"
+
+    if data_args.sparse_manual:
+        manual = 'manual'
+    else:
+        manual = "no_manual"
+
+    if model_args.use_output_embedding_cluster:
+        cluster = f'cluster_{model_args.cluster_sum}'
+    else:
+        cluster = 'no_cluster'
+
+    if data_args.sparse_value_mean:
+        use_sparse_value_mean = 'mean'
+    else:
+        use_sparse_value_mean = 'no_mean'
+
+    if training_args.task_type == 'tbpr':
+        encoded, jsonl_data, lookup_indices = retrieval_action.encode(test_dataloader_single, aspects_prompt_list,
+                                                                      filtered_ids, 'image', device)
+        os.makedirs(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            exist_ok=True)
+        os.makedirs(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            exist_ok=True)
+
+        with open(os.path.join(
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+                f'query.pkl') if data_args.encode_is_query else os.path.join(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+            pickle.dump((encoded, lookup_indices), f)
+
+        with open(os.path.join(
+                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+                f'query.tsv') if data_args.encode_is_query else os.path.join(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+            for data in jsonl_data:
+                if data_args.encode_is_query:
+                    id = data['id']
+                    vector = data['vector']
+                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                    if len(query.strip()) == 0:
+                        continue
+                    f.write(f'{id}\t{query}\n')
+                else:
+                    f.write(json.dumps(data) + "\n")
+
+        encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single, aspects_prompt_list,
+                                                                      filtered_ids, 'image', device)
+        os.makedirs(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            exist_ok=True)
+        os.makedirs(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            exist_ok=True)
+
+        with open(os.path.join(
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+                f'query.pkl') if data_args.encode_is_query else os.path.join(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+            pickle.dump((encoded, lookup_indices), f)
+
+        with open(os.path.join(
+                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+                f'query.tsv') if data_args.encode_is_query else os.path.join(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+            for data in jsonl_data:
+                if data_args.encode_is_query:
+                    id = data['id']
+                    vector = data['vector']
+                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                    if len(query.strip()) == 0:
+                        continue
+                    f.write(f'{id}\t{query}\n')
+                else:
+                    f.write(json.dumps(data) + "\n")
+
+        command = f"""
+        source /root/miniconda3/etc/profile.d/conda.sh
+        conda activate mllm_retrieval
+        bash /root/mllm_cross_modal_retrieval/scripts/sparse_index_tbpr_{data_args.dataset_name}.sh
+        """
+    else:
+        encoded, jsonl_data, lookup_indices = retrieval_action.encode(test_dataloader_single, aspects_prompt_list,
+                                                                      filtered_ids, 'text', device)
+        os.makedirs(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            exist_ok=True)
+        os.makedirs(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            exist_ok=True)
+
+        with open(os.path.join(
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+                f'query.pkl') if data_args.encode_is_query else os.path.join(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+            pickle.dump((encoded, lookup_indices), f)
+
+        with open(os.path.join(
+                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+                f'query.tsv') if data_args.encode_is_query else os.path.join(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+            for data in jsonl_data:
+                if data_args.encode_is_query:
+                    id = data['id']
+                    vector = data['vector']
+                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                    if len(query.strip()) == 0:
+                        continue
+                    f.write(f'{id}\t{query}\n')
+                else:
+                    f.write(json.dumps(data) + "\n")
+
+        encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single, aspects_prompt_list,
+                                                                      filtered_ids, 'text', device)
+        os.makedirs(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            exist_ok=True)
+        os.makedirs(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            exist_ok=True)
+
+        with open(os.path.join(
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+                f'query.pkl') if data_args.encode_is_query else os.path.join(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+            pickle.dump((encoded, lookup_indices), f)
+
+        with open(os.path.join(
+                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+                f'query.tsv') if data_args.encode_is_query else os.path.join(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+            for data in jsonl_data:
+                if data_args.encode_is_query:
+                    id = data['id']
+                    vector = data['vector']
+                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                    if len(query.strip()) == 0:
+                        continue
+                    f.write(f'{id}\t{query}\n')
+                else:
+                    f.write(json.dumps(data) + "\n")
+
+        encoded, jsonl_data, lookup_indices = retrieval_action.encode(test_dataloader_full, aspects_prompt_list, filtered_ids, 'image', device)
+
+        os.makedirs(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            exist_ok=True)
+        os.makedirs(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            exist_ok=True)
+
+        with open(os.path.join(
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+                f'query.pkl') if data_args.encode_is_query else os.path.join(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+            pickle.dump((encoded, lookup_indices), f)
+
+        with open(os.path.join(
+                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+                f'query.tsv') if data_args.encode_is_query else os.path.join(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+            for data in jsonl_data:
+                if data_args.encode_is_query:
+                    id = data['id']
+                    vector = data['vector']
+                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                    if len(query.strip()) == 0:
+                        continue
+                    f.write(f'{id}\t{query}\n')
+                else:
+                    f.write(json.dumps(data) + "\n")
+
+        encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_full, aspects_prompt_list,
+                                                                      filtered_ids, 'image', device)
+
+        os.makedirs(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            exist_ok=True)
+        os.makedirs(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            exist_ok=True)
+
+        with open(os.path.join(
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+                f'query.pkl') if data_args.encode_is_query else os.path.join(
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+            pickle.dump((encoded, lookup_indices), f)
+
+        with open(os.path.join(
+                f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+                f'query.tsv') if data_args.encode_is_query else os.path.join(
+            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+            f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+            for data in jsonl_data:
+                if data_args.encode_is_query:
+                    id = data['id']
+                    vector = data['vector']
+                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                    if len(query.strip()) == 0:
+                        continue
+                    f.write(f'{id}\t{query}\n')
+                else:
+                    f.write(json.dumps(data) + "\n")
+
+        command = f"""
+                source /root/miniconda3/etc/profile.d/conda.sh
+                conda activate mllm_retrieval
+                bash /root/mllm_cross_modal_retrieval/scripts/sparse_index_itr_{data_args.dataset_name}.sh
+                """
+
+    subprocess.run(
+        command,
+        shell=True,
+        executable="/bin/bash",
+        cwd="/root/mllm_retrieval",
+        check=True
+    )
+
+    from tevatron.retriever.searcher import FaissFlatSearcher
+    from pyserini.search.lucene import LuceneImpactSearcher
+    from pyserini.analysis import JWhiteSpaceAnalyzer
+
+    if training_args.task_type == 'tbpr':
+        val_passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+        val_sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+        passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+        sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+    else:
+        val_text_passage_reps =
+        val_image_passage_reps =
+        val_text_sparse_index =
+        val_image_sparse_index =
+        text_passage_reps =
+        image_passage_reps =
+        text_sparse_index =
+        image_sparse_index =
+
+
+
+    if training_args.task_type == 'tbpr':
+        pass
+    else:
+        retrieval_action.search(val_dataloader_single, aspects_prompt_list, filtered_ids, val_dense_retriever, val_sparse_retriever, look_up, val_dataset_single, 'val', device)
+
+        retrieval_action.search(test_dataloader_single, aspects_prompt_list, filtered_ids, dense_retriever, sparse_retriever, look_up, dataset_single, 'test', device)
+
+
+
 
 
 if __name__ == "__main__":
