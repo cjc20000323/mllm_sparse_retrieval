@@ -328,7 +328,8 @@ class SchemaAspectProgram(dspy.Module):
 
 
 class RetrievalAction:
-    def __init__(self, training_args, data_args, model_args, search_args, prompt_generation_args, model, processor, vocab_dict):
+    def __init__(self, training_args, data_args, model_args, search_args, prompt_generation_args, model, processor,
+                 vocab_dict):
         super().__init__()
         self.training_args = training_args
         self.data_args = data_args
@@ -338,6 +339,7 @@ class RetrievalAction:
         self.model = model
         self.processor = processor
         self.vocab_dict = vocab_dict
+        self.encode_counter = 0
 
     def generate_concat_prompts(self, aspects_prompt_list, encode_type):
         if encode_type == 'text':
@@ -559,7 +561,7 @@ class RetrievalAction:
                                                                              total=len(test_dataloader)):
 
                     lookup_indices.extend(text_ids)
-                    query_logits, query_dense_reps = self.model.encode_data_concat_for_tbpr(texts, prompt_template,
+                    query_logits, query_dense_reps = self.model.encode_data_concat_for_tbpr_dspy(texts, prompt_template,
                                                                                             aspects_prompt_list, 'text',
                                                                                             self.processor, device,
                                                                                             self.model_args,
@@ -776,6 +778,9 @@ class RetrievalAction:
                 )
             )
 
+            if dist.is_available() and dist.is_initialized():
+                dist.barrier()
+
             return dense_run, sparse_run, best_test_fusion_run, lookup_indices, val_best_weight, max_val_fusion_metric
         else:
             max_test_fusion_metric = 0
@@ -809,6 +814,9 @@ class RetrievalAction:
                 )
             )
 
+            if dist.is_available() and dist.is_initialized():
+                dist.barrier()
+
             return dense_run, sparse_run, best_test_fusion_run, lookup_indices
 
     def print_metric(self, output_path, dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices,
@@ -841,31 +849,31 @@ class RetrievalAction:
         else:
             use_sparse_value_mean = 'no_mean'
 
-
-        if self.training_args.task_typ == 'tbpr':
+        if self.training_args.task_type == 'tbpr':
             if is_dspy:
-                time_string = datetime.now().strftime("%Y%m%d_%H%M%S")
+                self.encode_counter += 1
+                encode_counter = self.encode_counter
                 os.makedirs(
-                    f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}',
+                    f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
                     exist_ok=True)
                 os.makedirs(
-                    f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}',
+                    f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
                     exist_ok=True)
 
-                dense_output_dir = f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}'
-                sparse_output_dir = f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}'
+                dense_output_dir = f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}'
+                sparse_output_dir = f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}'
 
                 with open(os.path.join(
-                        f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}',
+                        f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
                         f'query.pkl') if self.data_args.encode_is_query else os.path.join(
-                    f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}',
+                    f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
                     f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
                     pickle.dump((encoded, lookup_indices), f)
 
                 with open(os.path.join(
-                        f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}',
+                        f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
                         f'query.tsv') if self.data_args.encode_is_query else os.path.join(
-                    f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}',
+                    f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/image/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
                     f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
                     for data in jsonl_data:
                         if self.data_args.encode_is_query:
@@ -912,29 +920,29 @@ class RetrievalAction:
                             f.write(json.dumps(data) + "\n")
         else:
             if is_dspy:
-                time_string = datetime.now().strftime("%Y%m%d_%H%M%S")
+                self.encode_counter += 1
+                encode_counter = self.encode_counter
                 os.makedirs(
-                    f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}',
+                    f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
                     exist_ok=True)
                 os.makedirs(
-                    f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}',
+                    f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
                     exist_ok=True)
 
-                dense_output_dir = f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}'
-                sparse_output_dir = f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}'
-
+                dense_output_dir = f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}'
+                sparse_output_dir = f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}'
 
                 with open(os.path.join(
-                        f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}',
+                        f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
                         f'query.pkl') if self.data_args.encode_is_query else os.path.join(
-                    f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}',
+                    f'{self.data_args.dense_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
                     f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
                     pickle.dump((encoded, lookup_indices), f)
 
                 with open(os.path.join(
-                        f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}',
+                        f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
                         f'query.tsv') if self.data_args.encode_is_query else os.path.join(
-                    f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{time_string}',
+                    f'{self.data_args.sparse_output_dir}/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{encode_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{split}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
                     f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
                     for data in jsonl_data:
                         if self.data_args.encode_is_query:
@@ -980,24 +988,30 @@ class RetrievalAction:
                         else:
                             f.write(json.dumps(data) + "\n")
 
-        command = f'''
-                    python -m pyserini.index.lucene --collection JsonVectorCollection 
-                    --input {sparse_output_dir} 
-                    --index {sparse_output_dir}/index 
-                    --generator DefaultLuceneDocumentGenerator 
-                    --threads 16 
-                    --impact --pretokenized
-                    '''
-        subprocess.run(
-            command,
-            shell=True,
-            executable="/bin/bash",
-            cwd="/root/mllm_retrieval",
-            check=True
-        )
+        if dist.is_available() and dist.is_initialized():
+            dist.barrier()
+
+        if dist.get_rank() == 0:
+            command = f'''
+                                python -m pyserini.index.lucene --collection JsonVectorCollection \
+                                --input {sparse_output_dir} \
+                                --index {sparse_output_dir}/index \
+                                --generator DefaultLuceneDocumentGenerator \
+                                --threads 16 \
+                                --impact --pretokenized
+                                '''
+            subprocess.run(
+                command,
+                shell=True,
+                executable="/bin/bash",
+                cwd="/root/mllm_cross_modal_retrieval",
+                check=True
+            )
+
+        if dist.is_available() and dist.is_initialized():
+            dist.barrier()
 
         return dense_output_dir, sparse_output_dir
-
 
 
 def construct_prompt(aspects, task_type):
@@ -1063,8 +1077,9 @@ def dspy_metric(example, pred, trace=None):
         encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single, aspects_prompt_list,
                                                                       filtered_ids, 'image', device)
 
-
-        dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data, lookup_indices, 'image', 'val', True)
+        dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
+                                                                                     lookup_indices, 'image', 'val',
+                                                                                     True)
 
         dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
                                                                                sparse_output_dir,
@@ -1075,38 +1090,43 @@ def dspy_metric(example, pred, trace=None):
             sparse_retriever, analyzer, look_up, val_dataset_full, 'val', 0.5,
             'text', device)
     else:
-        encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single, aspects_prompt_list,
+        encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_full, aspects_prompt_list,
                                                                       filtered_ids, 'text', device)
 
-        dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data, lookup_indices, 'image', 'val', True)
+        dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
+                                                                                     lookup_indices, 'text', 'val',
+                                                                                     True)
+
+        print('Encode Files finish, now load candidates.')
 
         dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
                                                                                sparse_output_dir,
                                                                                use_gpu=True)
 
         dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric_1 = retrieval_action.search(
-            val_dataloader_full, aspects_prompt_list, filtered_ids, dense_retriever,
-            sparse_retriever, analyzer, look_up, val_dataset_full, 'val', 0.5,
-            'text', device)
+            val_dataloader_single, aspects_prompt_list, filtered_ids, dense_retriever,
+            sparse_retriever, analyzer, look_up, val_dataset_single, 'val', 0.5,
+            'image', device)
 
-        encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_full, aspects_prompt_list,
+        encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single, aspects_prompt_list,
                                                                       filtered_ids, 'image', device)
 
-        dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data, lookup_indices, 'text', 'val', True)
+        dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
+                                                                                     lookup_indices, 'image', 'val',
+                                                                                     True)
 
         dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
                                                                                sparse_output_dir,
                                                                                use_gpu=True)
 
         dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric_2 = retrieval_action.search(
-            val_dataloader_single, aspects_prompt_list, filtered_ids, dense_retriever,
-            sparse_retriever, analyzer, look_up, val_dataset_single, 'val', 0.5,
-            'image', device)
+            val_dataloader_full, aspects_prompt_list, filtered_ids, dense_retriever,
+            sparse_retriever, analyzer, look_up, val_dataset_full, 'val', 0.5,
+            'text', device)
 
         max_val_fusion_metric = (max_val_fusion_metric_1 + max_val_fusion_metric_2) / 2
 
     return max_val_fusion_metric
-
 
 
 def load_candidates(passage_reps, sparse_index, use_gpu):
@@ -1277,6 +1297,9 @@ def main():
         processor.tokenizer.padding_side = "left"
         processor.tokenizer.padding = True
 
+    model = MLLMRetrievalModel(encoder)
+    model = model.eval()
+
     # 加载词表并获取过滤后的单词id，但目前尚不清楚filtered_ids是做什么的
     if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
         vocab_dict = processor.get_vocab()
@@ -1365,7 +1388,7 @@ def main():
     seed_text = seed_text.replace('<sent>', demonstration_string)
 
     retrieval_action = RetrievalAction(training_args, data_args, model_args, search_args, prompt_generation_args,
-                                       encoder, processor, vocab_dict)
+                                       model, processor, vocab_dict)
 
     trainset = [
         dspy.Example(
@@ -1382,7 +1405,9 @@ def main():
             val_dataset_full=val_dataset_full,
             val_dataloader_single=val_dataloader_single,
             val_dataloader_full=val_dataloader_full,
-            retrieval_action=retrieval_action
+            retrieval_action=retrieval_action,
+            filtered_ids=filtered_ids,
+            device=device
         ).with_inputs("dataset_name", "task_type", "seed_texts"),
     ]
 
@@ -1393,8 +1418,8 @@ def main():
     )
 
     prediction = compiled(
-        dataset_name="flickr",
-        task_type="itr",
+        dataset_name=data_args.dataset_name,
+        task_type='text-based person retrieval' if training_args.task_type == 'tbpr' else "image-text retrieval",
         seed_texts=seed_text,
     )
 
@@ -1424,7 +1449,9 @@ def main():
         encoded, jsonl_data, lookup_indices = retrieval_action.encode(test_dataloader_single, aspects_prompt_list,
                                                                       filtered_ids, 'image', device)
 
-        dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data, lookup_indices, 'image', 'test', False)
+        dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
+                                                                                     lookup_indices, 'image', 'test',
+                                                                                     False)
 
         encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single, aspects_prompt_list,
                                                                       filtered_ids, 'image', device)
