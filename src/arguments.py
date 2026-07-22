@@ -133,3 +133,4 @@ class PromptGenerationArguments:
     demonstration_num: int = field(default=1)
     prompt_generation_model: str = field(default=None)
     case_type: str = field(default='caption')
+    dspy_strength: str = field(default='lignt')
