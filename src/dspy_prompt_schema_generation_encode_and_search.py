@@ -1,25 +1,31 @@
-import os
 import gc
-from contextlib import nullcontext
-import string
-import pickle
-import json
-import subprocess
 import glob
-import faiss
+import json
+import logging
+import os
+import pickle
+import string
+import subprocess
+import sys
+import traceback
+from contextlib import nullcontext
 from itertools import chain
-from datetime import datetime
 
-import select
+import dspy
+import faiss
+import numpy as np
 import torch
 import torch.distributed as dist
+import torch.nn.functional as F
 import torch.utils.data as Data
-from accelerate.test_utils.scripts.test_distributed_data_loop import test_data_loader
+from PIL import Image
+from nltk import word_tokenize
+from nltk.corpus import stopwords
 from tqdm import tqdm
 from transformers import (
     HfArgumentParser,
 )
-from transformers import (LlamaForCausalLM, MistralForCausalLM, LlamaTokenizer, AutoTokenizer, LlavaProcessor,
+from transformers import (LlavaProcessor,
                           LlavaForConditionalGeneration, LlavaNextProcessor, \
                           LlavaNextForConditionalGeneration, Qwen2_5_VLProcessor, Qwen2_5_VLForConditionalGeneration,
                           AutoModel, \
@@ -29,26 +35,13 @@ from arguments import PromptRepsLLMDataArguments, ModelArguments
 from arguments import TrainingArguments, PromptGenerationArguments, PromptRepsLLMSearchArguments
 from dataset import CrossModalRetrievalDataset, TextPersonRetrievalDataset, ComposedTextImageRetrievalDataset, \
     Text2ImagetextRetrievalDataset, Imagetext2TextRetrievalDataset
-from template import (prompt_schema_generation_text_prompt, prompt_schema_generation_text_prompt_1, \
-                      mistral_prompt_schema_generation_text_prompt, mistral_prompt_schema_generation_text_prompt_1, \
-                      prompt_schema_generation_text_prompt_2, mistral_prompt_schema_generation_text_prompt_2,
-                      tbpr_five_aspects, \
-                      itr_five_aspects, llava_mistral_template_image_prefix, llava_mistral_template_content_element,
+from hybrid import fuse
+from metrices import RecallMetrics
+from model import MLLMRetrievalModel
+from template import (llava_mistral_template_image_prefix, llava_mistral_template_content_element,
                       img_prompt_for_concat,
                       llama3_template_image_prefix, llama3_template_content_element, llava_mistral_template_text_prefix,
                       text_prompt_for_concat, llama3_template_text_prefix)
-import dspy
-from PIL import Image
-import torch.nn.functional as F
-from nltk import word_tokenize
-from nltk.corpus import stopwords
-import numpy as np
-from hybrid import fuse
-
-from metrices import RecallMetrics
-from model import MLLMRetrievalModel
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -1059,74 +1052,82 @@ def dspy_metric(example, pred, trace=None):
         val_dataloader_single=val_dataloader_single,
         val_dataloader_full=val_dataloader_full
     '''
-    val_dataloader_single = example.val_dataloader_single
-    val_dataloader_full = example.val_dataloader_full
-    val_dataset_single = example.val_dataset_single
-    val_dataset_full = example.val_dataset_full
-    training_args = example.training_args
-    model_args = example.model_args
-    data_args = example.data_args
-    search_args = example.search_args
-    prompt_generation_args = example.prompt_generation_args
-    retrieval_action = example.retrieval_action
-    filtered_ids = example.filtered_ids
-    device = example.device
-    aspects_prompt_list = pred.aspects
+    try:
+        val_dataloader_single = example.val_dataloader_single
+        val_dataloader_full = example.val_dataloader_full
+        val_dataset_single = example.val_dataset_single
+        val_dataset_full = example.val_dataset_full
+        training_args = example.training_args
+        model_args = example.model_args
+        data_args = example.data_args
+        search_args = example.search_args
+        prompt_generation_args = example.prompt_generation_args
+        retrieval_action = example.retrieval_action
+        filtered_ids = example.filtered_ids
+        device = example.device
+        aspects_prompt_list = pred.aspects
 
-    if training_args.task_type == 'tbpr':
-        encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single, aspects_prompt_list,
-                                                                      filtered_ids, 'image', device)
+        if training_args.task_type == 'tbpr':
+            encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single, aspects_prompt_list,
+                                                                          filtered_ids, 'image', device)
 
-        dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
-                                                                                     lookup_indices, 'image', 'val',
-                                                                                     True)
+            dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
+                                                                                         lookup_indices, 'image', 'val',
+                                                                                         True)
 
-        dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
-                                                                               sparse_output_dir,
-                                                                               use_gpu=True)
+            dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
+                                                                                   sparse_output_dir,
+                                                                                   use_gpu=True)
 
-        dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric = retrieval_action.search(
-            val_dataloader_full, aspects_prompt_list, filtered_ids, dense_retriever,
-            sparse_retriever, analyzer, look_up, val_dataset_full, 'val', 0.5,
-            'text', device)
-    else:
-        encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_full, aspects_prompt_list,
-                                                                      filtered_ids, 'text', device)
+            dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric = retrieval_action.search(
+                val_dataloader_full, aspects_prompt_list, filtered_ids, dense_retriever,
+                sparse_retriever, analyzer, look_up, val_dataset_full, 'val', 0.5,
+                'text', device)
+        else:
+            print('Now begin to encode.')
+            encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_full, aspects_prompt_list,
+                                                                          filtered_ids, 'text', device)
 
-        dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
-                                                                                     lookup_indices, 'text', 'val',
-                                                                                     True)
+            dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
+                                                                                         lookup_indices, 'text', 'val',
+                                                                                         True)
 
-        print('Encode Files finish, now load candidates.')
+            print('Encode Files finish, now load candidates.')
 
-        dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
-                                                                               sparse_output_dir,
-                                                                               use_gpu=True)
+            dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
+                                                                                   sparse_output_dir,
+                                                                                   use_gpu=True)
 
-        dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric_1 = retrieval_action.search(
-            val_dataloader_single, aspects_prompt_list, filtered_ids, dense_retriever,
-            sparse_retriever, analyzer, look_up, val_dataset_single, 'val', 0.5,
-            'image', device)
+            dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric_1 = retrieval_action.search(
+                val_dataloader_single, aspects_prompt_list, filtered_ids, dense_retriever,
+                sparse_retriever, analyzer, look_up, val_dataset_single, 'val', 0.5,
+                'image', device)
 
-        encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single, aspects_prompt_list,
-                                                                      filtered_ids, 'image', device)
+            encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single, aspects_prompt_list,
+                                                                          filtered_ids, 'image', device)
 
-        dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
-                                                                                     lookup_indices, 'image', 'val',
-                                                                                     True)
+            dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
+                                                                                         lookup_indices, 'image', 'val',
+                                                                                         True)
 
-        dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
-                                                                               sparse_output_dir,
-                                                                               use_gpu=True)
+            dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
+                                                                                   sparse_output_dir,
+                                                                                   use_gpu=True)
 
-        dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric_2 = retrieval_action.search(
-            val_dataloader_full, aspects_prompt_list, filtered_ids, dense_retriever,
-            sparse_retriever, analyzer, look_up, val_dataset_full, 'val', 0.5,
-            'text', device)
+            dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric_2 = retrieval_action.search(
+                val_dataloader_full, aspects_prompt_list, filtered_ids, dense_retriever,
+                sparse_retriever, analyzer, look_up, val_dataset_full, 'val', 0.5,
+                'text', device)
 
-        max_val_fusion_metric = (max_val_fusion_metric_1 + max_val_fusion_metric_2) / 2
+            max_val_fusion_metric = (max_val_fusion_metric_1 + max_val_fusion_metric_2) / 2
 
-    return max_val_fusion_metric
+        return max_val_fusion_metric
+    except Exception:
+        rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else -1
+        print(f"\n[dspy_metric traceback][rank={rank}]", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        print(f"pred.aspects={repr(getattr(pred, 'aspects', None))}", file=sys.stderr, flush=True)
+        raise
 
 
 def load_candidates(passage_reps, sparse_index, use_gpu):
