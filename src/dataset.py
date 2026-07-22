@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from transformers import ProcessorMixin, LlavaProcessor, Qwen2_5_VLProcessor
 
 from tevatron.retriever.collator import TrainCollator
+from arguments import dataset_path_prefix
 
 
 @dataclass
@@ -127,9 +128,9 @@ class CrossModalRetrievalDataset(Dataset):
             img_name = self.img_dict[img_id]
             if self.data_name == 'coco':
                 img_file_path = self.img2filepath[img_id]
-                image_path = f'./data/{self.data_name}/{img_file_path}/{img_name}'
+                image_path = dataset_path_prefix + f'data/{self.data_name}/{img_file_path}/{img_name}'
             else:
-                image_path = f'./data/{self.data_name}/flickr30k-images/{img_name}'
+                image_path = dataset_path_prefix + f'data/{self.data_name}/flickr30k-images/{img_name}'
             text_id = self.img2text[img_id][0]  # 这个模式下，拿出第一个对应的文本即可
             text = self.text_dict[text_id]
             return text, image_path, text_id, img_id
@@ -140,9 +141,9 @@ class CrossModalRetrievalDataset(Dataset):
             img_name = self.img_dict[img_id]
             if self.data_name == 'coco':
                 img_file_path = self.img2filepath[img_id]
-                image_path = f'./data/{self.data_name}/{img_file_path}/{img_name}'
+                image_path = dataset_path_prefix + f'data/{self.data_name}/{img_file_path}/{img_name}'
             else:
-                image_path = f'./data/{self.data_name}/flickr30k-images/{img_name}'
+                image_path = dataset_path_prefix + f'data/{self.data_name}/flickr30k-images/{img_name}'
             return text, image_path, text_id, img_id
         else:
             ValueError('Mode is not either single or full.')
@@ -437,9 +438,9 @@ class TextPersonRetrievalDataset(Dataset):
             img_id = self.img_id_list[idx]
             img_name = self.img_dict[img_id]
             if self.data_name == 'CUHK-PEDES' or self.data_name == 'ICFG-PEDES' or self.data_name == 'RSTPReid':
-                image_path = f'./data/{self.data_name}/imgs/{img_name}'
+                image_path = dataset_path_prefix + f'/data/{self.data_name}/imgs/{img_name}'
             else:
-                image_path = f'./data/{self.data_name}/imgs/{img_name}'
+                image_path = dataset_path_prefix + f'data/{self.data_name}/imgs/{img_name}'
             text_id = self.img2text[img_id][0]  # 这个模式下，拿出第一个对应的文本即可
             text = self.text_dict[text_id]
             return text, image_path, text_id, img_id
@@ -449,9 +450,9 @@ class TextPersonRetrievalDataset(Dataset):
             img_id = self.text2img[text_id]
             img_name = self.img_dict[img_id]
             if self.data_name == 'CUHK-PEDES' or self.data_name == 'ICFG-PEDES' or self.data_name == 'RSTPReid':
-                image_path = f'./data/{self.data_name}/imgs/{img_name}'
+                image_path = dataset_path_prefix + f'data/{self.data_name}/imgs/{img_name}'
             else:
-                image_path = f'./data/{self.data_name}/imgs/{img_name}'
+                image_path = dataset_path_prefix + f'data/{self.data_name}/imgs/{img_name}'
             return text, image_path, text_id, img_id
         else:
             ValueError('Mode is not either single or full.')

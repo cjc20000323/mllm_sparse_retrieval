@@ -377,7 +377,7 @@ class RetrievalAction:
         jsonl_data = []
         lookup_indices = []
         if self.training_args.task_type == 'tbpr':
-            prompt_template = self.generate_concat_prompts(aspects_prompt_list, self.training_args.encode_type)
+            prompt_template = self.generate_concat_prompts(aspects_prompt_list, encode_type)
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
                 raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
@@ -433,7 +433,7 @@ class RetrievalAction:
                     )
 
         else:
-            prompt_template = self.generate_concat_prompts(aspects_prompt_list, self.training_args.encode_type)
+            prompt_template = self.generate_concat_prompts(aspects_prompt_list, encode_type)
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
                 with torch.cuda.amp.autocast() if self.training_args.fp16 else nullcontext():
@@ -457,13 +457,13 @@ class RetrievalAction:
                         disassemble_logits = logits
 
                     reps = F.normalize(reps, dim=-1)
-                    if self.training_args.encode_type == 'text':
+                    if encode_type == 'text':
                         lookup_indices.extend(text_ids)
                     else:
                         lookup_indices.extend(img_ids)
                     encoded.append(reps.cpu().detach().float().numpy())
                     ids = text_ids if self.training_args.encode_type == 'text' else img_ids
-                    if self.training_args.encode_type == 'text':
+                    if encode_type == 'text':
                         for text_indice in range(len(ids)):
                             id = ids[text_indice]
                             text = texts[text_indice]
@@ -842,6 +842,8 @@ class RetrievalAction:
         else:
             use_sparse_value_mean = 'no_mean'
 
+        encoded = np.concatenate(encoded)
+
         if self.training_args.task_type == 'tbpr':
             if is_dspy:
                 self.encode_counter += 1
@@ -1052,82 +1054,86 @@ def dspy_metric(example, pred, trace=None):
         val_dataloader_single=val_dataloader_single,
         val_dataloader_full=val_dataloader_full
     '''
-    try:
-        val_dataloader_single = example.val_dataloader_single
-        val_dataloader_full = example.val_dataloader_full
-        val_dataset_single = example.val_dataset_single
-        val_dataset_full = example.val_dataset_full
-        training_args = example.training_args
-        model_args = example.model_args
-        data_args = example.data_args
-        search_args = example.search_args
-        prompt_generation_args = example.prompt_generation_args
-        retrieval_action = example.retrieval_action
-        filtered_ids = example.filtered_ids
-        device = example.device
-        aspects_prompt_list = pred.aspects
+    with torch.inference_mode():
+        try:
+            val_dataloader_single = example.val_dataloader_single
+            val_dataloader_full = example.val_dataloader_full
+            val_dataset_single = example.val_dataset_single
+            val_dataset_full = example.val_dataset_full
+            training_args = example.training_args
+            model_args = example.model_args
+            data_args = example.data_args
+            search_args = example.search_args
+            prompt_generation_args = example.prompt_generation_args
+            retrieval_action = example.retrieval_action
+            device = example.device
+            aspects_prompt_list = pred.aspects
 
-        if training_args.task_type == 'tbpr':
-            encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single, aspects_prompt_list,
-                                                                          filtered_ids, 'image', device)
+            filtered_ids = get_filtered_ids(retrieval_action.processor.tokenizer)
 
-            dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
-                                                                                         lookup_indices, 'image', 'val',
-                                                                                         True)
+            if training_args.task_type == 'tbpr':
+                encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single,
+                                                                              aspects_prompt_list,
+                                                                              filtered_ids, 'image', device)
 
-            dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
-                                                                                   sparse_output_dir,
-                                                                                   use_gpu=True)
+                dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
+                                                                                             lookup_indices, 'image',
+                                                                                             'val',
+                                                                                             True)
 
-            dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric = retrieval_action.search(
-                val_dataloader_full, aspects_prompt_list, filtered_ids, dense_retriever,
-                sparse_retriever, analyzer, look_up, val_dataset_full, 'val', 0.5,
-                'text', device)
-        else:
-            print('Now begin to encode.')
-            encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_full, aspects_prompt_list,
-                                                                          filtered_ids, 'text', device)
+                dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
+                                                                                       sparse_output_dir,
+                                                                                       use_gpu=True)
 
-            dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
-                                                                                         lookup_indices, 'text', 'val',
-                                                                                         True)
+                dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric = retrieval_action.search(
+                    val_dataloader_full, aspects_prompt_list, filtered_ids, dense_retriever,
+                    sparse_retriever, analyzer, look_up, val_dataset_full, 'val', 0.5,
+                    'text', device)
+            else:
+                encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single,
+                                                                              aspects_prompt_list,
+                                                                              filtered_ids, 'image', device)
 
-            print('Encode Files finish, now load candidates.')
+                dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
+                                                                                             lookup_indices, 'image',
+                                                                                             'val',
+                                                                                             True)
 
-            dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
-                                                                                   sparse_output_dir,
-                                                                                   use_gpu=True)
+                dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
+                                                                                       sparse_output_dir,
+                                                                                       use_gpu=True)
 
-            dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric_1 = retrieval_action.search(
-                val_dataloader_single, aspects_prompt_list, filtered_ids, dense_retriever,
-                sparse_retriever, analyzer, look_up, val_dataset_single, 'val', 0.5,
-                'image', device)
+                dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric_2 = retrieval_action.search(
+                    val_dataloader_full, aspects_prompt_list, filtered_ids, dense_retriever,
+                    sparse_retriever, analyzer, look_up, val_dataset_full, 'val', 0.5,
+                    'text', device)
 
-            encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single, aspects_prompt_list,
-                                                                          filtered_ids, 'image', device)
+                encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_full, aspects_prompt_list,
+                                                                              filtered_ids, 'text', device)
 
-            dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
-                                                                                         lookup_indices, 'image', 'val',
-                                                                                         True)
+                dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
+                                                                                             lookup_indices, 'text',
+                                                                                             'val',
+                                                                                             True)
 
-            dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
-                                                                                   sparse_output_dir,
-                                                                                   use_gpu=True)
+                dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
+                                                                                       sparse_output_dir,
+                                                                                       use_gpu=True)
 
-            dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric_2 = retrieval_action.search(
-                val_dataloader_full, aspects_prompt_list, filtered_ids, dense_retriever,
-                sparse_retriever, analyzer, look_up, val_dataset_full, 'val', 0.5,
-                'text', device)
+                dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric_1 = retrieval_action.search(
+                    val_dataloader_single, aspects_prompt_list, filtered_ids, dense_retriever,
+                    sparse_retriever, analyzer, look_up, val_dataset_single, 'val', 0.5,
+                    'image', device)
 
-            max_val_fusion_metric = (max_val_fusion_metric_1 + max_val_fusion_metric_2) / 2
+                max_val_fusion_metric = (max_val_fusion_metric_1 + max_val_fusion_metric_2) / 2
 
-        return max_val_fusion_metric
-    except Exception:
-        rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else -1
-        print(f"\n[dspy_metric traceback][rank={rank}]", file=sys.stderr, flush=True)
-        traceback.print_exc(file=sys.stderr)
-        print(f"pred.aspects={repr(getattr(pred, 'aspects', None))}", file=sys.stderr, flush=True)
-        raise
+            return max_val_fusion_metric
+        except Exception:
+            rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else -1
+            print(f"\n[dspy_metric traceback][rank={rank}]", file=sys.stderr, flush=True)
+            traceback.print_exc(file=sys.stderr)
+            print(f"pred.aspects={repr(getattr(pred, 'aspects', None))}", file=sys.stderr, flush=True)
+            raise
 
 
 def load_candidates(passage_reps, sparse_index, use_gpu):
@@ -1136,6 +1142,7 @@ def load_candidates(passage_reps, sparse_index, use_gpu):
     from pyserini.analysis import JWhiteSpaceAnalyzer
 
     index_files = glob.glob(os.path.join(passage_reps, 'corpus*.pkl'))
+    print(index_files)
     if dist.get_rank() == 0:
         print(f'Pattern match found {len(index_files)} files; loading them into dense index.')
 
@@ -1154,6 +1161,7 @@ def load_candidates(passage_reps, sparse_index, use_gpu):
         shards = tqdm(shards, desc='Loading shards into index', total=len(index_files))
     look_up = []
     for p_reps, p_lookup in shards:
+        print(p_reps.shape)
         dense_retriever.add(p_reps)
         look_up += p_lookup
     if dist.get_rank() == 0:
@@ -1407,7 +1415,6 @@ def main():
             val_dataloader_single=val_dataloader_single,
             val_dataloader_full=val_dataloader_full,
             retrieval_action=retrieval_action,
-            filtered_ids=filtered_ids,
             device=device
         ).with_inputs("dataset_name", "task_type", "seed_texts"),
     ]
