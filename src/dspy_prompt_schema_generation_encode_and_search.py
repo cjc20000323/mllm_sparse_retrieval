@@ -536,7 +536,8 @@ class RetrievalAction:
 
         return encoded, jsonl_data, lookup_indices
 
-    def search(self, test_dataloader, aspects_prompt_list, filtered_ids, dense_retriever, sparse_retriever, analyzer, look_up, dataset, split, best_weight, device):
+    def search(self, test_dataloader, aspects_prompt_list, filtered_ids, dense_retriever, sparse_retriever, analyzer, look_up, dataset, split, best_weight, device, is_dspy=False, output_path=None):
+        # 每次检索之前都需要调整search_args中的query_type，以适应RecallMetric类中的方法
         dense_run = {}
         sparse_run = {}
         fusion_run = [{}] * 9
@@ -750,6 +751,8 @@ class RetrievalAction:
                 if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
                     max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
                     best_weight = float((i + 1) / 10)
+                if not is_dspy:
+                    metric.print_recall(output_path)
 
             best_test_fusion_run = {}
             best_test_fusion_run.update(
@@ -770,6 +773,16 @@ class RetrievalAction:
             )
 
             return dense_run, sparse_run, best_test_fusion_run, lookup_indices
+
+
+    def print_metric(self, output_path, dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args):
+        metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices,
+                               search_args)
+        metric.sort_and_count()
+
+        metric.all_gather_object()
+        metric.print_recall(output_path)
+
 
 
 def construct_prompt(aspects, task_type):
@@ -856,7 +869,7 @@ def load_candidates(passage_reps, sparse_index, use_gpu):
     analyzer = JWhiteSpaceAnalyzer()
     sparse_retriever.set_analyzer(analyzer)
 
-    return dense_retriever, sparse_retriever, analyzer
+    return dense_retriever, sparse_retriever, analyzer, look_up
 
 
 def main():
@@ -1345,35 +1358,89 @@ def main():
         check=True
     )
 
-    from tevatron.retriever.searcher import FaissFlatSearcher
-    from pyserini.search.lucene import LuceneImpactSearcher
-    from pyserini.analysis import JWhiteSpaceAnalyzer
+    '''
+    下面这里将path，dataset，dataloader都组织成列表，并且让偶数索引是val设置，紧接着的奇数索引是对应的test设置，由val设置找到best_weight，
+    然后用到test上，然后进入新的val设置，这样循环。
+    '''
 
     if training_args.task_type == 'tbpr':
-        val_passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
-        val_sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
-        passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
-        sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+        val_passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'
+        val_sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'
+        passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'
+        sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'
+        path_list = [{'passage_reps': val_passage_reps, 'sparse_index': val_sparse_index}, {'passage_reps': passage_reps, 'sparse_index': sparse_index}]
+        dataset_list = [val_dataset_full, dataset_full]
+        dataloader_list = [val_dataloader_full, test_dataloader_full]
+        query_type_list = ['text', 'text']
     else:
-        val_text_passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
-        val_image_passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
-        val_text_sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
-        val_image_sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
-        text_passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
-        image_passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
-        text_sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
-        image_sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}',
+        val_text_passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'
+        val_image_passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'
+        val_text_sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'
+        val_image_sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/val/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'
+        text_passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'
+        image_passage_reps = f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'
+        text_sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/text/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'
+        image_sparse_index = f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/image/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/test/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'
+        path_list = [{'passage_reps': val_text_passage_reps, 'sparse_index': val_text_sparse_index},
+                     {'passage_reps': text_passage_reps, 'sparse_index': text_sparse_index},
+                     {'passage_reps': val_image_passage_reps, 'sparse_index': val_image_sparse_index},
+                     {'passage_reps': image_passage_reps, 'sparse_index': image_sparse_index}]
+        dataset_list = [val_dataset_single, dataset_single, val_dataset_full, dataset_full]
+        dataloader_list = [val_dataloader_single, test_dataloader_single, val_dataloader_full, test_dataloader_full]
+        query_type_list = ['image', 'image', 'text', 'text']
+
+
+    global_best_weight = 0.5
+
+    for index, path in enumerate(path_list):
+        dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(path['passage_reps'], path['sparse_index'],
+                                                                      use_gpu=True)
+        if index % 2 == 0:
+            dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight = retrieval_action.search(
+                dataloader_list[index], aspects_prompt_list, filtered_ids, dense_retriever,
+                sparse_retriever, analyzer, look_up, dataset_list[index], 'val', global_best_weight, device)
+            global_best_weight = best_weight
+        else:
+            dense_run, sparse_run, best_test_fusion_run, lookup_indices = retrieval_action.search(dataloader_list[index],
+                                                                                                  aspects_prompt_list,
+                                                                                                  filtered_ids,
+                                                                                                  dense_retriever,
+                                                                                                  sparse_retriever,
+                                                                                                  analyzer, look_up,
+                                                                                                  dataset_list[index],
+                                                                                                  'val', global_best_weight,
+                                                                                                  device)
+
+            if training_args.task_type == 'tbpr':
+                os.makedirs(
+                    path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                    exist_ok=True)
+
+                output_path = os.path.join(
+                    path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                    f'best.xlsx')
+            else:
+                os.makedirs(
+                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                    exist_ok=True)
+
+                output_path = os.path.join(
+                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                    f'best.xlsx')
+            search_args.query_type = query_type_list[index]
+            retrieval_action.print_metric(output_path, dataset_list[index], dense_run, sparse_run, best_test_fusion_run, look_up, lookup_indices, search_args)
 
 
 
-    if training_args.task_type == 'tbpr':
-        pass
+    # 训练结束后添加同步屏障
+    dist.barrier()
+
+    # 确保所有进程同步退出
+    if dist.get_rank() == 0:
+        # 主进程最后退出
+        torch.distributed.destroy_process_group()
     else:
-        retrieval_action.search(val_dataloader_single, aspects_prompt_list, filtered_ids, val_dense_retriever, val_sparse_retriever, look_up, val_dataset_single, 'val', device)
-
-        retrieval_action.search(test_dataloader_single, aspects_prompt_list, filtered_ids, dense_retriever, sparse_retriever, look_up, dataset_single, 'test', device)
-
-
+        torch.distributed.destroy_process_group()
 
 
 

@@ -1930,7 +1930,6 @@ def main():
                                     get_run_dict(batch_ids, sparse_scores, sparse_rankings,
                                                  search_args.remove_query))
 
-
         elif training_args.task_type == 'tbpr':
             with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
                 for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
