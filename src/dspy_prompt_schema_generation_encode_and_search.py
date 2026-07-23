@@ -488,7 +488,7 @@ class RetrievalAction:
                     else:
                         lookup_indices.extend(img_ids)
                     encoded.append(reps.cpu().detach().float().numpy())
-                    ids = text_ids if self.training_args.encode_type == 'text' else img_ids
+                    ids = text_ids if encode_type == 'text' else img_ids
                     if encode_type == 'text':
                         for text_indice in range(len(ids)):
                             id = ids[text_indice]
@@ -564,7 +564,7 @@ class RetrievalAction:
         return encoded, jsonl_data, lookup_indices
 
     def search(self, test_dataloader, aspects_prompt_list, filtered_ids, dense_retriever, sparse_retriever, analyzer,
-               look_up, dataset, split, best_weight, query_type, device, is_dspy=False):
+               look_up, dataset, split, best_weight, query_type, device, is_dspy=False, output_dir=None):
         # 每次检索之前都需要调整search_args中的query_type，以适应RecallMetric类中的方法
         dense_run = {}
         sparse_run = {}
@@ -594,10 +594,11 @@ class RetrievalAction:
         encode_counter = self.encode_counter
 
         self.search_args.query_type = query_type
+        print(self.search_args.query_type)
 
         if self.training_args.task_type == 'tbpr':
             with torch.no_grad(), torch.cuda.amp.autocast() if self.training_args.fp16 else nullcontext():
-                prompt_template = self.generate_concat_prompts(aspects_prompt_list, self.training_args.encode_type)
+                prompt_template = self.generate_concat_prompts(aspects_prompt_list, query_type)
                 for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                              total=len(test_dataloader)):
 
@@ -663,14 +664,14 @@ class RetrievalAction:
             with torch.no_grad(), torch.cuda.amp.autocast() if self.training_args.fp16 else nullcontext():
                 for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                              total=len(test_dataloader)):
-                    if self.search_args.query_type == 'text':
+                    if query_type == 'text':
                         lookup_indices.extend(text_ids)
                     else:
                         lookup_indices.extend(img_ids)
 
-                    prompt_template = self.generate_concat_prompts(aspects_prompt_list, self.training_args.encode_type)
+                    prompt_template = self.generate_concat_prompts(aspects_prompt_list, query_type)
 
-                    if self.search_args.query_type == 'text':
+                    if query_type == 'text':
                         query_logits, query_dense_reps = self.model.encode_data_concat_dspy(texts, prompt_template,
                                                                                             aspects_prompt_list, 'text',
                                                                                             self.processor, device,
@@ -692,7 +693,7 @@ class RetrievalAction:
                                                                                             self.data_args)
                         disassemble_logits = query_logits
 
-                    if self.search_args.query_type == 'text':
+                    if query_type == 'text':
                         batch_ids = text_ids
                     else:
                         batch_ids = img_ids
@@ -706,7 +707,7 @@ class RetrievalAction:
                         get_run_dict(batch_ids, dense_scores, dense_rankings, self.search_args.remove_query))
 
                     batch_topics = []
-                    if self.search_args.query_type == 'text':
+                    if query_type == 'text':
                         for text_indice in range(len(batch_ids)):
                             text = texts[text_indice]
                             length = len(aspects_prompt_list)
@@ -787,18 +788,19 @@ class RetrievalAction:
         gc.collect()
         torch.cuda.empty_cache()
 
-        if self.training_args.task_type == 'tbpr':
-            os.makedirs(
-                path_prefix + f'search_results/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{query_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.sparse_type}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
-                exist_ok=True)
+        if is_dspy:
+            if self.training_args.task_type == 'tbpr':
+                os.makedirs(
+                    path_prefix + f'search_results/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{query_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.sparse_type}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
+                    exist_ok=True)
 
-            output_dir = path_prefix + f'search_results/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{query_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.sparse_type}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}'
-        else:
-            os.makedirs(
-                path_prefix + f'search_results/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{query_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.sparse_type}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
-                exist_ok=True)
+                output_dir = path_prefix + f'search_results/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{query_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.sparse_type}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}'
+            else:
+                os.makedirs(
+                    path_prefix + f'search_results/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{query_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.sparse_type}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
+                    exist_ok=True)
 
-            output_dir = path_prefix + f'search_results/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{query_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.sparse_type}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}'
+                output_dir = path_prefix + f'search_results/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{query_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.sparse_type}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}'
 
         if split == 'val':
             max_val_fusion_metric = 0
@@ -822,6 +824,9 @@ class RetrievalAction:
                     val_best_weight = float((i + 1) / 10)
                 if not is_dspy:
                     output_path = os.path.join(output_dir, f'0_{i + 1}_0_{10 - i - 1}_val.xlsx')
+                    metric.print_recall(output_path)
+                else:
+                    output_path = os.path.join(output_dir, f'0_{i + 1}_0_{10 - i - 1}_val_dspy.xlsx')
                     metric.print_recall(output_path)
 
             best_test_fusion_run = {}
@@ -1153,6 +1158,7 @@ def dspy_metric(example, pred, trace=None):
 
             filtered_ids = get_filtered_ids(retrieval_action.processor.tokenizer)
 
+
             if training_args.task_type == 'tbpr':
                 encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single,
                                                                               aspects_prompt_list,
@@ -1210,7 +1216,7 @@ def dspy_metric(example, pred, trace=None):
 
                 max_val_fusion_metric = (max_val_fusion_metric_1 + max_val_fusion_metric_2) / 2
 
-            return max_val_fusion_metric
+            return max_val_fusion_metric * 100
         except Exception:
             rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else -1
             print(f"\n[dspy_metric traceback][rank={rank}]", file=sys.stderr, flush=True)
@@ -1447,21 +1453,20 @@ def main():
                                            batch_size=data_args.per_device_batch_size, shuffle=False)
 
     seed_text = """
-        'You are an experienced knowledge engineer and you are modeling schemas for knowledge graph construction. '
-        'Given a set of sentences, you need to give several proper words or phrases for the abstract schemas of entities, relations and events in these sentences.'
-        'You must return your answer in the list format: phrases1, phrases2, phrases3,...'
-        'You can\'t return anything other than answers.'
-        'You must only return entity without relations.'
-        'These abstract intention words should fulfill the following requirements.'
-        '1. The abstract schemas phrases can well represent the entities, relations and events, and it could be the type of the entities, relations and events or the related concepts of the entities, relations and events.'
-        '2. Strictly follow the provided format, do not add extra characters or words.'
-        '3. Write 3 to 7 word or phrase items at the highest possible abstract level if possible.'
-        '4. Do not repeat the same word and the input in the answer.'
-        '5. Stop immediately if you can\'t think of any more phrases, and no explanation is needed.'
-        '6. Strictly limit the sum of answers between 3 and 7 items.'
-        '\n'
-        '\n'
-        'Input sentences: <sent>\n'
+        You are an experienced knowledge engineer and you are modeling schemas for knowledge graph construction.
+        Given a set of sentences, you need to give several proper words or phrases for the abstract schemas of entities, relations and events in these sentences.
+        You must return your answer in the following format: 1. phrases1\n2.phrases2\n3.phrases3\n...
+        You can\'t return anything other than answers.
+        These abstract intention words should fulfill the following requirements.
+        1. The abstract schemas phrases can well represent the entities, relations and events, and it could be the type of the entities, relations and events or the related concepts of the entities, relations and events.
+        2. Strictly follow the provided format, do not add extra characters or words.
+        3. Write 3 to 7 word or phrase items at the highest possible abstract level if possible.
+        4. Do not repeat the same word and the input in the answer.
+        5. Stop immediately if you can\'t think of any more phrases, and no explanation is needed.
+        6. Strictly limit the sum of answers between 3 and 7 items.
+        \n
+        \n
+        Input sentences:\n<sent>\n
         """
 
     counter = 0
@@ -1641,14 +1646,14 @@ def main():
             dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric = retrieval_action.search(
                 dataloader_list[index], aspects_prompt_list, filtered_ids, dense_retriever,
                 sparse_retriever, analyzer, look_up, dataset_list[index], 'val', global_best_weight,
-                query_type_list[index], device, output_dir=output_dir)
+                query_type_list[index], device, False, output_dir)
             global_best_weight = best_weight
         else:
             dense_run, sparse_run, best_test_fusion_run, lookup_indices = retrieval_action.search(
                 dataloader_list[index],
                 aspects_prompt_list, filtered_ids, dense_retriever, sparse_retriever, analyzer, look_up,
                 dataset_list[index], 'val',
-                global_best_weight, query_type_list[index], device, output_dir=output_dir)
+                global_best_weight, query_type_list[index], device, False, output_dir)
 
             output_path = os.path.join(output_dir, 'best.xlsx')
             search_args.query_type = query_type_list[index]
