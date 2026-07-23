@@ -1152,7 +1152,10 @@ def dspy_metric(example, pred, trace=None):
             retrieval_action = example.retrieval_action
 
             device = example.device
-            aspects_prompt_list = broadcast_object_from_main(pred.aspects)
+            aspects = [aspect.lower() for aspect in set(pred.aspects)]
+            if len(aspects) > 7:
+                aspects = aspects[:7]
+            aspects_prompt_list = broadcast_object_from_main(aspects)
 
             print(aspects_prompt_list)
 
@@ -1216,7 +1219,7 @@ def dspy_metric(example, pred, trace=None):
 
                 max_val_fusion_metric = (max_val_fusion_metric_1 + max_val_fusion_metric_2) / 2
 
-            return max_val_fusion_metric * 100
+            return max_val_fusion_metric
         except Exception:
             rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else -1
             print(f"\n[dspy_metric traceback][rank={rank}]", file=sys.stderr, flush=True)
@@ -1303,9 +1306,28 @@ def main():
 
     program = SchemaAspectProgram()
 
+    if prompt_generation_args.dspy_strength == 'light':
+        num_trials = 10
+        num_candidates = 9
+
+    elif prompt_generation_args.dspy_strength == 'medium':
+        num_trials = 18
+        num_candidates = 9
+
+    else:
+        num_trials = 27
+        num_candidates = 9
+
     optimizer = dspy.MIPROv2(
         metric=dspy_metric,
-        auto=prompt_generation_args.dspy_strength,
+        auto=None,
+        num_candidates=num_candidates,
+        max_bootstrapped_demos=0,
+        max_labeled_demos=0,
+        seed=9,
+        init_temperature=1.0,
+        num_threads=1,
+        verbose=True,
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1513,6 +1535,11 @@ def main():
         program,
         trainset=trainset,
         valset=trainset,
+        num_trials=num_trials,
+        max_bootstrapped_demos=0,
+        max_labeled_demos=0,
+        seed=9,
+        minibatch=False,
     )
 
     if is_main_process():

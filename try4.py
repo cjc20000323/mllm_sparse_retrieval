@@ -55,16 +55,9 @@ def dspy_metric(example, pred, trace=None):
 
 
 optimizer = dspy.MIPROv2(
-    metric=dspy_metric,
-    auto=None,
-    num_candidates=8,
-    max_bootstrapped_demos=0,
-    max_labeled_demos=0,    # 如果只想优化 instruction，不加 few-shot
-    verbose=True,
-    track_stats=True,
-    num_threads=1,
-    seed=42,
-)
+        metric=dspy_metric,
+        auto='medium',
+    )
 
 seed_text = (
         'You are an experienced knowledge engineer and you are modeling schemas for knowledge graph construction. '
@@ -94,9 +87,6 @@ compiled = optimizer.compile(
     program,
     trainset=trainset,
     valset=trainset,
-    num_trials=20,  # 主要迭代轮次：评估 12 组候选 prompt 参数
-    minibatch=False,  # 每轮用完整 valset；你的 Recall@K 场景建议这样
-    seed=42,
 )
 
 prediction = compiled(
