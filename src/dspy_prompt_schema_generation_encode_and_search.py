@@ -10,6 +10,7 @@ import sys
 import traceback
 from contextlib import nullcontext
 from itertools import chain
+import signal
 
 import dspy
 import faiss
@@ -47,6 +48,26 @@ logger = logging.getLogger(__name__)
 
 model_begin_indice = 28
 path_prefix = '/root/autodl-fs/'
+
+
+def is_distributed():
+    return dist.is_available() and dist.is_initialized()
+
+
+def get_rank():
+    return dist.get_rank() if is_distributed() else 0
+
+
+def is_main_process():
+    return get_rank() == 0
+
+
+def broadcast_object_from_main(obj):
+    if not is_distributed() or dist.get_world_size() == 1:
+        return obj
+    object_list = [obj if is_main_process() else None]
+    dist.broadcast_object_list(object_list, src=0)
+    return object_list[0]
 
 
 def pickle_load(path):
@@ -304,7 +325,7 @@ class GenerateSchemaAspects(dspy.Signature):
     dataset_name: str = dspy.InputField()
     task_type: str = dspy.InputField()
     seed_texts: str = dspy.InputField()
-    aspects: str = dspy.OutputField()
+    aspects: list[str] = dspy.OutputField()
 
 
 class SchemaAspectProgram(dspy.Module):
@@ -335,12 +356,15 @@ class RetrievalAction:
         self.encode_counter = 0
 
     def generate_concat_prompts(self, aspects_prompt_list, encode_type):
+        constructed_text_prompts, constructed_img_prompts = construct_prompt(aspects_prompt_list,
+                                                                             self.training_args.task_type)
+
         if encode_type == 'text':
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in self.model_args.model_name_or_path:
                 prompt_template = llava_mistral_template_text_prefix
                 if 'concrete' in self.model_args.eol_type or 'all' not in self.model_args.eol_type:
                     prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
-                for llava_mistral_retrieval_disassemble_text_prompt in aspects_prompt_list:
+                for llava_mistral_retrieval_disassemble_text_prompt in constructed_text_prompts:
                     content_element = llava_mistral_template_content_element.format(
                         llava_mistral_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
@@ -348,7 +372,7 @@ class RetrievalAction:
                 prompt_template = llama3_template_text_prefix
                 if 'concrete' in self.model_args.eol_type or 'all' not in self.model_args.eol_type:
                     prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
-                for llama3_retrieval_disassemble_text_prompt in aspects_prompt_list:
+                for llama3_retrieval_disassemble_text_prompt in constructed_text_prompts:
                     content_element = llama3_template_content_element.format(
                         llama3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
@@ -358,7 +382,7 @@ class RetrievalAction:
                 if 'concrete' in self.model_args.eol_type or 'all' not in self.model_args.eol_type:
                     prompt_template += llava_mistral_template_content_element.format(
                         img_prompt_for_concat)
-                for llava_mistral_retrieval_disassemble_image_prompt in aspects_prompt_list:
+                for llava_mistral_retrieval_disassemble_image_prompt in constructed_img_prompts:
                     content_element = llava_mistral_template_content_element.format(
                         llava_mistral_retrieval_disassemble_image_prompt)
                     prompt_template += content_element
@@ -366,7 +390,7 @@ class RetrievalAction:
                 prompt_template = llama3_template_image_prefix
                 if 'concrete' in self.model_args.eol_type or 'all' not in self.model_args.eol_type:
                     prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
-                for llama3_retrieval_disassemble_image_prompt in aspects_prompt_list:
+                for llama3_retrieval_disassemble_image_prompt in constructed_img_prompts:
                     content_element = llama3_template_content_element.format(
                         llama3_retrieval_disassemble_image_prompt)
                     prompt_template += content_element
@@ -378,6 +402,7 @@ class RetrievalAction:
         lookup_indices = []
         if self.training_args.task_type == 'tbpr':
             prompt_template = self.generate_concat_prompts(aspects_prompt_list, encode_type)
+            print(prompt_template)
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
                 raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
@@ -434,6 +459,7 @@ class RetrievalAction:
 
         else:
             prompt_template = self.generate_concat_prompts(aspects_prompt_list, encode_type)
+            print(prompt_template)
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
                 with torch.cuda.amp.autocast() if self.training_args.fp16 else nullcontext():
@@ -538,12 +564,34 @@ class RetrievalAction:
         return encoded, jsonl_data, lookup_indices
 
     def search(self, test_dataloader, aspects_prompt_list, filtered_ids, dense_retriever, sparse_retriever, analyzer,
-               look_up, dataset, split, best_weight, query_type, device, is_dspy=False, output_dir=None):
+               look_up, dataset, split, best_weight, query_type, device, is_dspy=False):
         # 每次检索之前都需要调整search_args中的query_type，以适应RecallMetric类中的方法
         dense_run = {}
         sparse_run = {}
         fusion_run = [{}] * 9
         lookup_indices = []
+
+        if self.data_args.is_filtered:
+            filtered = "filter"
+        else:
+            filtered = "no_filter"
+
+        if self.data_args.sparse_manual:
+            manual = 'manual'
+        else:
+            manual = "no_manual"
+
+        if self.model_args.use_output_embedding_cluster:
+            cluster = f'cluster_{self.model_args.cluster_sum}'
+        else:
+            cluster = 'no_cluster'
+
+        if self.data_args.sparse_value_mean:
+            use_sparse_value_mean = 'mean'
+        else:
+            use_sparse_value_mean = 'no_mean'
+
+        encode_counter = self.encode_counter
 
         self.search_args.query_type = query_type
 
@@ -738,6 +786,19 @@ class RetrievalAction:
         close_sparse_retriever(sparse_retriever, analyzer)
         gc.collect()
         torch.cuda.empty_cache()
+
+        if self.training_args.task_type == 'tbpr':
+            os.makedirs(
+                path_prefix + f'search_results/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{query_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.sparse_type}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
+                exist_ok=True)
+
+            output_dir = path_prefix + f'search_results/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{query_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{self.data_args.tbpr_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.sparse_type}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}'
+        else:
+            os.makedirs(
+                path_prefix + f'search_results/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{query_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.sparse_type}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}',
+                exist_ok=True)
+
+            output_dir = path_prefix + f'search_results/{self.model_args.model_name_or_path[model_begin_indice:]}/{self.data_args.dataset_name}/{query_type}/{filtered}/{self.model_args.calculate_type}/{self.data_args.prompt_type}/{self.data_args.num_expended_tokens}_{manual}_{self.data_args.sparse_length}_{self.data_args.sparse_value_type}_{cluster}_{self.data_args.reps_loc}_{self.model_args.eol_type}_{self.data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{self.data_args.sparse_type}_{self.data_args.prompt_generation_model}_{self.prompt_generation_args.demonstration_num}_{self.prompt_generation_args.dspy_strength}_{encode_counter}'
 
         if split == 'val':
             max_val_fusion_metric = 0
@@ -987,21 +1048,39 @@ class RetrievalAction:
             dist.barrier()
 
         if dist.get_rank() == 0:
-            command = f'''
-                                python -m pyserini.index.lucene --collection JsonVectorCollection \
-                                --input {sparse_output_dir} \
-                                --index {sparse_output_dir}/index \
-                                --generator DefaultLuceneDocumentGenerator \
-                                --threads 16 \
-                                --impact --pretokenized
-                                '''
-            subprocess.run(
+            command = [
+                sys.executable,  # 当前 mllm_retrieval 环境的 Python
+                "-m",
+                "pyserini.index.lucene",
+                "--collection",
+                "JsonVectorCollection",
+                "--input",
+                sparse_output_dir,
+                "--index",
+                sparse_output_dir + '/index',
+                "--generator",
+                "DefaultLuceneDocumentGenerator",
+                "--threads",
+                "16",
+                "--impact",
+                "--pretokenized",
+            ]
+            process = subprocess.Popen(
                 command,
-                shell=True,
-                executable="/bin/bash",
                 cwd="/root/mllm_cross_modal_retrieval",
-                check=True
+                start_new_session=True,
             )
+
+            process.wait()
+
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGTERM)
+
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait()
 
         if dist.is_available() and dist.is_initialized():
             dist.barrier()
@@ -1066,8 +1145,11 @@ def dspy_metric(example, pred, trace=None):
             search_args = example.search_args
             prompt_generation_args = example.prompt_generation_args
             retrieval_action = example.retrieval_action
+
             device = example.device
-            aspects_prompt_list = pred.aspects
+            aspects_prompt_list = broadcast_object_from_main(pred.aspects)
+
+            print(aspects_prompt_list)
 
             filtered_ids = get_filtered_ids(retrieval_action.processor.tokenizer)
 
@@ -1088,7 +1170,7 @@ def dspy_metric(example, pred, trace=None):
                 dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric = retrieval_action.search(
                     val_dataloader_full, aspects_prompt_list, filtered_ids, dense_retriever,
                     sparse_retriever, analyzer, look_up, val_dataset_full, 'val', 0.5,
-                    'text', device)
+                    'text', device, is_dspy=True)
             else:
                 encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single,
                                                                               aspects_prompt_list,
@@ -1103,10 +1185,11 @@ def dspy_metric(example, pred, trace=None):
                                                                                        sparse_output_dir,
                                                                                        use_gpu=True)
 
+
                 dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric_2 = retrieval_action.search(
                     val_dataloader_full, aspects_prompt_list, filtered_ids, dense_retriever,
                     sparse_retriever, analyzer, look_up, val_dataset_full, 'val', 0.5,
-                    'text', device)
+                    'text', device, is_dspy=True)
 
                 encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_full, aspects_prompt_list,
                                                                               filtered_ids, 'text', device)
@@ -1123,7 +1206,7 @@ def dspy_metric(example, pred, trace=None):
                 dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric_1 = retrieval_action.search(
                     val_dataloader_single, aspects_prompt_list, filtered_ids, dense_retriever,
                     sparse_retriever, analyzer, look_up, val_dataset_single, 'val', 0.5,
-                    'image', device)
+                    'image', device, is_dspy=True)
 
                 max_val_fusion_metric = (max_val_fusion_metric_1 + max_val_fusion_metric_2) / 2
 
@@ -1366,8 +1449,9 @@ def main():
     seed_text = """
         'You are an experienced knowledge engineer and you are modeling schemas for knowledge graph construction. '
         'Given a set of sentences, you need to give several proper words or phrases for the abstract schemas of entities, relations and events in these sentences.'
-        'You must return your answer in the following format: 1. phrases1\n2.phrases2\n3.phrases3\n...'
+        'You must return your answer in the list format: phrases1, phrases2, phrases3,...'
         'You can\'t return anything other than answers.'
+        'You must only return entity without relations.'
         'These abstract intention words should fulfill the following requirements.'
         '1. The abstract schemas phrases can well represent the entities, relations and events, and it could be the type of the entities, relations and events or the related concepts of the entities, relations and events.'
         '2. Strictly follow the provided format, do not add extra characters or words.'
@@ -1377,7 +1461,7 @@ def main():
         '6. Strictly limit the sum of answers between 3 and 7 items.'
         '\n'
         '\n'
-        'Input sentences:\n<sent>\n'
+        'Input sentences: <sent>\n'
         """
 
     counter = 0
@@ -1394,6 +1478,7 @@ def main():
         if counter == prompt_generation_args.demonstration_num:
             break
 
+    # demonstration_string = broadcast_object_from_main(demonstration_string)
     seed_text = seed_text.replace('<sent>', demonstration_string)
 
     retrieval_action = RetrievalAction(training_args, data_args, model_args, search_args, prompt_generation_args,
@@ -1425,13 +1510,18 @@ def main():
         valset=trainset,
     )
 
-    prediction = compiled(
-        dataset_name=data_args.dataset_name,
-        task_type='text-based person retrieval' if training_args.task_type == 'tbpr' else "image-text retrieval",
-        seed_texts=seed_text,
-    )
-
-    aspects_prompt_list = prediction.aspects
+    if is_main_process():
+        prediction = compiled(
+            dataset_name=data_args.dataset_name,
+            task_type='text-based person retrieval' if training_args.task_type == 'tbpr' else "image-text retrieval",
+            seed_texts=seed_text,
+        )
+        aspects_prompt_list = prediction.aspects
+    else:
+        aspects_prompt_list = None
+    aspects_prompt_list = broadcast_object_from_main(aspects_prompt_list)
+    if is_main_process():
+        print(f'DSPy aspects: {aspects_prompt_list}')
 
     if data_args.is_filtered:
         filtered = "filter"
