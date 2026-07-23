@@ -804,6 +804,7 @@ class RetrievalAction:
 
         if split == 'val':
             max_val_fusion_metric = 0
+            max_val_sparse_metric = 0
             val_best_weight = 0.5
             for i in range(9):
                 fusion_run[i].update(
@@ -822,6 +823,9 @@ class RetrievalAction:
                 if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
                     max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
                     val_best_weight = float((i + 1) / 10)
+                sparse_recalls = {k: sum(metric.sparse_recall_lists[k]) for k in metric.recall_k_setting_list}
+                if (sparse_recalls[1] + sparse_recalls[5] + sparse_recalls[10]) / 3 > max_val_sparse_metric:
+                    max_val_sparse_metric = (sparse_recalls[1] + sparse_recalls[5] + sparse_recalls[10]) / 3
                 if not is_dspy:
                     output_path = os.path.join(output_dir, f'0_{i + 1}_0_{10 - i - 1}_val.xlsx')
                     metric.print_recall(output_path)
@@ -840,7 +844,7 @@ class RetrievalAction:
             if dist.is_available() and dist.is_initialized():
                 dist.barrier()
 
-            return dense_run, sparse_run, best_test_fusion_run, lookup_indices, val_best_weight, max_val_fusion_metric
+            return dense_run, sparse_run, best_test_fusion_run, lookup_indices, val_best_weight, max_val_sparse_metric
         else:
             max_test_fusion_metric = 0
             test_best_weight = 0.5
@@ -1176,7 +1180,7 @@ def dspy_metric(example, pred, trace=None):
                                                                                        sparse_output_dir,
                                                                                        use_gpu=True)
 
-                dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric = retrieval_action.search(
+                dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_sparse_metric = retrieval_action.search(
                     val_dataloader_full, aspects_prompt_list, filtered_ids, dense_retriever,
                     sparse_retriever, analyzer, look_up, val_dataset_full, 'val', 0.5,
                     'text', device, is_dspy=True)
@@ -1195,7 +1199,7 @@ def dspy_metric(example, pred, trace=None):
                                                                                        use_gpu=True)
 
 
-                dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric_2 = retrieval_action.search(
+                dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_sparse_metric_2 = retrieval_action.search(
                     val_dataloader_full, aspects_prompt_list, filtered_ids, dense_retriever,
                     sparse_retriever, analyzer, look_up, val_dataset_full, 'val', 0.5,
                     'text', device, is_dspy=True)
@@ -1212,14 +1216,14 @@ def dspy_metric(example, pred, trace=None):
                                                                                        sparse_output_dir,
                                                                                        use_gpu=True)
 
-                dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric_1 = retrieval_action.search(
+                dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_sparse_metric_1 = retrieval_action.search(
                     val_dataloader_single, aspects_prompt_list, filtered_ids, dense_retriever,
                     sparse_retriever, analyzer, look_up, val_dataset_single, 'val', 0.5,
                     'image', device, is_dspy=True)
 
-                max_val_fusion_metric = (max_val_fusion_metric_1 + max_val_fusion_metric_2) / 2
+                max_val_sparse_metric = (max_val_sparse_metric_1 + max_val_sparse_metric_2) / 2
 
-            return max_val_fusion_metric
+            return max_val_sparse_metric
         except Exception:
             rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else -1
             print(f"\n[dspy_metric traceback][rank={rank}]", file=sys.stderr, flush=True)
@@ -1670,7 +1674,7 @@ def main():
                                                                                path['sparse_index'],
                                                                                use_gpu=True)
         if index % 2 == 0:
-            dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_fusion_metric = retrieval_action.search(
+            dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_sparse_metric = retrieval_action.search(
                 dataloader_list[index], aspects_prompt_list, filtered_ids, dense_retriever,
                 sparse_retriever, analyzer, look_up, dataset_list[index], 'val', global_best_weight,
                 query_type_list[index], device, False, output_dir)
