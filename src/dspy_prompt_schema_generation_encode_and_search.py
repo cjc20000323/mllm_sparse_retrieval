@@ -46,8 +46,8 @@ from template import (llava_mistral_template_image_prefix, llava_mistral_templat
 
 logger = logging.getLogger(__name__)
 
-model_begin_indice = 28
-path_prefix = '/root/autodl-fs/'
+model_begin_indice = 29
+path_prefix = '/root/autodl-tmp/'
 
 
 def is_distributed():
@@ -1178,7 +1178,7 @@ def dspy_metric(example, pred, trace=None):
 
                 dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
                                                                                        sparse_output_dir,
-                                                                                       use_gpu=True)
+                                                                                       use_gpu=False)
 
                 dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_sparse_metric = retrieval_action.search(
                     val_dataloader_full, aspects_prompt_list, filtered_ids, dense_retriever,
@@ -1196,7 +1196,7 @@ def dspy_metric(example, pred, trace=None):
 
                 dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
                                                                                        sparse_output_dir,
-                                                                                       use_gpu=True)
+                                                                                       use_gpu=False)
 
 
                 dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_sparse_metric_2 = retrieval_action.search(
@@ -1214,7 +1214,7 @@ def dspy_metric(example, pred, trace=None):
 
                 dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(dense_output_dir,
                                                                                        sparse_output_dir,
-                                                                                       use_gpu=True)
+                                                                                       use_gpu=False)
 
                 dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_sparse_metric_1 = retrieval_action.search(
                     val_dataloader_single, aspects_prompt_list, filtered_ids, dense_retriever,
@@ -1287,6 +1287,12 @@ def load_candidates(passage_reps, sparse_index, use_gpu):
     return dense_retriever, sparse_retriever, analyzer, look_up
 
 
+class NoBootstrapMIPROv2(dspy.MIPROv2):
+    def _bootstrap_fewshot_examples(self, *args, **kwargs):
+        logger.info("Skipping MIPROv2 bootstrap few-shot examples.")
+        return None
+
+
 def main():
     parser = HfArgumentParser(
         (ModelArguments, PromptRepsLLMSearchArguments, PromptRepsLLMDataArguments, TrainingArguments,
@@ -1302,7 +1308,7 @@ def main():
         f"openai/" + model_args.dspy_model_path,
         api_base="http://127.0.0.1:8000/v1",
         api_key="EMPTY",
-        temperature=0.0,
+        temperature=0.8,
         max_tokens=256,
     )
 
@@ -1312,24 +1318,23 @@ def main():
 
     if prompt_generation_args.dspy_strength == 'light':
         num_trials = 10
-        num_candidates = 9
+        num_candidates = 6
 
     elif prompt_generation_args.dspy_strength == 'medium':
         num_trials = 18
-        num_candidates = 9
+        num_candidates = 6
 
     else:
         num_trials = 27
         num_candidates = 9
 
-    optimizer = dspy.MIPROv2(
+    optimizer = NoBootstrapMIPROv2(
         metric=dspy_metric,
         auto=None,
         num_candidates=num_candidates,
         max_bootstrapped_demos=0,
         max_labeled_demos=0,
-        seed=9,
-        init_temperature=1.0,
+        init_temperature=1.3,
         num_threads=1,
         verbose=True,
     )
@@ -1542,8 +1547,8 @@ def main():
         num_trials=num_trials,
         max_bootstrapped_demos=0,
         max_labeled_demos=0,
-        seed=9,
         minibatch=False,
+        fewshot_aware_proposer=False
     )
 
     if is_main_process():
@@ -1555,7 +1560,14 @@ def main():
         aspects_prompt_list = prediction.aspects
     else:
         aspects_prompt_list = None
+
     aspects_prompt_list = broadcast_object_from_main(aspects_prompt_list)
+    aspects = [aspect.lower() for aspect in set(aspects_prompt_list)]
+    if len(aspects) > 7:
+        aspects = aspects[:7]
+    aspects_prompt_list = aspects
+
+    print(aspects_prompt_list)
     if is_main_process():
         print(f'DSPy aspects: {aspects_prompt_list}')
 
@@ -1672,7 +1684,7 @@ def main():
 
         dense_retriever, sparse_retriever, analyzer, look_up = load_candidates(path['passage_reps'],
                                                                                path['sparse_index'],
-                                                                               use_gpu=True)
+                                                                               use_gpu=False)
         if index % 2 == 0:
             dense_run, sparse_run, best_test_fusion_run, lookup_indices, best_weight, max_val_sparse_metric = retrieval_action.search(
                 dataloader_list[index], aspects_prompt_list, filtered_ids, dense_retriever,
@@ -1683,7 +1695,7 @@ def main():
             dense_run, sparse_run, best_test_fusion_run, lookup_indices = retrieval_action.search(
                 dataloader_list[index],
                 aspects_prompt_list, filtered_ids, dense_retriever, sparse_retriever, analyzer, look_up,
-                dataset_list[index], 'val',
+                dataset_list[index], 'test',
                 global_best_weight, query_type_list[index], device, False, output_dir)
 
             output_path = os.path.join(output_dir, 'best.xlsx')
