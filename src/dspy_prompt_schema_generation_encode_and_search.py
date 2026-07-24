@@ -46,8 +46,8 @@ from template import (llava_mistral_template_image_prefix, llava_mistral_templat
 
 logger = logging.getLogger(__name__)
 
-model_begin_indice = 29
-path_prefix = '/root/autodl-tmp/'
+model_begin_indice = 28
+path_prefix = '/root/autodl-fs/'
 
 
 def is_distributed():
