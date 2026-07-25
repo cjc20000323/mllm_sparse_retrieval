@@ -140,7 +140,9 @@ from template import (relevant_prompt, in_one_word_relevant_prompt, text_query_r
                       it2t_retrieval_mistral_query_generation_paradigm_prompt_1, \
                       it2t_retrieval_query_generation_paradigm_prompt_1, lamra_2_text_relevant_prompt,
                       lamra_2_image_relevant_prompt,
-                      it2t_retrieval_answer_relevant_prompt, mistral_it2t_retrieval_answer_relevant_prompt)
+                      it2t_retrieval_answer_relevant_prompt, mistral_it2t_retrieval_answer_relevant_prompt,
+                      lamra_2_t2it_relevant_prompt, lamra_2_5_t2it_relevant_prompt, lamra_2_5_it2t_relevant_prompt,
+                      lamra_2_it2t_relevant_prompt, lamra_2_5_image_relevant_prompt, lamra_2_5_text_relevant_prompt)
 from io import BytesIO
 
 flickr_length_dict = {3: 3, 4: 5, 5: 26, 6: 83, 7: 196, 8: 316, 9: 376, 10: 447, 11: 446, 12: 455, 13: 399, 14: 403,
@@ -300,8 +302,8 @@ class Reranker:
                     else:
                         rerank_prompt_template = qwen3_person_retrieval_relevant_prompt
                 elif 'LamRA' in model_args.model_name_or_path:
-                    if self.query_type == 'image':
-                        rerank_prompt_template = lamra_2_image_relevant_prompt
+                    if 'Qwen' in model_args.model_name_or_path:
+                        rerank_prompt_template = lamra_2_5_text_relevant_prompt
                     else:
                         rerank_prompt_template = lamra_2_text_relevant_prompt
                 else:
@@ -333,6 +335,11 @@ class Reranker:
                         rerank_prompt_template = mistral_t2it_retrieval_origin_old_query_relevant_prompt
                     else:
                         rerank_prompt_template = mistral_t2it_retrieval_old_query_relevant_prompt
+                elif 'LamRA' in model_args.model_name_or_path:
+                    if 'Qwen' in model_args.model_name_or_path:
+                        rerank_prompt_template = lamra_2_5_t2it_relevant_prompt
+                    else:
+                        rerank_prompt_template = lamra_2_t2it_relevant_prompt
                 else:
                     if rerank_prompt_type == 'old_relevant':
                         rerank_prompt_template = t2it_retrieval_old_query_relevant_prompt
@@ -354,6 +361,11 @@ class Reranker:
                         rerank_prompt_template = mistral_it2t_retrieval_answer_relevant_prompt
                     else:
                         rerank_prompt_template = mistral_it2t_retrieval_old_query_relevant_prompt
+                elif 'LamRA' in model_args.model_name_or_path:
+                    if 'Qwen' in model_args.model_name_or_path:
+                        rerank_prompt_template = lamra_2_5_it2t_relevant_prompt
+                    else:
+                        rerank_prompt_template = lamra_2_it2t_relevant_prompt
                 else:
                     if rerank_prompt_type == 'old_relevant':
                         rerank_prompt_template = it2t_retrieval_old_query_relevant_prompt

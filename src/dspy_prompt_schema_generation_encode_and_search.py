@@ -1443,8 +1443,12 @@ def main():
         val_dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'val',
                                                         training_args.encode_type)
     elif training_args.task_type == 'tbpr':
-        val_dataset_single = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'val', 'single')
-        val_dataset_full = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'val', 'full')
+        if data_args.dataset_name == 'ICFG-PEDES':
+            val_dataset_single = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
+            val_dataset_full = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
+        else:
+            val_dataset_single = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'val', 'single')
+            val_dataset_full = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'val', 'full')
     elif training_args.task_type == 't2it':
         val_dataset = Text2ImagetextRetrievalDataset(data_args.dataset_name, processor, 'val', 'corpus')
     elif training_args.task_type == 'it2t':

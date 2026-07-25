@@ -2,6 +2,7 @@ import os
 import pickle
 import sys
 from contextlib import nullcontext
+from io import BytesIO
 
 import numpy as np
 import torch
@@ -17,21 +18,23 @@ from tqdm import tqdm
 from transformers import (
     HfArgumentParser,
 )
-from transformers import CLIPModel, CLIPProcessor, BlipModel, BlipProcessor, Qwen2VLProcessor, \
+from transformers import CLIPModel, CLIPProcessor, Qwen2VLProcessor, \
     Qwen2VLForConditionalGeneration, Qwen2_5_VLProcessor, Qwen2_5_VLForConditionalGeneration
 
 from arguments import PromptRepsLLMDataArguments, ModelArguments
 from arguments import TrainingArguments
 from template import lamra_2_img_prompt, lamra_2_text_prompt, lamra_2_tbpr_prompt, lamra_2_5_text_prompt, \
-    lamra_2_5_img_prompt, lamra_2_5_tbpr_prompt, vlm2vec_img_prompt, vlm2vec_text_prompt, vlm2vec_tbpr_prompt
-from dataset import CrossModalRetrievalDataset, TextPersonRetrievalDataset
-from models.blip_itm import BLIP_ITM, blip_itm
+    lamra_2_5_img_prompt, lamra_2_5_tbpr_prompt, vlm2vec_img_prompt, vlm2vec_text_prompt, vlm2vec_tbpr_prompt, \
+    lamra_2_5_it2t_corpus_prompt, lamra_2_5_t2it_corpus_prompt, lamra_2_it2t_corpus_prompt, lamra_2_t2it_corpus_prompt
+from dataset import CrossModalRetrievalDataset, TextPersonRetrievalDataset, Text2ImagetextRetrievalDataset, \
+    Imagetext2TextRetrievalDataset
+from models.blip_itm import blip_itm
 from eva_clip import create_model_and_transforms, get_tokenizer
 from sentence_transformers import SentenceTransformer
-from src.model.model import MMEBModel
-from src.model.processor import load_processor, QWEN2_VL, VLM_IMAGE_TOKENS
-from src.model.vlm_backbone.qwen2_vl.qwen_vl_utils import process_vision_info
 from peft import PeftModel
+
+model_begin_indice = 28
+path_prefix = '/root/autodl-fs/'
 
 
 def blip_load_image(image, image_size, device):
@@ -87,24 +90,25 @@ def main():
 
     # 指定模型
     if 'eva' in model_args.model_name_or_path:
-        encoder, _, processor = create_model_and_transforms('EVA02-CLIP-bigE-14-plus', model_args.model_name_or_path + '/EVA02_CLIP_E_psz14_plus_s9B.pt',
-                                                           force_custom_clip=True)
+        encoder, _, processor = create_model_and_transforms('EVA02-CLIP-bigE-14-plus',
+                                                            model_args.model_name_or_path + '/EVA02_CLIP_E_psz14_plus_s9B.pt',
+                                                            force_custom_clip=True)
         encoder = encoder.to(device)
     elif 'clip' in model_args.model_name_or_path:
         encoder = CLIPModel.from_pretrained(model_args.model_name_or_path, device_map=device_map,
-                                                                torch_dtype=torch_type)
+                                            torch_dtype=torch_type)
         processor = CLIPProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'blip' in model_args.model_name_or_path:
         encoder = blip_itm(pretrained=model_args.model_name_or_path + '/model_large.pth', vit='large')
         encoder = encoder.to(device)
         processor = None
     elif 'gme' in model_args.model_name_or_path:
-        encoder = SentenceTransformer(model_args.model_name_or_path)
+        encoder = SentenceTransformer(model_args.model_name_or_path, trust_remote_code=True, device=str(device))
         processor = None
     elif 'Qwen2-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2-VL-2B-Instruct' in model_args.model_name_or_path:
         encoder = Qwen2VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
-                                                                     device_map=device_map,
-                                                                     torch_dtype=torch_type)
+                                                                  device_map=device_map,
+                                                                  torch_dtype=torch_type)
         processor = Qwen2VLProcessor.from_pretrained(model_args.model_name_or_path)
         conversation = [
             {
@@ -128,12 +132,14 @@ def main():
             print(input_id)
     elif 'LamRA' in model_args.model_name_or_path:
         if 'Qwen' in model_args.model_name_or_path:
-            encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path, device_map=device_map,
-                                                                torch_dtype=torch_type)
+            encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
+                                                                         device_map=device_map,
+                                                                         torch_dtype=torch_type)
             processor = Qwen2_5_VLProcessor.from_pretrained(model_args.model_name_or_path)
         else:
-            encoder = Qwen2VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path, device_map=device_map,
-                                                                torch_dtype=torch_type)
+            encoder = Qwen2VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
+                                                                      device_map=device_map,
+                                                                      torch_dtype=torch_type)
             processor = Qwen2VLProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'VLM2Vec' in model_args.model_name_or_path:
         if 'V2' in model_args.model_name_or_path:
@@ -156,9 +162,12 @@ def main():
                                             torch_dtype=torch_type)
         processor = CLIPProcessor.from_pretrained(model_args.model_name_or_path)
 
-
     if training_args.task_type == 'tbpr':
         dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'single')
+    elif training_args.task_type == 't2it':
+        dataset = Text2ImagetextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'corpus')
+    elif training_args.task_type == 'it2t':
+        dataset = Imagetext2TextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'corpus')
     else:
         if training_args.encode_type == 'text':
             dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'full')
@@ -224,6 +233,62 @@ def main():
                 lookup_indices.extend(img_ids)
 
                 encoded.append(reps.cpu().detach().float().numpy())
+        elif training_args.task_type == 't2it':
+            for batch_idx, (corpus_texts, corpus_images, corpus_ids) in tqdm(enumerate(test_dataloader),
+                                                                             total=len(test_dataloader)):
+                if 'gme' in model_args.model_name_or_path:
+                    raw_images = [Image.open(BytesIO(corpus_image)).convert("RGB") for corpus_image in corpus_images]
+                    reps = encoder.encode(
+                        [dict(text=corpus_text, image=image) for corpus_text, image in zip(corpus_texts, raw_images)],
+                        convert_to_tensor=True
+                    )
+                elif 'LamRA' in model_args.model_name_or_path:
+                    raw_images = [Image.open(BytesIO(corpus_image)).convert("RGB") for corpus_image in corpus_images]
+                    if 'Qwen' in model_args.model_name_or_path:
+                        img_inputs = processor(images=raw_images,
+                                               text=[lamra_2_5_t2it_corpus_prompt.replace('<sent>', corpus_text) for
+                                                     corpus_text in corpus_texts],
+                                               return_tensors="pt",
+                                               padding=True)
+                    else:
+                        img_inputs = processor(images=raw_images,
+                                               text=[lamra_2_t2it_corpus_prompt.replace('<sent>', corpus_text) for
+                                                     corpus_text in corpus_texts],
+                                               return_tensors="pt",
+                                               padding=True)
+                    imgs = img_inputs.to(device)
+                    output = encoder(**imgs, output_hidden_states=True, return_dict=True, use_cache=True)
+                    reps = output.hidden_states[-1][:, -1, :]
+                # print(logits.shape)
+                reps = F.normalize(reps, dim=-1)
+
+                lookup_indices.extend(corpus_ids)
+
+                encoded.append(reps.cpu().detach().float().numpy())
+        elif training_args.task_type == 'it2t':
+            for batch_idx, (corpus_texts, corpus_ids) in tqdm(enumerate(test_dataloader),
+                                                              total=len(test_dataloader)):
+                if 'gme' in model_args.model_name_or_path:
+                    reps = encoder.encode([dict(text=t) for t in corpus_texts], convert_to_tensor=True)
+                else:
+                    if 'Qwen' in model_args.model_name_or_path:
+                        text_inputs = processor(
+                            text=[lamra_2_5_text_prompt.replace('<sent>', text) for text in corpus_texts],
+                            return_tensors="pt",
+                            padding=True).to(device)
+                    else:
+                        text_inputs = processor(
+                            text=[lamra_2_text_prompt.replace('<sent>', text) for text in corpus_texts],
+                            return_tensors="pt",
+                            padding=True).to(device)
+                    output = encoder(**text_inputs, output_hidden_states=True, return_dict=True)
+                    reps = output.hidden_states[-1][:, -1, :]
+                # print(logits.shape)
+                reps = F.normalize(reps, dim=-1)
+
+                lookup_indices.extend(corpus_ids)
+
+                encoded.append(reps.cpu().detach().float().numpy())
         else:
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
                                                                          total=len(test_dataloader)):
@@ -247,9 +312,10 @@ def main():
                             reps = encoder.encode([dict(text=t) for t in texts], convert_to_tensor=True)
                         elif 'LamRA' in model_args.model_name_or_path:
                             if 'Qwen' in model_args.model_name_or_path:
-                                text_inputs = processor(text=[lamra_2_5_text_prompt.replace('<sent>', text) for text in texts],
-                                                        return_tensors="pt",
-                                                        padding=True).to(device)
+                                text_inputs = processor(
+                                    text=[lamra_2_5_text_prompt.replace('<sent>', text) for text in texts],
+                                    return_tensors="pt",
+                                    padding=True).to(device)
                             else:
                                 text_inputs = processor(
                                     text=[lamra_2_text_prompt.replace('<sent>', text) for text in texts],
@@ -266,9 +332,9 @@ def main():
                             reps = output.hidden_states[-1][:, -1, :]
                         else:
                             text_input = encoder.tokenizer(texts, padding='max_length', truncation=True, max_length=35,
-                                                         return_tensors="pt").to(device)
+                                                           return_tensors="pt").to(device)
                             text_output = encoder.text_encoder(text_input.input_ids,
-                                                             attention_mask=text_input.attention_mask, mode='text')
+                                                               attention_mask=text_input.attention_mask, mode='text')
                             reps = encoder.text_proj(text_output.last_hidden_state[:, 0, :])
                     else:
                         if 'eva' in model_args.model_name_or_path:
@@ -344,31 +410,64 @@ def main():
 
     if training_args.task_type == 'tbpr':
         os.makedirs(
-            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
-            exist_ok=True)
-        os.makedirs(
-            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
             exist_ok=True)
 
         with open(os.path.join(
-                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
                 f'query.pkl') if data_args.encode_is_query else os.path.join(
-            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
             f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+            pickle.dump((encoded, lookup_indices), f)
+
+
+    elif training_args.task_type == 't2it':
+        os.makedirs(
+
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+
+            exist_ok=True)
+
+        with open(os.path.join(
+
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+
+                f'query.pkl') if data_args.encode_is_query else os.path.join(
+
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+
+            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+
+            pickle.dump((encoded, lookup_indices), f)
+
+    elif training_args.task_type == 'it2t':
+        os.makedirs(
+
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+
+            exist_ok=True)
+
+        with open(os.path.join(
+
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+
+                f'query.pkl') if data_args.encode_is_query else os.path.join(
+
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+
+            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+
             pickle.dump((encoded, lookup_indices), f)
 
     else:
         os.makedirs(
-            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
-            exist_ok=True)
-        os.makedirs(
-            f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
             exist_ok=True)
 
         with open(os.path.join(
-                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+                f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
                 f'query.pkl') if data_args.encode_is_query else os.path.join(
-            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
+            f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}',
             f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
             pickle.dump((encoded, lookup_indices), f)
 

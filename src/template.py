@@ -48,10 +48,17 @@ gme_text_coco_prompt = 'Find an image caption describing the following everyday 
 gme_image_flickr_prompt = 'Find an image that matches the given caption.'
 gme_text_flickr_prompt = 'Find an image caption describing the following image.'
 gme_tbpr_prompt = 'Find a person image that matches the given description.'
+gme_t2it_prompt = 'Find an image and a sentence candidate pair that matches the given query.'
+gme_it2t_prompt = 'Find a candidate sentence that matches the given image and sentence query.'
 lamra_2_5_img_prompt = qwen2_5_img_prompt.format('<|vision_start|><|image_pad|><|vision_end|>\nSummary above image in one word:')
 lamra_2_img_prompt = qwen2_template.format('<|vision_start|><|image_pad|><|vision_end|>\nSummary above image in one word:')
 lamra_2_5_text_prompt = qwen2_5_text_prompt.format('<sent>\nSummary above sentence in one word: ')
 lamra_2_text_prompt = qwen2_template.format('<sent>\nSummary above sentence in one word: ')
+lamra_2_5_t2it_corpus_prompt = qwen2_5_template.format('<|vision_start|><|image_pad|><|vision_end|>\n<sent>\nSummary above image and sentence in one word:')
+lamra_2_t2it_corpus_prompt = qwen2_template.format('<|vision_start|><|image_pad|><|vision_end|>\n<sent>\nSummary above image and sentence in one word:')
+lamra_2_5_it2t_corpus_prompt = qwen2_5_template.format('<sent>\nSummary above sentence in one word: ')
+lamra_2_it2t_corpus_prompt = qwen2_template.format('<sent>\nSummary above sentence in one word: ')
+
 lamra_2_query_img_prompt = qwen2_template.format('Find an image caption describing the following image.\n<|vision_start|><|image_pad|><|vision_end|>\nSummary above image and sentence in one word:')
 lamra_2_query_text_prompt = qwen2_template.format('Find me an image that matches the given caption.\n<sent>\nSummary above sentence in one word: ')
 lamra_2_5_query_img_prompt = qwen2_5_template.format('Find an image caption describing the following image.\n<|vision_start|><|image_pad|><|vision_end|>\nSummary above image and sentence in one word:')
@@ -60,8 +67,18 @@ lamra_2_tbpr_prompt = qwen2_template.format('<|vision_start|><|image_pad|><|visi
 lamra_2_5_tbpr_prompt = qwen2_5_template.format('<|vision_start|><|image_pad|><|vision_end|>\nSummary the person in above image in one word: ')
 lamra_2_query_tbpr_prompt = qwen2_template.format('Find me a person image that matches the given description.\n<sent>\nSummary the person in above person sentence in one word: ')
 lamra_2_5_query_tbpr_prompt = qwen2_5_template.format('Find me a person image that matches the given description.\n<sent>\nSummary the person in above person sentence in one word: ')
-lamra_2_image_relevant_prompt = qwen2_template.format("I will provide you with a query and a candidate. Please evaluate whether the candidate meets the requirements of the query. If it does, respond with 'Yes'; if it doesn't, responed with 'No'.\nQuery: <|vision_start|><|image_pad|><|vision_end|>\nCandidate: <sent>\nAnswer:")
-lamra_2_text_relevant_prompt = qwen2_template.format("I will provide you with a query and a candidate. Please evaluate whether the candidate meets the requirements of the query. If it does, respond with 'Yes'; if it doesn't, responed with 'No'.\nQuery: <sent>\nCandidate: <|vision_start|><|image_pad|><|vision_end|>\nAnswer:")
+lamra_2_5_t2it_query_prompt = qwen2_5_template.format('Find an image and answer sentence candidate pair matches the given sentence query.\n<sent>\nSummary above question sentence in one word:')
+lamra_2_t2it_query_prompt = qwen2_template.format('Find an image and answer sentence candidate pair matches the given sentence query.\n<sent>\nSummary above question sentence in one word:')
+lamra_2_5_it2t_query_prompt = qwen2_5_template.format('Find an answer sentence matches the given image and question sentence.\n<|vision_start|><|image_pad|><|vision_end|>\n<sent>\nSummary above image and question sentence candidate pair in one word:')
+lamra_2_it2t_query_prompt = qwen2_template.format('Find an answer sentence matches the given image and question sentence.\n<|vision_start|><|image_pad|><|vision_end|>\n<sent>\nSummary above image and question sentence candidate pair in one word:')
+lamra_2_image_relevant_prompt = qwen2_template.format("I will provide you with a query and a candidate. Please evaluate whether the candidate meets the requirements of the query. If it does, respond with 'Yes'; if it doesn't, respond with 'No'.\nQuery: <|vision_start|><|image_pad|><|vision_end|>\nCandidate: <sent>\nAnswer:")
+lamra_2_text_relevant_prompt = qwen2_template.format("I will provide you with a query and a candidate. Please evaluate whether the candidate meets the requirements of the query. If it does, respond with 'Yes'; if it doesn't, respond with 'No'.\nQuery: <sent>\nCandidate: <|vision_start|><|image_pad|><|vision_end|>\nAnswer:")
+lamra_2_5_image_relevant_prompt = qwen2_5_template.format("I will provide you with a query and a candidate. Please evaluate whether the candidate meets the requirements of the query. If it does, respond with 'Yes'; if it doesn't, respond with 'No'.\nQuery: <|vision_start|><|image_pad|><|vision_end|>\nCandidate: <sent>\nAnswer:")
+lamra_2_5_text_relevant_prompt = qwen2_5_template.format("I will provide you with a query and a candidate. Please evaluate whether the candidate meets the requirements of the query. If it does, respond with 'Yes'; if it doesn't, respond with 'No'.\nQuery: <sent>\nCandidate: <|vision_start|><|image_pad|><|vision_end|>\nAnswer:")
+lamra_2_5_t2it_relevant_prompt = qwen2_5_template.format("I will provide you with a query and a candidate. Please evaluate whether the candidate meets the requirements of the query. If it does, respond with 'Yes'; if it doesn't, respond with 'No'.\nQuery: <sent>\nCandidate: <|vision_start|><|image_pad|><|vision_end|>\n<sent>\nAnswer:")
+lamra_2_t2it_relevant_prompt = qwen2_template.format("I will provide you with a query and a candidate. Please evaluate whether the candidate meets the requirements of the query. If it does, respond with 'Yes'; if it doesn't, respond with 'No'.\nQuery: <sent>\nCandidate: <|vision_start|><|image_pad|><|vision_end|>\n<sent>\nAnswer:")
+lamra_2_5_it2t_relevant_prompt = qwen2_5_template.format("I will provide you with a query and a candidate. Please evaluate whether the candidate meets the requirements of the query. If it does, respond with 'Yes'; if it doesn't, respond with 'No'.\nQuery: <|vision_start|><|image_pad|><|vision_end|>\n<sent>\nCandidate: <sent>\nAnswer:")
+lamra_2_it2t_relevant_prompt = qwen2_template.format("I will provide you with a query and a candidate. Please evaluate whether the candidate meets the requirements of the query. If it does, respond with 'Yes'; if it doesn't, respond with 'No'.\nQuery: <|vision_start|><|image_pad|><|vision_end|>\n<sent>\nCandidate: <sent>\nAnswer:")
 vlm2vec_img_prompt = qwen2_template.format('<|image_pad|> Instruct: Represent the given image.')
 vlm2vec_text_prompt = '<sent>'
 vlm2vec_query_img_prompt = '<|vision_start|><|image_pad|><|vision_end|> Represent the given image.'
@@ -98,6 +115,7 @@ it2t_query_prompt = llama3_template.format('<image>\n<sent>\n<|begin_of_text|>Su
 it2t_corpus_prompt = llama3_template.format('<sent>\n<|begin_of_text|>Summary above sentence in one word: ')
 mistral_it2t_query_prompt = llava_mistral_template.format('<image>\n<sent>\n<|begin_of_text|>Summary above image and sentence in one word: ')
 mistral_it2t_corpus_prompt = llava_mistral_template.format('<sent>\n<|begin_of_text|>Summary above sentence in one word: ')
+
 
 llama3_fashion_iq_composed_image_prompt = llama3_template.format('<image> change the style of this {} to <sent>\n<|begin_of_text|>Describe this modified {} in one word based on its style: ')
 mistral_fashion_iq_composed_image_prompt = llava_mistral_template.format('<image> change the style of this {} to <sent>\n<s>Describe this modified {} in one word based on its style: ')
@@ -286,6 +304,9 @@ mistral_it2t_retrieval_old_query_relevant_prompt = llava_mistral_template.format
 mistral_it2t_retrieval_query_relevant_prompt = llava_mistral_template.format("For the following query image and sentence and candidate sentence, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Image and Sentence: <image> <sent> Candidate Sentence: <sent> Output: ")
 mistral_it2t_retrieval_origin_old_query_relevant_prompt = llava_mistral_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nQuery Image and Sentence: <image>\n<sent>\nCandidate: <sent>\nDoes the candidate answer the query? Answer: ")
 mistral_it2t_retrieval_answer_relevant_prompt = llava_mistral_template.format("For the following query and candidate, judge whether the candidate is the best answer of the query. Output 'Yes' or 'No'.\nQuery Image and Sentence: <image>\n<sent>\nCandidate Sentence: <sent> Output: ")
+lamra_2_5_it2t_retrieval_
+lam
+
 
 mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image: <image>\nPlease write a caption based on this image.")
 query_generation_paradigm_prompt = llama3_template.format("Image: <image>\nPlease write a caption based on this image.")
@@ -342,6 +363,8 @@ it2t_retrieval_query_generation_paradigm_prompt = llama3_template.format("Image 
 it2t_retrieval_mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image and Sentence: <image>\n<sent>\nPlease write an answer based on the given image and sentence.")
 it2t_retrieval_query_generation_paradigm_prompt_1 = llama3_template.format("Image and Sentence: <image>\n<sent>\nWhat is the answer based on the given image and sentence?")
 it2t_retrieval_mistral_query_generation_paradigm_prompt_1 = llava_mistral_template.format("Image and Sentence: <image>\n<sent>\nWhat is the answer based on the given image and sentence?")
+
+
 
 img_prompt_for_concat = 'Summary above image in one word: '
 text_prompt_for_concat = 'Summary above sentence in one word: '

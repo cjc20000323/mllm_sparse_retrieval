@@ -1,10 +1,11 @@
 import glob
+import gc
 import glob
 import os
 import pickle
 from contextlib import nullcontext
+from io import BytesIO
 from itertools import chain
-import gc
 
 import faiss
 import numpy as np
@@ -12,23 +13,22 @@ import torch
 import torch.distributed as dist
 from PIL import Image
 from tqdm import tqdm
-from transformers import CLIPModel, CLIPProcessor, BlipModel, BlipProcessor, Qwen2VLProcessor, Qwen2_5_VLProcessor, \
+from transformers import CLIPModel, CLIPProcessor, Qwen2VLProcessor, Qwen2_5_VLProcessor, \
     Qwen2_5_VLForConditionalGeneration, Qwen2VLForConditionalGeneration
 from transformers import (
     HfArgumentParser,
 )
 
+from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
+from arguments import TrainingArguments
+from dataset import (CrossModalRetrievalDataset, TextPersonRetrievalDataset)
+from metrices import RecallMetrics
+from reranker import Reranker
 from template import gme_image_flickr_prompt, gme_text_flickr_prompt, gme_text_coco_prompt, gme_image_coco_prompt, \
     gme_tbpr_prompt, lamra_2_5_query_tbpr_prompt, lamra_2_query_tbpr_prompt, lamra_2_query_img_prompt, \
     lamra_2_query_text_prompt, lamra_2_5_query_img_prompt, lamra_2_5_query_text_prompt, vlm2vec_query_img_prompt, \
-    vlm2vec_query_text_prompt, vlm2vec_query_tbpr_prompt
-
-from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
-from arguments import TrainingArguments
-from dataset import (CrossModalRetrievalDataset, TextPersonRetrievalDataset, ComposedTextImageRetrievalDataset,
-                     Text2ImagetextRetrievalDataset, Imagetext2TextRetrievalDataset)
-from metrices import RecallMetrics
-from reranker import Reranker
+    vlm2vec_query_text_prompt, vlm2vec_query_tbpr_prompt, gme_it2t_prompt, gme_t2it_prompt, lamra_2_it2t_query_prompt, \
+    lamra_2_5_t2it_query_prompt, lamra_2_5_it2t_query_prompt, lamra_2_t2it_query_prompt
 
 torch.set_printoptions(threshold=10000)  # 数字根据你的张量尺寸调整
 import torch.utils.data as Data
@@ -39,9 +39,6 @@ from encode_dense import blip_load_image
 from models.blip_itm import blip_itm
 from eva_clip import create_model_and_transforms, get_tokenizer
 from sentence_transformers import SentenceTransformer
-from src.model.model import MMEBModel
-from src.model.processor import load_processor, QWEN2_VL, VLM_VIDEO_TOKENS, VLM_IMAGE_TOKENS
-from src.model.vlm_backbone.qwen2_vl.qwen_vl_utils import process_vision_info
 from peft import PeftModel
 
 
@@ -52,6 +49,10 @@ stopwords = set(stopwords.words('english') + list(string.punctuation))
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+model_begin_indice = 28
+path_prefix = '/root/autodl-fs/'
 
 
 def pickle_load(path):
@@ -351,6 +352,74 @@ def main():
                         dense_run.update(
                             get_run_dict(batch_ids, dense_scores, dense_rankings, search_args.remove_query))
 
+
+        elif training_args.task_type == 't2it':
+            with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+                for batch_idx, (query_texts, query_ids) in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
+                    lookup_indices.extend(query_ids)
+                    if 'gme' in model_args.model_name_or_path:
+                        query_dense_reps = encoder.encode(
+                            [dict(text=t, prompt=gme_t2it_prompt) for t in texts],
+                            convert_to_tensor=True)
+                    else:
+                        if 'Qwen' in model_args.model_name_or_path:
+                            text_inputs = processor(
+                                text=[lamra_2_5_t2it_query_prompt.replace('<sent>', text) for text in texts],
+                                return_tensors="pt",
+                                padding=True).to(device)
+                        else:
+                            text_inputs = processor(
+                                text=[lamra_2_t2it_query_prompt.replace('<sent>', text) for text in texts],
+                                return_tensors="pt",
+                                padding=True).to(device)
+                        output = encoder(**text_inputs, output_hidden_states=True, return_dict=True)
+                        query_dense_reps = output.hidden_states[-1][:, -1, :]
+                    batch_ids = query_ids
+
+                    if dense_retriever is not None:
+                        query_dense_reps = F.normalize(query_dense_reps, dim=-1)
+                        query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
+                        dense_scores, dense_rankings = search_queries(dense_retriever, query_dense_reps, look_up,
+                                                                      search_args)
+                        dense_run.update(
+                            get_run_dict(batch_ids, dense_scores, dense_rankings, search_args.remove_query))
+
+        elif training_args.task_type == 'it2t':
+            with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+                for batch_idx, (query_texts, query_images, query_ids) in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
+                    lookup_indices.extend(query_ids)
+                    raw_images = [Image.open(BytesIO(query_image)).convert("RGB") for query_image in query_images]
+                    if 'gme' in model_args.model_name_or_path:
+                        query_dense_reps = encoder.encode(
+                            [dict(text=query_text, image=image, prompt=gme_it2t_prompt) for query_text, image in zip(query_texts, raw_images)],
+                            convert_to_tensor=True)
+                    else:
+                        if 'Qwen' in model_args.model_name_or_path:
+                            img_inputs = processor(images=raw_images,
+                                                   text=[lamra_2_5_it2t_query_prompt.replace('<sent>', query_text) for
+                                                         query_text in query_texts],
+                                                   return_tensors="pt",
+                                                   padding=True)
+                        else:
+                            img_inputs = processor(images=raw_images,
+                                                   text=[lamra_2_it2t_query_prompt.replace('<sent>', query_text) for
+                                                         query_text in query_texts],
+                                                   return_tensors="pt",
+                                                   padding=True)
+                        imgs = img_inputs.to(device)
+                        output = encoder(**imgs, output_hidden_states=True, return_dict=True, use_cache=True)
+                        query_dense_reps = output.hidden_states[-1][:, -1, :]
+
+                    batch_ids = query_ids
+
+                    if dense_retriever is not None:
+                        query_dense_reps = F.normalize(query_dense_reps, dim=-1)
+                        query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
+                        dense_scores, dense_rankings = search_queries(dense_retriever, query_dense_reps, look_up,
+                                                                      search_args)
+                        dense_run.update(
+                            get_run_dict(batch_ids, dense_scores, dense_rankings, search_args.remove_query))
+
         else:
             with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
                 for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
@@ -512,19 +581,35 @@ def main():
 
     if training_args.task_type == 'tbpr':
         os.makedirs(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
             exist_ok=True)
 
         output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'dense.xlsx')
+    elif training_args.task_type == 't2it':
+        os.makedirs(
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            exist_ok=True)
+
+        output_path = os.path.join(
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'dense.xlsx')
+    elif training_args.task_type == 'it2t':
+        os.makedirs(
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            exist_ok=True)
+
+        output_path = os.path.join(
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
             f'dense.xlsx')
     else:
         os.makedirs(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
             exist_ok=True)
 
         output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
             f'dense.xlsx')
 
     metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args)
@@ -544,17 +629,31 @@ def main():
 
     if training_args.task_type == 'tbpr':
         os.makedirs(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
             exist_ok=True)
         output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
+            f'best.xlsx')
+    elif training_args.task_type == 't2it':
+        os.makedirs(
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
+            exist_ok=True)
+        output_path = os.path.join(
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
+            f'best.xlsx')
+    elif training_args.task_type == 'it2t':
+        os.makedirs(
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
+            exist_ok=True)
+        output_path = os.path.join(
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
             f'best.xlsx')
     else:
         os.makedirs(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
             exist_ok=True)
         output_path = os.path.join(
-            f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
+            f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_rerank_{search_args.rerank_type}_{search_args.rerank_num}_{search_args.rerank_template}',
             f'best.xlsx')
 
     metric = RecallMetrics(dataset, dense_run, sparse_run, rerank_best_test_fusion_run, look_up, lookup_indices, search_args)
