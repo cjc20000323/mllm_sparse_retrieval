@@ -304,9 +304,6 @@ mistral_it2t_retrieval_old_query_relevant_prompt = llava_mistral_template.format
 mistral_it2t_retrieval_query_relevant_prompt = llava_mistral_template.format("For the following query image and sentence and candidate sentence, judge whether they are relevant. Output 'Yes' or 'No'.\nQuery Image and Sentence: <image> <sent> Candidate Sentence: <sent> Output: ")
 mistral_it2t_retrieval_origin_old_query_relevant_prompt = llava_mistral_template.format("Given a candidate and a query, predict whether the candidate includes an answer to the query by producing either ‘Yes‘ or ‘No‘.\nQuery Image and Sentence: <image>\n<sent>\nCandidate: <sent>\nDoes the candidate answer the query? Answer: ")
 mistral_it2t_retrieval_answer_relevant_prompt = llava_mistral_template.format("For the following query and candidate, judge whether the candidate is the best answer of the query. Output 'Yes' or 'No'.\nQuery Image and Sentence: <image>\n<sent>\nCandidate Sentence: <sent> Output: ")
-lamra_2_5_it2t_retrieval_
-lam
-
 
 mistral_query_generation_paradigm_prompt = llava_mistral_template.format("Image: <image>\nPlease write a caption based on this image.")
 query_generation_paradigm_prompt = llama3_template.format("Image: <image>\nPlease write a caption based on this image.")
