@@ -1,3 +1,4 @@
+import math
 import os
 import pickle
 import sys
@@ -49,6 +50,27 @@ def blip_load_image(image, image_size, device):
     ])
     image = transform(raw_image).unsqueeze(0).to(device)
     return image
+
+
+def qwen_safe_image(image, min_size=28):
+    width, height = image.size
+    if width >= min_size and height >= min_size:
+        return image
+
+    scale = max(min_size / width, min_size / height)
+    resized_width = max(min_size, int(np.ceil(width * scale)))
+    resized_height = max(min_size, int(np.ceil(height * scale)))
+    resampling = getattr(Image, "Resampling", Image).BICUBIC
+    return image.resize((resized_width, resized_height), resampling)
+
+
+def patch_gme_remote_code(encoder):
+    first_module = encoder._first_module()
+    tokenize = getattr(first_module, "tokenize", None)
+    if tokenize is None:
+        return
+    tokenize_func = getattr(tokenize, "__func__", tokenize)
+    tokenize_func.__globals__["math"] = math
 
 
 def main():
@@ -104,6 +126,7 @@ def main():
         processor = None
     elif 'gme' in model_args.model_name_or_path:
         encoder = SentenceTransformer(model_args.model_name_or_path, trust_remote_code=True, device=str(device))
+        patch_gme_remote_code(encoder)
         processor = None
     elif 'Qwen2-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2-VL-2B-Instruct' in model_args.model_name_or_path:
         encoder = Qwen2VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
@@ -176,6 +199,7 @@ def main():
     sampler = Data.DistributedSampler(dataset, num_replicas=dist.get_world_size(), shuffle=True, rank=dist.get_rank())
     test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, pin_memory=True,
                                       batch_size=data_args.per_device_batch_size, shuffle=False)
+    print(dataset.__len__())
 
     encoder = encoder.eval()
 
@@ -199,9 +223,10 @@ def main():
                     imgs = img_inputs.to(device)
                     reps = encoder.get_image_features(imgs['pixel_values'])
                 elif 'gme' in model_args.model_name_or_path:
-                    reps = encoder.encode([dict(image=i) for i in imgs_path], convert_to_tensor=True)
+                    raw_images = [qwen_safe_image(Image.open(path).convert('RGB')) for path in imgs_path]
+                    reps = encoder.encode([dict(text="", image=image) for image in raw_images], convert_to_tensor=True)
                 elif 'LamRA' in model_args.model_name_or_path:
-                    raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                    raw_images = [qwen_safe_image(Image.open(path).convert('RGB')) for path in imgs_path]
                     if 'Qwen' in model_args.model_name_or_path:
                         img_inputs = processor(images=raw_images, text=[lamra_2_5_tbpr_prompt] * len(imgs_path),
                                                return_tensors="pt",
@@ -214,7 +239,7 @@ def main():
                     output = encoder(**imgs, output_hidden_states=True, return_dict=True, use_cache=True)
                     reps = output.hidden_states[-1][:, -1, :]
                 elif 'VLM2Vec' in model_args.model_name_or_path:
-                    raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                    raw_images = [qwen_safe_image(Image.open(path).convert('RGB')) for path in imgs_path]
                     img_inputs = processor(images=raw_images, text=[vlm2vec_tbpr_prompt] * len(imgs_path),
                                            return_tensors="pt",
                                            padding=True)
@@ -237,13 +262,13 @@ def main():
             for batch_idx, (corpus_texts, corpus_images, corpus_ids) in tqdm(enumerate(test_dataloader),
                                                                              total=len(test_dataloader)):
                 if 'gme' in model_args.model_name_or_path:
-                    raw_images = [Image.open(BytesIO(corpus_image)).convert("RGB") for corpus_image in corpus_images]
+                    raw_images = [qwen_safe_image(Image.open(BytesIO(corpus_image)).convert("RGB")) for corpus_image in corpus_images]
                     reps = encoder.encode(
                         [dict(text=corpus_text, image=image) for corpus_text, image in zip(corpus_texts, raw_images)],
                         convert_to_tensor=True
                     )
                 elif 'LamRA' in model_args.model_name_or_path:
-                    raw_images = [Image.open(BytesIO(corpus_image)).convert("RGB") for corpus_image in corpus_images]
+                    raw_images = [qwen_safe_image(Image.open(BytesIO(corpus_image)).convert("RGB")) for corpus_image in corpus_images]
                     if 'Qwen' in model_args.model_name_or_path:
                         img_inputs = processor(images=raw_images,
                                                text=[lamra_2_5_t2it_corpus_prompt.replace('<sent>', corpus_text) for
@@ -273,12 +298,12 @@ def main():
                 else:
                     if 'Qwen' in model_args.model_name_or_path:
                         text_inputs = processor(
-                            text=[lamra_2_5_text_prompt.replace('<sent>', text) for text in corpus_texts],
+                            text=[lamra_2_5_it2t_corpus_prompt.replace('<sent>', text) for text in corpus_texts],
                             return_tensors="pt",
                             padding=True).to(device)
                     else:
                         text_inputs = processor(
-                            text=[lamra_2_text_prompt.replace('<sent>', text) for text in corpus_texts],
+                            text=[lamra_2_it2t_corpus_prompt.replace('<sent>', text) for text in corpus_texts],
                             return_tensors="pt",
                             padding=True).to(device)
                     output = encoder(**text_inputs, output_hidden_states=True, return_dict=True)
@@ -347,9 +372,11 @@ def main():
                             imgs = img_inputs.to(device)
                             reps = encoder.get_image_features(imgs['pixel_values'])
                         elif 'gme' in model_args.model_name_or_path:
-                            reps = encoder.encode([dict(image=i) for i in imgs_path], convert_to_tensor=True)
+                            raw_images = [qwen_safe_image(Image.open(path).convert('RGB')) for path in imgs_path]
+                            reps = encoder.encode([dict(text="", image=image) for image in raw_images],
+                                                  convert_to_tensor=True)
                         elif 'LamRA' in model_args.model_name_or_path:
-                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            raw_images = [qwen_safe_image(Image.open(path).convert('RGB')) for path in imgs_path]
                             if 'Qwen' in model_args.model_name_or_path:
                                 img_inputs = processor(images=raw_images, text=[lamra_2_5_img_prompt] * len(imgs_path),
                                                        return_tensors="pt",
@@ -362,7 +389,7 @@ def main():
                             output = encoder(**imgs, output_hidden_states=True, return_dict=True, use_cache=True)
                             reps = output.hidden_states[-1][:, -1, :]
                         elif 'VLM2Vec' in model_args.model_name_or_path:
-                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            raw_images = [qwen_safe_image(Image.open(path).convert('RGB')) for path in imgs_path]
                             img_inputs = processor(images=raw_images, text=[vlm2vec_img_prompt] * len(imgs_path),
                                                    return_tensors="pt",
                                                    padding=True)

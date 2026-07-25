@@ -534,11 +534,16 @@ class Text2ImagetextRetrievalDataset(Dataset):
         for corpus_path in self.dataset_file['corpus']:
             df_corpus = pd.read_parquet(corpus_path)
             for idx, row in df_corpus.iterrows():
+                '''
                 if row['id'] in target_set:
                     self.id2candidate[row['id']] = {'text': row['text'], 'image': row['image']}
                     self.candidate_id_list.append(row['id'])
+                '''
+                self.id2candidate[row['id']] = {'text': row['text'], 'image': row['image']}
+                self.candidate_id_list.append(row['id'])
 
     def __len__(self):
+        print(self.mode)
         if self.mode == 'query':
             return len(self.query_id_list)
         else:
