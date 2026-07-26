@@ -364,17 +364,17 @@ def main():
                     lookup_indices.extend(query_ids)
                     if 'gme' in model_args.model_name_or_path:
                         query_dense_reps = encoder.encode(
-                            [dict(text=t, prompt=gme_t2it_prompt) for t in texts],
+                            [dict(text=t, prompt=gme_t2it_prompt) for t in query_texts],
                             convert_to_tensor=True)
                     else:
                         if 'Qwen' in model_args.model_name_or_path:
                             text_inputs = processor(
-                                text=[lamra_2_5_t2it_query_prompt.replace('<sent>', text) for text in texts],
+                                text=[lamra_2_5_t2it_query_prompt.replace('<sent>', text) for text in query_texts],
                                 return_tensors="pt",
                                 padding=True).to(device)
                         else:
                             text_inputs = processor(
-                                text=[lamra_2_t2it_query_prompt.replace('<sent>', text) for text in texts],
+                                text=[lamra_2_t2it_query_prompt.replace('<sent>', text) for text in query_texts],
                                 return_tensors="pt",
                                 padding=True).to(device)
                         output = encoder(**text_inputs, output_hidden_states=True, return_dict=True)
