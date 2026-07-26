@@ -775,7 +775,10 @@ class Reranker:
                         rerank_fusion_run[k] = sorted_by_value_rerank_run
                 elif training_args.task_type == 't2it':
                     for k, v in tqdm(fusion_run.items()):
-                        sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
+                        if 'LamRA' in model_args.model_name_or_path:
+                            sorted_by_value = sorted(v['docs'].items(), key=lambda x: x[1], reverse=True)
+                        else:
+                            sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
                         candidate_pool = dict(sorted_by_value[:rerank_num])
                         rerank_run = {}
                         _rerank_run = {}
@@ -814,24 +817,29 @@ class Reranker:
                                 logits = torch.log_softmax(logits, dim=-1)
                             logit_tensor = torch.stack([logits[:, yes_id], logits[:, no_id]], dim=1)
                             output_probs = F.softmax(logit_tensor, dim=1)  # 同样指定dim=1
+                            '''
                             _yes_id = self.vocab_dict['▁Yes']
                             _no_id = self.vocab_dict['▁No']
                             _logit_tensor = torch.stack([logits[:, _yes_id], logits[:, _no_id]], dim=1)
                             _output_probs = F.softmax(_logit_tensor, dim=1)  # 同样指定dim=1
+                            '''
                             yes_prob = output_probs.squeeze()[0]
-                            _yes_prob = _output_probs.squeeze()[0]
+                            # _yes_prob = _output_probs.squeeze()[0]
                             rerank_run[corpus_id] = float(yes_prob)
-                            _rerank_run[corpus_id] = float(_yes_prob)
+                            # _rerank_run[corpus_id] = float(_yes_prob)
                         sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
-                        _sorted_by_value_rerank_run = dict(sorted(_rerank_run.items(), key=lambda x: x[1], reverse=True))
+                        # _sorted_by_value_rerank_run = dict(sorted(_rerank_run.items(), key=lambda x: x[1], reverse=True))
                         if dist.get_rank() == 0:
                             print(sorted_by_value_rerank_run)
-                            print(_sorted_by_value_rerank_run)
+                            # print(_sorted_by_value_rerank_run)
                         rerank_fusion_run[k] = sorted_by_value_rerank_run
                 elif training_args.task_type == 'it2t':
                     for k, v in tqdm(fusion_run.items()):
                         # k是查询的id，v是一个字典，key是候选的id，value是查询和候选的相似度
-                        sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
+                        if 'LamRA' in model_args.model_name_or_path:
+                            sorted_by_value = sorted(v['docs'].items(), key=lambda x: x[1], reverse=True)
+                        else:
+                            sorted_by_value = sorted(v.items(), key=lambda x: x[1], reverse=True)
                         candidate_pool = dict(sorted_by_value[:rerank_num])
                         rerank_run = {}
                         _rerank_run = {}
@@ -874,32 +882,42 @@ class Reranker:
                                 logits = torch.log_softmax(logits, dim=-1)
                             logit_tensor = torch.stack([logits[:, yes_id], logits[:, no_id]], dim=1)
                             output_probs = F.softmax(logit_tensor, dim=1)  # 同样指定dim=1
+                            '''
                             _yes_id = self.vocab_dict['▁Yes']
                             _no_id = self.vocab_dict['▁No']
                             _yes_id_1 = self.vocab_dict['▁yes']
                             _no_id_1 = self.vocab_dict['▁no']
                             yes_id_1 = self.vocab_dict['yes']
                             no_id_1 = self.vocab_dict['no']
+                            '''
+                            '''
                             _logit_tensor = torch.stack([logits[:, _yes_id], logits[:, _no_id]], dim=1)
                             _output_probs = F.softmax(_logit_tensor, dim=1)  # 同样指定dim=1
                             _logit_tensor_1 = torch.stack([logits[:, _yes_id_1], logits[:, _no_id_1]], dim=1)
                             _output_probs_1 = F.softmax(_logit_tensor_1, dim=1)  # 同样指定dim=1
                             logit_tensor_1 = torch.stack([logits[:, yes_id_1], logits[:, no_id_1]], dim=1)
                             output_probs_1 = F.softmax(logit_tensor_1, dim=1)  # 同样指定dim=1
+                            '''
                             yes_prob = output_probs.squeeze()[0]
+                            '''
                             _yes_prob = _output_probs.squeeze()[0]
                             _yes_prob_1 = _output_probs_1.squeeze()[0]
                             yes_prob_1 = output_probs_1.squeeze()[0]
+                            '''
                             rerank_run[corpus_id] = float(yes_prob)
+                            '''
                             _rerank_run[corpus_id] = float(_yes_prob)
                             _rerank_run_1[corpus_id] = float(_yes_prob_1)
                             rerank_run_1[corpus_id] = float(yes_prob_1)
+                            '''
                         sorted_by_value_rerank_run = dict(sorted(rerank_run.items(), key=lambda x: x[1], reverse=True))
+                        '''
                         _sorted_by_value_rerank_run = dict(
                             sorted(_rerank_run.items(), key=lambda x: x[1], reverse=True))
                         sorted_by_value_rerank_run_1 = dict(sorted(rerank_run_1.items(), key=lambda x: x[1], reverse=True))
                         _sorted_by_value_rerank_run_1 = dict(
                             sorted(_rerank_run_1.items(), key=lambda x: x[1], reverse=True))
+                        '''
                         '''
                         if dist.get_rank() == 0:
                             print(sorted_by_value_rerank_run)

@@ -23,7 +23,7 @@ from transformers import (
 )
 from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
     LlavaNextForConditionalGeneration, Qwen2_5_VLProcessor, Qwen2_5_VLForConditionalGeneration, AutoModel, \
-    AutoProcessor, Qwen3VLProcessor, Qwen3VLForConditionalGeneration
+    AutoProcessor
 
 from arguments import PromptRepsLLMDataArguments, ModelArguments
 from arguments import TrainingArguments
@@ -810,12 +810,13 @@ def main():
                                                                      torch_dtype=torch_type)
         processor = Qwen2_5_VLProcessor.from_pretrained(model_args.model_name_or_path)
 
-    elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-        encoder = Qwen3VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
-                                                                  device_map=device_map,
-                                                                  attn_implementation="sdpa",
-                                                                  torch_dtype=torch_type)
-        processor = Qwen3VLProcessor.from_pretrained(model_args.model_name_or_path)
+
+    #elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+    #    encoder = Qwen3VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
+    #                                                              device_map=device_map,
+    #                                                              attn_implementation="sdpa",
+    #                                                              torch_dtype=torch_type)
+    #    processor = Qwen3VLProcessor.from_pretrained(model_args.model_name_or_path)
     elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
         # device_map = split_model('InternVL2_5-8B')
         encoder = AutoModel.from_pretrained(model_args.model_name_or_path,
