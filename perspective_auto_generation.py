@@ -13,7 +13,7 @@ data = {
 }
 df = pd.DataFrame(data)
 
-fig, ax = plt.subplots(figsize=(11, 5.5))
+fig, ax = plt.subplots(figsize=(11, 4.2))
 
 # 图表设置
 n_groups = len(df)  # 条件的数量
@@ -28,7 +28,7 @@ for i, condition in enumerate(df["Condition"]):
     for bar in bars:
         height = bar.get_height()
         ax.annotate(f'{str(height)[:]}',
-                    xy=(bar.get_x() + bar.get_width() / 2, height-0.8),
+                    xy=(bar.get_x() + bar.get_width() / 2, height),
                     xytext=(0, 3),  # 3 points vertical offset
                     textcoords="offset points",
                     ha='center', va='bottom', fontsize=18)
@@ -36,13 +36,15 @@ for i, condition in enumerate(df["Condition"]):
 # 设置图表属性
 # ax.set_xlabel('Datasets', fontsize=20)
 ax.set_ylabel('r@1', fontsize=25)
-# ax.set_ylim([0.7, 0.88])
+ax.set_ylim(0, df.iloc[:, 1:].to_numpy().max() * 1.20)
 # ax.set_title('Hits@1 by Condition and Dataset')
 ax.set_xticks(index + n_groups * bar_width / 2)
 ax.set_xticklabels(['Flickr30K t2i', 'Flickr30k i2t', 'RSTPReid'],fontsize=25)
 ax.tick_params(axis='y', labelsize=20)
 # ax.legend( loc='upper center',ncol=3, fontsize=20, bbox_to_anchor=(0.5, 1.3),handlelength=8.5, handletextpad=1)
-fig.legend(['Dense', 'MPP Sparse', 'MPP Hybrid', 'MPP Hybrid (manual)'], bbox_to_anchor=(0.95, 1.21), ncol=2, fontsize=25)
-plt.tight_layout()
+fig.legend(['Dense', 'MPP Sparse', 'MPP Hybrid', 'MPP Hybrid (manual)'],
+           loc='upper center', bbox_to_anchor=(0.5, 0.98), ncol=2,
+           fontsize=22)
+plt.tight_layout(rect=[0, 0, 1, 0.72])
 plt.savefig('perspective_auto_generation.pdf', format='pdf', bbox_inches='tight', pad_inches=0.05)
 
