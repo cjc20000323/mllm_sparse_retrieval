@@ -51,6 +51,17 @@ logger = logging.getLogger(__name__)
 model_begin_indice = 28
 path_prefix = '/root/autodl-fs/'
 
+def blip_preprocess_image(raw_image, image_size, device):
+    w, h = raw_image.size
+
+    transform = transforms.Compose([
+        transforms.Resize((image_size, image_size), interpolation=InterpolationMode.BICUBIC),
+        transforms.ToTensor(),
+        transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+    ])
+    image = transform(raw_image).unsqueeze(0).to(device)
+    return image
+
 
 def pickle_load(path):
     with open(path, 'rb') as f:
@@ -362,7 +373,7 @@ def main():
                         query_dense_reps = encoder.encode(
                             [dict(text=t, prompt=gme_t2it_prompt) for t in query_texts],
                             convert_to_tensor=True)
-                    else:
+                    elif 'LamRA' in model_args.model_name_or_path:
                         if 'Qwen' in model_args.model_name_or_path:
                             text_inputs = processor(
                                 text=[lamra_2_5_t2it_query_prompt.replace('<sent>', text) for text in query_texts],
@@ -375,6 +386,12 @@ def main():
                                 padding=True).to(device)
                         output = encoder(**text_inputs, output_hidden_states=True, return_dict=True)
                         query_dense_reps = output.hidden_states[-1][:, -1, :]
+                    else:
+                        text_input = encoder.tokenizer(query_texts, padding='max_length', truncation=True, max_length=35,
+                                                   return_tensors="pt").to(device)
+                        text_output = encoder.text_encoder(text_input.input_ids,
+                                                       attention_mask=text_input.attention_mask, mode='text')
+                        query_dense_reps = encoder.text_proj(text_output.last_hidden_state[:, 0, :])
                     batch_ids = query_ids
 
                     if dense_retriever is not None:
@@ -394,7 +411,7 @@ def main():
                         query_dense_reps = encoder.encode(
                             [dict(text=query_text, image=image, prompt=gme_it2t_prompt) for query_text, image in zip(query_texts, raw_images)],
                             convert_to_tensor=True)
-                    else:
+                    elif 'LamRA' in model_args.model_name_or_path:
                         if 'Qwen' in model_args.model_name_or_path:
                             img_inputs = processor(images=raw_images,
                                                    text=[lamra_2_5_it2t_query_prompt.replace('<sent>', query_text) for
@@ -410,6 +427,23 @@ def main():
                         imgs = img_inputs.to(device)
                         output = encoder(**imgs, output_hidden_states=True, return_dict=True, use_cache=True)
                         query_dense_reps = output.hidden_states[-1][:, -1, :]
+                    else:
+                        text_input = encoder.tokenizer(query_texts, padding='max_length', truncation=True,
+                                                       max_length=35,
+                                                       return_tensors="pt").to(device)
+                        text_output = encoder.text_encoder(text_input.input_ids,
+                                                           attention_mask=text_input.attention_mask, mode='text')
+                        text_reps = encoder.text_proj(text_output.last_hidden_state[:, 0, :])
+                        raw_images = [
+                            blip_preprocess_image(Image.open(BytesIO(query_image)).convert("RGB"), 384, device)
+                            for query_image in query_images
+                        ]
+                        raw_images = torch.cat(raw_images)
+                        image_feat = encoder.visual_encoder(raw_images)
+                        img_reps = encoder.vision_proj(image_feat[:, 0, :])
+                        img_reps = F.normalize(img_reps, dim=-1)
+                        text_reps = F.normalize(text_reps, dim=-1)
+                        query_dense_reps = img_reps + text_reps
 
                     batch_ids = query_ids
 

@@ -38,9 +38,7 @@ model_begin_indice = 28
 path_prefix = '/root/autodl-fs/'
 
 
-def blip_load_image(image, image_size, device):
-    raw_image = Image.open(str(image)).convert('RGB')
-
+def blip_preprocess_image(raw_image, image_size, device):
     w, h = raw_image.size
 
     transform = transforms.Compose([
@@ -50,6 +48,11 @@ def blip_load_image(image, image_size, device):
     ])
     image = transform(raw_image).unsqueeze(0).to(device)
     return image
+
+
+def blip_load_image(image, image_size, device):
+    raw_image = Image.open(str(image)).convert('RGB')
+    return blip_preprocess_image(raw_image, image_size, device)
 
 
 def qwen_safe_image(image, min_size=28):
@@ -267,6 +270,20 @@ def main():
                         [dict(text=corpus_text, image=image) for corpus_text, image in zip(corpus_texts, raw_images)],
                         convert_to_tensor=True
                     )
+                elif 'clip' in model_args.model_name_or_path:
+                    raw_images = [Image.open(BytesIO(corpus_image)).convert("RGB") for corpus_image in corpus_images]
+                    img_inputs = processor(images=raw_images, return_tensors="pt", padding=True)
+                    imgs = img_inputs.to(device)
+                    img_reps = encoder.get_image_features(imgs['pixel_values'])
+                    text_inputs = processor(text=corpus_texts, return_tensors="pt", padding=True)
+                    if text_inputs['input_ids'].shape[1] > 77:
+                        text_inputs['input_ids'] = text_inputs['input_ids'][:, :77]
+                        text_inputs['attention_mask'] = text_inputs['attention_mask'][:, :77]
+                    text_reps = encoder.get_text_features(text_inputs['input_ids'].cuda(),
+                                                     text_inputs['attention_mask'].cuda())
+                    img_reps = F.normalize(img_reps, dim=-1)
+                    text_reps = F.normalize(text_reps, dim=-1)
+                    reps = img_reps + text_reps
                 elif 'LamRA' in model_args.model_name_or_path:
                     raw_images = [qwen_safe_image(Image.open(BytesIO(corpus_image)).convert("RGB")) for corpus_image in corpus_images]
                     if 'Qwen' in model_args.model_name_or_path:
@@ -284,6 +301,22 @@ def main():
                     imgs = img_inputs.to(device)
                     output = encoder(**imgs, output_hidden_states=True, return_dict=True, use_cache=True)
                     reps = output.hidden_states[-1][:, -1, :]
+                else:
+                    raw_images = [
+                        blip_preprocess_image(Image.open(BytesIO(corpus_image)).convert("RGB"), 384, device)
+                        for corpus_image in corpus_images
+                    ]
+                    raw_images = torch.cat(raw_images)
+                    image_feat = encoder.visual_encoder(raw_images)
+                    img_reps = encoder.vision_proj(image_feat[:, 0, :])
+                    text_input = encoder.tokenizer(corpus_texts, padding='max_length', truncation=True, max_length=35,
+                                                   return_tensors="pt").to(device)
+                    text_output = encoder.text_encoder(text_input.input_ids,
+                                                       attention_mask=text_input.attention_mask, mode='text')
+                    text_reps = encoder.text_proj(text_output.last_hidden_state[:, 0, :])
+                    img_reps = F.normalize(img_reps, dim=-1)
+                    text_reps = F.normalize(text_reps, dim=-1)
+                    reps = img_reps + text_reps
                 # print(logits.shape)
                 reps = F.normalize(reps, dim=-1)
 
@@ -295,7 +328,14 @@ def main():
                                                               total=len(test_dataloader)):
                 if 'gme' in model_args.model_name_or_path:
                     reps = encoder.encode([dict(text=t) for t in corpus_texts], convert_to_tensor=True)
-                else:
+                elif 'clip' in model_args.model_name_or_path:
+                    text_inputs = processor(text=corpus_texts, return_tensors="pt", padding=True)
+                    if text_inputs['input_ids'].shape[1] > 77:
+                        text_inputs['input_ids'] = text_inputs['input_ids'][:, :77]
+                        text_inputs['attention_mask'] = text_inputs['attention_mask'][:, :77]
+                    reps = encoder.get_text_features(text_inputs['input_ids'].cuda(),
+                                                     text_inputs['attention_mask'].cuda())
+                elif 'LamRA' in model_args.model_name_or_path:
                     if 'Qwen' in model_args.model_name_or_path:
                         text_inputs = processor(
                             text=[lamra_2_5_it2t_corpus_prompt.replace('<sent>', text) for text in corpus_texts],
@@ -308,6 +348,12 @@ def main():
                             padding=True).to(device)
                     output = encoder(**text_inputs, output_hidden_states=True, return_dict=True)
                     reps = output.hidden_states[-1][:, -1, :]
+                else:
+                    text_input = encoder.tokenizer(corpus_texts, padding='max_length', truncation=True, max_length=35,
+                                                   return_tensors="pt").to(device)
+                    text_output = encoder.text_encoder(text_input.input_ids,
+                                                       attention_mask=text_input.attention_mask, mode='text')
+                    reps = encoder.text_proj(text_output.last_hidden_state[:, 0, :])
                 # print(logits.shape)
                 reps = F.normalize(reps, dim=-1)
 
