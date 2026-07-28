@@ -17,6 +17,8 @@ from transformers import CLIPModel, CLIPProcessor, Qwen2VLProcessor, Qwen2_5_VLP
 from transformers import (
     HfArgumentParser,
 )
+from torchvision import transforms
+from torchvision.transforms.functional import InterpolationMode
 
 from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
 from arguments import TrainingArguments
@@ -373,6 +375,13 @@ def main():
                         query_dense_reps = encoder.encode(
                             [dict(text=t, prompt=gme_t2it_prompt) for t in query_texts],
                             convert_to_tensor=True)
+                    elif 'clip' in model_args.model_name_or_path:
+                        text_inputs = processor(text=query_texts, return_tensors="pt", padding=True)
+                        if text_inputs['input_ids'].shape[1] > 77:
+                            text_inputs['input_ids'] = text_inputs['input_ids'][:, :77]
+                            text_inputs['attention_mask'] = text_inputs['attention_mask'][:, :77]
+                        query_dense_reps = encoder.get_text_features(text_inputs['input_ids'].cuda(),
+                                                         text_inputs['attention_mask'].cuda())
                     elif 'LamRA' in model_args.model_name_or_path:
                         if 'Qwen' in model_args.model_name_or_path:
                             text_inputs = processor(
@@ -411,6 +420,19 @@ def main():
                         query_dense_reps = encoder.encode(
                             [dict(text=query_text, image=image, prompt=gme_it2t_prompt) for query_text, image in zip(query_texts, raw_images)],
                             convert_to_tensor=True)
+                    elif 'clip' in model_args.model_name_or_path:
+                        text_inputs = processor(text=query_texts, return_tensors="pt", padding=True)
+                        if text_inputs['input_ids'].shape[1] > 77:
+                            text_inputs['input_ids'] = text_inputs['input_ids'][:, :77]
+                            text_inputs['attention_mask'] = text_inputs['attention_mask'][:, :77]
+                        text_reps = encoder.get_text_features(text_inputs['input_ids'].cuda(),
+                                                         text_inputs['attention_mask'].cuda())
+                        img_inputs = processor(images=raw_images, return_tensors="pt", padding=True)
+                        imgs = img_inputs.to(device)
+                        img_reps = encoder.get_image_features(imgs['pixel_values'])
+                        img_reps = F.normalize(img_reps, dim=-1)
+                        text_reps = F.normalize(text_reps, dim=-1)
+                        query_dense_reps = img_reps + text_reps
                     elif 'LamRA' in model_args.model_name_or_path:
                         if 'Qwen' in model_args.model_name_or_path:
                             img_inputs = processor(images=raw_images,
