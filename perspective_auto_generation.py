@@ -20,6 +20,9 @@ n_groups = len(df)  # 条件的数量
 n_datasets = 3  # 数据集的数量
 bar_width = 0.05  # 条形宽度
 index = np.arange(n_datasets) * (n_groups * bar_width + bar_width)  # 数据集索引，确保有间隙
+group_gap = 0.05
+bar_width = 0.018
+index = np.arange(n_datasets) * (n_groups * bar_width + group_gap)
 colors = ["#f57c6e", "#f2b56f", "#fae69e", "#84c3b7", "#88d8db", "#71b7ed", "#b8aeeb", " #f2a7da"]
 # 为每个条件绘制条形图
 for i, condition in enumerate(df["Condition"]):

@@ -17,8 +17,9 @@ def plot_compare(data, dense_score, output_path):
 
     n_groups = len(df)
     n_datasets = len(df.columns) - 1
-    bar_width = 0.055
-    index = np.arange(n_datasets) * (n_groups * bar_width + bar_width)
+    group_bar_width = 0.055
+    bar_width = 0.04
+    index = np.arange(n_datasets) * (n_groups * group_bar_width + group_bar_width)
 
     fig, ax = plt.subplots(figsize=(10.6, 3.4), constrained_layout=True)
     ax.axhline(y=dense_score, color="b", linestyle="--", linewidth=1.6, label="Dense")
@@ -60,7 +61,7 @@ def plot_compare(data, dense_score, output_path):
     max_score = max(df.iloc[:, 1:].to_numpy().max(), dense_score)
     ax.set_ylim(0, max_score + 20)
     ax.set_ylabel("r@1", fontsize=21, labelpad=4)
-    ax.set_xticks(index + n_groups * bar_width / 2)
+    ax.set_xticks(index + n_groups * group_bar_width / 2)
     ax.set_xticklabels(X_LABELS, fontsize=15)
     ax.tick_params(axis="y", labelsize=16)
     ax.tick_params(axis="x", pad=2)
