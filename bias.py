@@ -32,8 +32,8 @@ import numpy as np
 data = {
     "Condition": ["t2i", "i2t"],
     "RGP r@1": [73.9, 79.2],
-    "CGP r@1": [79.1, 75.0],
-    "modified CGP r@1": [79.1, 81.5]
+    "CGP r@1": [78.2, 75.0],
+    "modified CGP r@1": [78.2, 83.3]
 }
 df = pd.DataFrame(data)
 

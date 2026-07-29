@@ -6,7 +6,7 @@ import matplotlib.ticker as ticker
 import numpy as np
 
 data = {
-    "Condition": ["Dense", "MPP Sparse", "MPP Hybrid", "MPP Hybrid (human-made)"],
+    "Condition": ["Dense", "MPP Sparse (Auto-Generation)", "MPP Hybrid(Auto-Generation)", "MPP Hybrid (human-made)"],
     "Flickr30K t2i": [60.5, 54.5, 64.1, 65.5],
     "Flickr30K i2t": [72.2, 63.4, 74.9, 75.4],
     "RSTPReid": [9.3, 11.7, 13.9, 14.8]
@@ -45,8 +45,8 @@ ax.set_xticks(index + n_groups * bar_width / 2)
 ax.set_xticklabels(['Flickr30K t2i', 'Flickr30k i2t', 'RSTPReid'],fontsize=25)
 ax.tick_params(axis='y', labelsize=20)
 # ax.legend( loc='upper center',ncol=3, fontsize=20, bbox_to_anchor=(0.5, 1.3),handlelength=8.5, handletextpad=1)
-fig.legend(['Dense', 'MPP Sparse', 'MPP Hybrid', 'MPP Hybrid (manual)'],
-           loc='upper center', bbox_to_anchor=(0.5, 0.98), ncol=2,
+fig.legend(['Dense', 'MPP Sparse (Generated)', 'MPP Hybrid (Generated)', 'MPP Hybrid (Manual)'],
+           loc='upper center', bbox_to_anchor=(0.53, 0.98), ncol=2,
            fontsize=22)
 plt.tight_layout(rect=[0, 0, 1, 0.72])
 plt.savefig('perspective_auto_generation.pdf', format='pdf', bbox_inches='tight', pad_inches=0.05)
