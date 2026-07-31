@@ -1444,8 +1444,8 @@ def main():
                                                         training_args.encode_type)
     elif training_args.task_type == 'tbpr':
         if data_args.dataset_name == 'ICFG-PEDES':
-            val_dataset_single = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
-            val_dataset_full = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
+            val_dataset_single = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'train', 'single')
+            val_dataset_full = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'train', 'full')
         else:
             val_dataset_single = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'val', 'single')
             val_dataset_full = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'val', 'full')
@@ -1519,6 +1519,7 @@ def main():
             break
 
     # demonstration_string = broadcast_object_from_main(demonstration_string)
+    print(demonstration_string)
     seed_text = seed_text.replace('<sent>', demonstration_string)
 
     retrieval_action = RetrievalAction(training_args, data_args, model_args, search_args, prompt_generation_args,
@@ -1612,30 +1613,30 @@ def main():
 
     else:
         encoded, jsonl_data, lookup_indices = retrieval_action.encode(test_dataloader_single, aspects_prompt_list,
-                                                                      filtered_ids, 'text', device)
-        dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
-                                                                                     lookup_indices, 'text', 'test',
-                                                                                     False)
-
-        encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single, aspects_prompt_list,
-                                                                      filtered_ids, 'text', device)
-
-        dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
-                                                                                     lookup_indices, 'text', 'val',
-                                                                                     False)
-
-        encoded, jsonl_data, lookup_indices = retrieval_action.encode(test_dataloader_full, aspects_prompt_list,
                                                                       filtered_ids, 'image', device)
-
         dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
                                                                                      lookup_indices, 'image', 'test',
                                                                                      False)
 
-        encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_full, aspects_prompt_list,
+        encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_single, aspects_prompt_list,
                                                                       filtered_ids, 'image', device)
 
         dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
                                                                                      lookup_indices, 'image', 'val',
+                                                                                     False)
+
+        encoded, jsonl_data, lookup_indices = retrieval_action.encode(test_dataloader_full, aspects_prompt_list,
+                                                                      filtered_ids, 'text', device)
+
+        dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
+                                                                                     lookup_indices, 'text', 'test',
+                                                                                     False)
+
+        encoded, jsonl_data, lookup_indices = retrieval_action.encode(val_dataloader_full, aspects_prompt_list,
+                                                                      filtered_ids, 'text', device)
+
+        dense_output_dir, sparse_output_dir = retrieval_action.generate_encode_files(encoded, jsonl_data,
+                                                                                     lookup_indices, 'text', 'val',
                                                                                      False)
 
     '''
@@ -1672,13 +1673,15 @@ def main():
 
     global_best_weight = 0.5
 
+    print(path_list)
+
     for index, path in enumerate(path_list):
         if training_args.task_type == 'tbpr':
             os.makedirs(
-                path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{query_type_list[index]}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}_{prompt_generation_args.demonstration_num}_{prompt_generation_args.dspy_strength}',
+                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{query_type_list[index]}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}_{prompt_generation_args.demonstration_num}_{prompt_generation_args.dspy_strength}',
                 exist_ok=True)
 
-            output_dir = path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{query_type_list[index]}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}_{prompt_generation_args.demonstration_num}_{prompt_generation_args.dspy_strength}'
+            output_dir = path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{query_type_list[index]}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}_{prompt_generation_args.demonstration_num}_{prompt_generation_args.dspy_strength}'
         else:
             os.makedirs(
                 path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{query_type_list[index]}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}_{prompt_generation_args.demonstration_num}_{prompt_generation_args.dspy_strength}',

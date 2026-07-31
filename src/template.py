@@ -851,7 +851,7 @@ retrieval_disassemble_image_prompts_person_retrieval_7_for_concat = [
 
 retrieval_disassemble_query_prompts_t2it_retrieval_for_concat = [
     'Summary the events and actions in above sentence in one word: ',
-    'Summary the environment and geographical locations, such as architecture, buildings or structures',
+    'Summary the environment and geographical locations, such as architecture, buildings or structures, in above image and sentence in one word: ',
     'Summary the time in above sentence in one word: ',
     'Summary the appearance, such as color, material, decoration, shape and so on, of main people or objects in above sentence in one word: ',
     'Summary the main person or objects in above sentence in one word: ',
