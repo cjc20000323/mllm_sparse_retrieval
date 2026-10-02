@@ -476,7 +476,7 @@ class Text2ImagetextRetrievalDataset(Dataset):
     def __init__(self, data_name, processor, split, mode, data_args=None):
         super(Text2ImagetextRetrievalDataset, self).__init__()
         self.data_name = data_name
-        assert self.data_name in ['webqa', 'edis']
+        assert self.data_name in ['webqa', 'edis', 'llava']
         self.processor = processor
         self.split = split
         self.id2query = {}
@@ -488,6 +488,8 @@ class Text2ImagetextRetrievalDataset(Dataset):
             self.data_path = webqa_file_path
         elif self.data_name == 'edis':
             self.data_path = edis_file_path
+        elif self.data_name == 'llava':
+            self.data_path = llava_file_path
         else:
             ValueError('Data name is not in the candidates list.')
 

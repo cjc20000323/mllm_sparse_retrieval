@@ -80,9 +80,23 @@ class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
     sparse_value_type: str = field(default='replace')
     sparse_lower_or_upper: str = field(default='lower')
     prompt_type: str = field(default='prompt_5')
+    random_view_seed: int = field(
+        default=42,
+        metadata={
+            "help": "Seed used by prompt_random_5 to select the same five vocabulary tokens in encode and search."
+        },
+    )
     prompt_generation: bool = field(default=False)
     prompt_generation_model: str = field(default='llama')
     sparse_value_mean: bool = field(default=False)
+    # Kept for CLI compatibility; with prompteol this applies a fixed x5 sparse-weight multiplier.
+    sparse_logits_multiply_view_count: bool = field(
+        default=False,
+        metadata={
+            "help": "Use the original vocabulary logits multiplied by 5 as sparse weights. "
+                    "Supported only for Llama3-8B and LLaVA-Mistral-7B separate prompteol encoding."
+        },
+    )
     sparse_type: str = field(default='single')
     tbpr_type: str = field(default='origin_type')
     cir_type: str = field(default='type')
@@ -97,6 +111,12 @@ class PromptRepsLLMSearchArguments:
     sparse_index: str = field(default=None, metadata={"help": "Path to passage sparse representations"})
     val_passage_reps: str = field(default=None, metadata={"help": "Path to passage dense representations"})
     val_sparse_index: str = field(default=None, metadata={"help": "Path to val passage sparse representations"})
+    use_fixed_validation_dataset: bool = field(
+        default=False,
+        metadata={
+            "help": "Use Flickr30K/RSTPReid/LLaVA as the validation dataset according to the test task type."
+        },
+    )
     depth: int = field(default=1000)
     save_dir: str = field(default=None, metadata={"help": "Where to save the run files"})
     quiet: bool = field(default=True, metadata={"help": "Whether to print the progress"})
@@ -133,4 +153,8 @@ class PromptGenerationArguments:
     demonstration_num: int = field(default=1)
     # prompt_generation_model: str = field(default=None)
     case_type: str = field(default='caption')
-    dspy_strength: str = field(default='lignt')
+    dspy_strength: str = field(default='light')
+    force_regenerate_dspy_aspects: bool = field(
+        default=False,
+        metadata={"help": "Ignore the locked DSPy aspects file and generate a new one."},
+    )

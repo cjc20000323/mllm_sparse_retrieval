@@ -68,7 +68,8 @@ from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qw
     llava_mistral_template_fusion_prefix, llama3_template_fusion_prefix, \
     retrieval_disassemble_corpus_prompts_t2it_retrieval_for_concat, fusion_prompt_for_concat, it2t_query_prompt, \
     mistral_it2t_query_prompt, retrieval_disassemble_query_prompts_it2t_retrieval_for_concat, \
-    retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat
+    retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat, RANDOM_VIEW_PROMPT_TYPE, \
+    build_random_view_prompts
 from utils import load_image
 from io import BytesIO
 
@@ -78,6 +79,78 @@ from io import BytesIO
 
 model_begin_indice = 28
 path_prefix = '/root/autodl-fs/'
+SPARSE_LOGIT_X5_MODELS = (
+    'llava-hf-llama3-llava-next-8b-hf',
+    'llava-hf-llava-v1.6-mistral-7b-hf',
+)
+RANDOM_VIEW_SUPPORTED_MODELS = SPARSE_LOGIT_X5_MODELS
+
+
+def validate_sparse_logits_multiply_view_count(model_args, data_args):
+    if not data_args.sparse_logits_multiply_view_count:
+        return
+
+    if not any(model_name in model_args.model_name_or_path for model_name in SPARSE_LOGIT_X5_MODELS):
+        raise ValueError(
+            'sparse_logits_multiply_view_count only supports '
+            'llava-hf-llama3-llava-next-8b-hf and llava-hf-llava-v1.6-mistral-7b-hf.'
+        )
+    if model_args.calculate_type != 'separate':
+        raise ValueError('sparse_logits_multiply_view_count requires calculate_type=separate.')
+    if model_args.eol_type != 'prompteol':
+        raise ValueError('sparse_logits_multiply_view_count requires eol_type=prompteol.')
+    if data_args.sparse_value_mean:
+        raise ValueError(
+            'sparse_logits_multiply_view_count requires sparse_value_mean=false; '
+            'otherwise the five-times sparse weight would be divided out.'
+        )
+
+
+def get_sparse_logit_multiplier(model_args=None, data_args=None):
+    """Return the optional sparse-logit multiplier (fixed at 5 for prompteol)."""
+    if not data_args.sparse_logits_multiply_view_count:
+        return 1
+
+    if model_args is not None:
+        validate_sparse_logits_multiply_view_count(model_args, data_args)
+    return 5
+
+
+def validate_random_view_prompt(model_args, data_args, training_args):
+    if data_args.prompt_type != RANDOM_VIEW_PROMPT_TYPE:
+        return
+
+    if not any(model_name in model_args.model_name_or_path for model_name in RANDOM_VIEW_SUPPORTED_MODELS):
+        raise ValueError(
+            f'{RANDOM_VIEW_PROMPT_TYPE} only supports '
+            'llava-hf-llama3-llava-next-8b-hf and llava-hf-llava-v1.6-mistral-7b-hf.'
+        )
+    if model_args.calculate_type != 'concat':
+        raise ValueError(f'{RANDOM_VIEW_PROMPT_TYPE} requires calculate_type=concat.')
+    if training_args.task_type in {'cir', 'tbpr', 't2it', 'it2t'}:
+        raise ValueError(
+            f'{RANDOM_VIEW_PROMPT_TYPE} currently supports the standard image-text retrieval branch only.'
+        )
+
+
+def build_random_view_image_prompt_template(processor, model_args, data_args):
+    _, _, random_image_prompts = build_random_view_prompts(
+        processor.tokenizer,
+        data_args.random_view_seed,
+    )
+
+    if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+        prompt_template = llava_mistral_template_image_prefix
+        content_template = llava_mistral_template_content_element
+    else:
+        prompt_template = llama3_template_image_prefix
+        content_template = llama3_template_content_element
+
+    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+        prompt_template += content_template.format(img_prompt_for_concat)
+    for random_image_prompt in random_image_prompts:
+        prompt_template += content_template.format(random_image_prompt)
+    return prompt_template
 
 
 def get_filtered_ids(tokenizer):
@@ -103,6 +176,7 @@ def filter_token(token):
 
 
 def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filtered_ids, model_args=None, text=None):
+    sparse_logit_multiplier = get_sparse_logit_multiplier(model_args, data_args)
     # 这里是想获得图像的离散值，但是图像是没有文本的，所以不能像原来那样获得对应的token_id，那么是取top 10还是最多128呢，我们先最多128吧
 
     # if len(token_ids_in_text) == 0:  # if no tokens in the text (rare case), we use top 10 tokens
@@ -139,7 +213,7 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
                        zip(top_k_values.tolist(), top_k_indices.tolist())])
     # print(top_k_indices)
     # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
-    values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+    values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
     # 把token id换成对应的单词，保存在tokens中
     # e5-v模型会预测出超过词表长度的id，所以过滤一下，这个现象很普遍，目前不知道为什么会预测出这样的结果
     if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
@@ -157,7 +231,7 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
         token_ids_out_text = torch.tensor(list(filtered_ids - set(top_k_indices)))
         top_k = min(data_args.num_expended_tokens, len(token_ids_out_text))
         top_k_values, top_k_indices = logits[token_ids_out_text].topk(top_k, dim=-1)
-        values = np.append(values, np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int))
+        values = np.append(values, np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int))
         for i in token_ids_out_text[top_k_indices.cpu().detach().float().numpy()]:
             tokens.append(vocab_dict[i.item()].lower())
     return tokens, values
@@ -165,6 +239,7 @@ def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filter
 
 def get_img_valid_tokens_values_with_cluster(tokenizer, logits, vocab_dict, origin_to_centroids_dict, data_args,
                                              filtered_ids):
+    sparse_logit_multiplier = get_sparse_logit_multiplier(data_args=data_args)
     # 这里是想获得图像的离散值，但是图像是没有文本的，所以不能像原来那样获得对应的token_id，那么是取top 10还是最多128呢，我们先最多128吧
 
     # if len(token_ids_in_text) == 0:  # if no tokens in the text (rare case), we use top 10 tokens
@@ -183,7 +258,7 @@ def get_img_valid_tokens_values_with_cluster(tokenizer, logits, vocab_dict, orig
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
     # print(top_k_indices)
     # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
-    values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+    values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
     # 把token id换成对应的单词，保存在tokens中
     tokens = [str(i.item()) for i in top_k_indices.cpu().detach().int().numpy() if
               i < len(vocab_dict)]
@@ -306,6 +381,7 @@ def get_img_disassemble_tokens_values_for_information_analysis(tokenizer, disass
 
 
 def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args, filtered_ids, model_args=None):
+    sparse_logit_multiplier = get_sparse_logit_multiplier(model_args, data_args)
     words = [i for i in word_tokenize(text.lower()) if
              i not in set(stopwords.words('english') + list(string.punctuation))]
     token_ids = set()
@@ -316,7 +392,7 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
     token_ids_in_text = torch.tensor(list(token_ids))
     if len(token_ids_in_text) == 0:  # if no tokens in the text (rare case), we use top 10 tokens
         top_k_values, top_k_indices = logits.topk(10, dim=-1)
-        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
         if data_args.is_filtered:
             tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
                       if
@@ -327,7 +403,7 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
     elif data_args.sparse_manual:
         # top_k_values, top_k_indices = logits.topk(len(token_ids_in_text), dim=-1)
         top_k_values, top_k_indices = logits.topk(data_args.text_sparse_length, dim=-1)
-        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
         if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
             tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
                       if
@@ -342,7 +418,7 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
             model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate'):
         top_k = 30
         top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
-        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
         if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
             tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
                       if
@@ -360,7 +436,7 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
         top_k = min(len(token_ids_in_text), 128)
         top_k_values, top_k_indices = logits[token_ids_in_text].topk(top_k, dim=-1)
         # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
-        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
         # 把token id换成对应的单词，保存在tokens中
         if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
             tokens = [filter_token(vocab_dict[i.item()].lower()) for i in
@@ -380,7 +456,7 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
         token_ids_out_text = torch.tensor(list(filtered_ids - token_ids))
         top_k = min(data_args.num_expended_tokens, len(token_ids_out_text))
         top_k_values, top_k_indices = logits[token_ids_out_text].topk(top_k, dim=-1)
-        values = np.append(values, np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int))
+        values = np.append(values, np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int))
         for i in token_ids_out_text[top_k_indices.cpu().detach().float().numpy()]:
             if data_args.is_filtered:
                 tokens.append(filter_token(vocab_dict[i.item()].lower()))
@@ -390,6 +466,7 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
 
 
 def get_text_valid_tokens_values_fusion(text, tokenizer, logits, vocab_dict, data_args, filtered_ids, sparse_type):
+    sparse_logit_multiplier = get_sparse_logit_multiplier(data_args=data_args)
     words = [i for i in word_tokenize(text.lower()) if
              i not in set(stopwords.words('english') + list(string.punctuation))]
     token_ids = set()
@@ -400,7 +477,7 @@ def get_text_valid_tokens_values_fusion(text, tokenizer, logits, vocab_dict, dat
     token_ids_in_text = torch.tensor(list(token_ids))
     if len(token_ids_in_text) == 0:  # if no tokens in the text (rare case), we use top 10 tokens
         top_k_values, top_k_indices = logits.topk(10, dim=-1)
-        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
         if data_args.is_filtered:
             tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
                       if
@@ -412,7 +489,7 @@ def get_text_valid_tokens_values_fusion(text, tokenizer, logits, vocab_dict, dat
         if sparse_type == 'guess':
             # top_k_values, top_k_indices = logits.topk(len(token_ids_in_text), dim=-1)
             top_k_values, top_k_indices = logits.topk(data_args.text_sparse_length, dim=-1)
-            values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+            values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
             if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
                 tokens = [filter_token(vocab_dict[i.item()].lower()) for i in
                           top_k_indices.cpu().detach().float().numpy()
@@ -431,7 +508,7 @@ def get_text_valid_tokens_values_fusion(text, tokenizer, logits, vocab_dict, dat
             top_k = min(len(token_ids_in_text), 128)
             top_k_values, top_k_indices = logits[token_ids_in_text].topk(top_k, dim=-1)
             # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
-            values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+            values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
             # 把token id换成对应的单词，保存在tokens中
             if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
                 tokens = [filter_token(vocab_dict[i.item()].lower()) for i in
@@ -451,7 +528,7 @@ def get_text_valid_tokens_values_fusion(text, tokenizer, logits, vocab_dict, dat
         token_ids_out_text = torch.tensor(list(filtered_ids - token_ids))
         top_k = min(data_args.num_expended_tokens, len(token_ids_out_text))
         top_k_values, top_k_indices = logits[token_ids_out_text].topk(top_k, dim=-1)
-        values = np.append(values, np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int))
+        values = np.append(values, np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int))
         for i in token_ids_out_text[top_k_indices.cpu().detach().float().numpy()]:
             if data_args.is_filtered:
                 tokens.append(filter_token(vocab_dict[i.item()].lower()))
@@ -462,6 +539,7 @@ def get_text_valid_tokens_values_fusion(text, tokenizer, logits, vocab_dict, dat
 
 def get_text_valid_tokens_values_with_cluster(text, tokenizer, logits, vocab_dict, origin_to_centroids_dict, data_args,
                                               filtered_ids):
+    sparse_logit_multiplier = get_sparse_logit_multiplier(data_args=data_args)
     words = [i for i in word_tokenize(text.lower()) if
              i not in set(stopwords.words('english') + list(string.punctuation))]
     token_ids = set()
@@ -474,12 +552,12 @@ def get_text_valid_tokens_values_with_cluster(text, tokenizer, logits, vocab_dic
     token_ids_in_text = torch.tensor(list(token_ids))
     if len(token_ids_in_text) == 0:  # if no tokens in the text (rare case), we use top 10 tokens
         top_k_values, top_k_indices = logits.topk(10, dim=-1)
-        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
         tokens = [str(i.item()) for i in top_k_indices.cpu().detach().int().numpy() if
                   i < len(vocab_dict)]
     elif data_args.sparse_manual:
         top_k_values, top_k_indices = logits.topk(data_args.sparse_length, dim=-1)
-        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
         tokens = [str(i.item()) for i in top_k_indices.cpu().detach().int().numpy() if
                   i < len(vocab_dict)]
     else:
@@ -489,7 +567,7 @@ def get_text_valid_tokens_values_with_cluster(text, tokenizer, logits, vocab_dic
         top_k = min(len(token_ids_in_text), 128)
         top_k_values, top_k_indices = logits[token_ids_in_text].topk(top_k, dim=-1)
         # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
-        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
         # 把token id换成对应的单词，保存在tokens中
         tokens = [str(int(i.item())) for i in
                   token_ids_in_text[top_k_indices.cpu().detach().float().numpy()] if
@@ -769,6 +847,9 @@ def main():
     data_args: PromptRepsLLMDataArguments
     training_args: TrainingArguments
 
+    validate_sparse_logits_multiply_view_count(model_args, data_args)
+    validate_random_view_prompt(model_args, data_args, training_args)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     device_map = "cuda"
@@ -871,6 +952,12 @@ def main():
         filtered_ids = get_filtered_ids(processor.tokenizer)
     vocab_dict = {v: k for k, v in vocab_dict.items()}
     print(len(vocab_dict))
+    if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE and dist.get_rank() == 0:
+        random_view_tokens, _, _ = build_random_view_prompts(
+            processor.tokenizer,
+            data_args.random_view_seed,
+        )
+        print(f'Random view vocabulary tokens (seed={data_args.random_view_seed}): {random_view_tokens}')
 
     input_token_embeddings = encoder.get_input_embeddings().weight
     output_token_embeddings = encoder.get_output_embeddings().weight[:len(vocab_dict), :]
@@ -2157,7 +2244,13 @@ def main():
                                     reps = reps.reshape(-1, len(task_image_prompts_copy), reps.shape[1]).mean(1)
 
                     else:
-                        if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                            prompt_template = build_random_view_image_prompt_template(
+                                processor,
+                                model_args,
+                                data_args,
+                            )
+                        elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
 
                             if data_args.prompt_type == 'prompt_5':
                                 prompt_template = llava_mistral_template_image_prefix
@@ -2600,6 +2693,8 @@ def main():
                                                 vector[token] //= 4
                                             elif data_args.prompt_type == 'prompt_6':
                                                 vector[token] //= 6
+                                            elif data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                                                vector[token] //= 5
                                             else:
                                                 vector[token] //= 7
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
@@ -2707,6 +2802,8 @@ def main():
                                                 vector[token] //= 4
                                             elif data_args.prompt_type == 'prompt_6':
                                                 vector[token] //= 6
+                                            elif data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                                                vector[token] //= 5
                                             else:
                                                 vector[token] //= 7
                                     jsonl_data.append(
@@ -2780,6 +2877,8 @@ def main():
                                             vector[token] //= 4
                                         elif data_args.prompt_type == 'prompt_6':
                                             vector[token] //= 6
+                                        elif data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                                            vector[token] //= 5
                                         else:
                                             vector[token] //= 7
                                 jsonl_data.append(
@@ -2959,6 +3058,10 @@ def main():
         use_sparse_value_mean = 'mean'
     else:
         use_sparse_value_mean = 'no_mean'
+    if data_args.sparse_logits_multiply_view_count:
+        use_sparse_value_mean += '_logits_x5'
+    if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+        use_sparse_value_mean += f'_random_view_seed_{data_args.random_view_seed}'
 
     if model_args.lora:
         os.makedirs(

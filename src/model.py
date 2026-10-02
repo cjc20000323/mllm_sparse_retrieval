@@ -45,7 +45,8 @@ from template import text_prompt, text_prompt_no_special_llava_v1_5, text_prompt
     llava_34b_template_text_prefix, t2it_query_prompt, mistral_t2it_query_prompt, \
     retrieval_disassemble_query_prompts_t2it_retrieval_for_concat, \
     it2t_corpus_prompt, mistral_it2t_corpus_prompt, retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat, \
-    retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat
+    retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat, RANDOM_VIEW_PROMPT_TYPE, \
+    build_random_view_prompts
 import torch.nn.functional as F
 
 
@@ -1176,7 +1177,16 @@ class MLLMRetrievalModel(nn.Module):
     def encode_data_concat(self, input, input_type, processor, device, model_args, data_args):
         if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
             prompt_template = llava_mistral_template_text_prefix
-            if data_args.prompt_type == 'prompt_5':
+            if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                _, random_text_prompts, _ = build_random_view_prompts(
+                    processor.tokenizer,
+                    data_args.random_view_seed,
+                )
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
+                for random_text_prompt in random_text_prompts:
+                    prompt_template += llava_mistral_template_content_element.format(random_text_prompt)
+            elif data_args.prompt_type == 'prompt_5':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                     prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
                 for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
@@ -1371,7 +1381,16 @@ class MLLMRetrievalModel(nn.Module):
                 pass
         else:
             prompt_template = llama3_template_text_prefix
-            if data_args.prompt_type == 'prompt_5':
+            if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                _, random_text_prompts, _ = build_random_view_prompts(
+                    processor.tokenizer,
+                    data_args.random_view_seed,
+                )
+                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+                for random_text_prompt in random_text_prompts:
+                    prompt_template += llama3_template_content_element.format(random_text_prompt)
+            elif data_args.prompt_type == 'prompt_5':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                     prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
                 for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:

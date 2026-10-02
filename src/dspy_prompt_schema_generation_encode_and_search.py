@@ -9,6 +9,7 @@ import subprocess
 import sys
 import traceback
 from contextlib import nullcontext
+from datetime import datetime
 from itertools import chain
 import signal
 
@@ -68,6 +69,128 @@ def broadcast_object_from_main(obj):
     object_list = [obj if is_main_process() else None]
     dist.broadcast_object_list(object_list, src=0)
     return object_list[0]
+
+
+def get_safe_dataset_name(dataset_name):
+    return ''.join(
+        character if character.isalnum() or character in '-_.' else '_'
+        for character in dataset_name
+    )
+
+
+def get_safe_model_name(model_name_or_path):
+    normalized_model_path = model_name_or_path.rstrip('/\\').replace('\\', '/')
+    model_name = normalized_model_path.rsplit('/', 1)[-1]
+    return get_safe_dataset_name(model_name)
+
+
+def save_dspy_aspects(aspects, dataset_name, dspy_mode, dspy_model_name_or_path, output_root):
+    write_time = datetime.now().astimezone()
+    timestamp = write_time.strftime('%Y%m%d_%H%M%S_%f')
+    safe_dataset_name = get_safe_dataset_name(dataset_name)
+    safe_dspy_mode = get_safe_dataset_name(dspy_mode)
+    safe_dspy_model_name = get_safe_model_name(dspy_model_name_or_path)
+    output_dir = os.path.join(output_root, 'dspy_aspects')
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(
+        output_dir,
+        f'{safe_dataset_name}_{safe_dspy_mode}_{safe_dspy_model_name}_dspy_aspects_{timestamp}.json',
+    )
+    output_data = {
+        'dataset_name': dataset_name,
+        'dspy_mode': dspy_mode,
+        'dspy_model': dspy_model_name_or_path,
+        'written_at': write_time.isoformat(timespec='microseconds'),
+        'aspects': aspects,
+    }
+    with open(output_path, 'w', encoding='utf-8') as output_file:
+        json.dump(output_data, output_file, ensure_ascii=False, indent=2)
+        output_file.write('\n')
+    return output_path
+
+
+def normalize_dspy_aspects(aspects, max_aspects=6):
+    return list(dict.fromkeys(aspect.lower() for aspect in aspects))[:max_aspects]
+
+
+def get_locked_dspy_aspects_path(dataset_name, dspy_mode, dspy_model_name_or_path, output_root):
+    safe_dataset_name = get_safe_dataset_name(dataset_name)
+    safe_dspy_mode = get_safe_dataset_name(dspy_mode)
+    safe_dspy_model_name = get_safe_model_name(dspy_model_name_or_path)
+    return os.path.join(
+        output_root,
+        'dspy_aspects',
+        f'{safe_dataset_name}_{safe_dspy_mode}_{safe_dspy_model_name}_locked.json',
+    )
+
+
+def load_locked_dspy_aspects(dataset_name, dspy_mode, dspy_model_name_or_path, output_root):
+    locked_path = get_locked_dspy_aspects_path(
+        dataset_name,
+        dspy_mode,
+        dspy_model_name_or_path,
+        output_root,
+    )
+    if not os.path.isfile(locked_path):
+        return None, locked_path
+
+    with open(locked_path, 'r', encoding='utf-8') as locked_file:
+        output_data = json.load(locked_file)
+
+    if output_data.get('dataset_name') != dataset_name:
+        raise ValueError(
+            f'DSPy aspects lock dataset mismatch in {locked_path}: '
+            f"expected {dataset_name!r}, got {output_data.get('dataset_name')!r}"
+        )
+
+    if output_data.get('dspy_mode') != dspy_mode:
+        raise ValueError(
+            f'DSPy aspects lock mode mismatch in {locked_path}: '
+            f"expected {dspy_mode!r}, got {output_data.get('dspy_mode')!r}"
+        )
+
+    if output_data.get('dspy_model') != dspy_model_name_or_path:
+        raise ValueError(
+            f'DSPy aspects lock model mismatch in {locked_path}: '
+            f"expected {dspy_model_name_or_path!r}, got {output_data.get('dspy_model')!r}"
+        )
+
+    aspects = output_data.get('aspects')
+    if not isinstance(aspects, list) or not aspects or not all(isinstance(aspect, str) for aspect in aspects):
+        raise ValueError(f'Invalid DSPy aspects lock file: {locked_path}')
+
+    return normalize_dspy_aspects(aspects), locked_path
+
+
+def save_locked_dspy_aspects(aspects, dataset_name, dspy_mode, dspy_model_name_or_path, output_root):
+    aspects = normalize_dspy_aspects(aspects)
+    if not aspects:
+        raise ValueError('Cannot lock an empty DSPy aspects list.')
+    locked_path = get_locked_dspy_aspects_path(
+        dataset_name,
+        dspy_mode,
+        dspy_model_name_or_path,
+        output_root,
+    )
+    os.makedirs(os.path.dirname(locked_path), exist_ok=True)
+    write_time = datetime.now().astimezone()
+    output_data = {
+        'dataset_name': dataset_name,
+        'dspy_mode': dspy_mode,
+        'dspy_model': dspy_model_name_or_path,
+        'written_at': write_time.isoformat(timespec='microseconds'),
+        'aspects': aspects,
+    }
+    temporary_path = f'{locked_path}.tmp.{os.getpid()}'
+    try:
+        with open(temporary_path, 'w', encoding='utf-8') as locked_file:
+            json.dump(output_data, locked_file, ensure_ascii=False, indent=2)
+            locked_file.write('\n')
+        os.replace(temporary_path, locked_path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.remove(temporary_path)
+    return locked_path
 
 
 def pickle_load(path):
@@ -320,7 +443,7 @@ def close_sparse_retriever(sparse_retriever, analyzer=None):
 
 
 class GenerateSchemaAspects(dspy.Signature):
-    """Generate 3 to 7 retrieval-useful ontology aspects from 20-30 dataset texts."""
+    """Generate 3 to 6 retrieval-useful ontology aspects from seed texts."""
 
     dataset_name: str = dspy.InputField()
     task_type: str = dspy.InputField()
@@ -1156,9 +1279,7 @@ def dspy_metric(example, pred, trace=None):
             retrieval_action = example.retrieval_action
 
             device = example.device
-            aspects = [aspect.lower() for aspect in set(pred.aspects)]
-            if len(aspects) > 7:
-                aspects = aspects[:7]
+            aspects = normalize_dspy_aspects(pred.aspects)
             aspects_prompt_list = broadcast_object_from_main(aspects)
 
             print(aspects_prompt_list)
@@ -1489,16 +1610,16 @@ def main():
 
     seed_text = """
         You are an experienced knowledge engineer and you are modeling schemas for knowledge graph construction.
-        Given a set of sentences, you need to give several proper words or phrases for the abstract schemas of entities, relations and events in these sentences.
+        Given a set of sentences, you need to give several proper words, phrases, examples or clauses for the abstract schemas of entities, relations and events in these sentences.
         You must return your answer in the following format: 1. phrases1\n2.phrases2\n3.phrases3\n...
         You can\'t return anything other than answers.
         These abstract intention words should fulfill the following requirements.
         1. The abstract schemas phrases can well represent the entities, relations and events, and it could be the type of the entities, relations and events or the related concepts of the entities, relations and events.
         2. Strictly follow the provided format, do not add extra characters or words.
-        3. Write 3 to 7 word or phrase items at the highest possible abstract level if possible.
+        3. Write 4 to 6 phrase, example or clause items at the highest possible abstract level if possible, each item can contain one or more than one words.
         4. Do not repeat the same word and the input in the answer.
         5. Stop immediately if you can\'t think of any more phrases, and no explanation is needed.
-        6. Strictly limit the sum of answers between 3 and 7 items.
+        6. Strictly limit the sum of answers between 4 and 6 items and the best sum is 5.
         \n
         \n
         Input sentences:\n<sent>\n
@@ -1525,56 +1646,129 @@ def main():
     retrieval_action = RetrievalAction(training_args, data_args, model_args, search_args, prompt_generation_args,
                                        model, processor, vocab_dict)
 
-    trainset = [
-        dspy.Example(
-            dataset_name=data_args.dataset_name,
-            task_type='text-based person retrieval' if training_args.task_type == 'tbpr' else "image-text retrieval",
-            seed_texts=seed_text,
-            eval_split="dev_small",
-            training_args=training_args,
-            model_args=model_args,
-            data_args=data_args,
-            search_args=search_args,
-            prompt_generation_args=prompt_generation_args,
-            val_dataset_single=val_dataset_single,
-            val_dataset_full=val_dataset_full,
-            val_dataloader_single=val_dataloader_single,
-            val_dataloader_full=val_dataloader_full,
-            retrieval_action=retrieval_action,
-            device=device
-        ).with_inputs("dataset_name", "task_type", "seed_texts"),
-    ]
-
-    compiled = optimizer.compile(
-        program,
-        trainset=trainset,
-        valset=trainset,
-        num_trials=num_trials,
-        max_bootstrapped_demos=0,
-        max_labeled_demos=0,
-        minibatch=False,
-        fewshot_aware_proposer=False
-    )
-
+    lock_payload = None
     if is_main_process():
-        prediction = compiled(
-            dataset_name=data_args.dataset_name,
-            task_type='text-based person retrieval' if training_args.task_type == 'tbpr' else "image-text retrieval",
-            seed_texts=seed_text,
-        )
-        aspects_prompt_list = prediction.aspects
-    else:
-        aspects_prompt_list = None
+        try:
+            if prompt_generation_args.force_regenerate_dspy_aspects:
+                locked_aspects = None
+                locked_path = get_locked_dspy_aspects_path(
+                    data_args.dataset_name,
+                    prompt_generation_args.dspy_strength,
+                    model_args.dspy_model_path,
+                    path_prefix,
+                )
+            else:
+                locked_aspects, locked_path = load_locked_dspy_aspects(
+                    data_args.dataset_name,
+                    prompt_generation_args.dspy_strength,
+                    model_args.dspy_model_path,
+                    path_prefix,
+                )
+            lock_payload = {
+                'aspects': locked_aspects,
+                'path': locked_path,
+                'error': None,
+            }
+        except Exception as exc:
+            lock_payload = {
+                'aspects': None,
+                'path': get_locked_dspy_aspects_path(
+                    data_args.dataset_name,
+                    prompt_generation_args.dspy_strength,
+                    model_args.dspy_model_path,
+                    path_prefix,
+                ),
+                'error': f'{type(exc).__name__}: {exc}',
+            }
 
-    aspects_prompt_list = broadcast_object_from_main(aspects_prompt_list)
-    aspects = [aspect.lower() for aspect in set(aspects_prompt_list)]
-    if len(aspects) > 7:
-        aspects = aspects[:7]
-    aspects_prompt_list = aspects
+    lock_payload = broadcast_object_from_main(lock_payload)
+    if lock_payload['error'] is not None:
+        raise RuntimeError(f"Failed to load DSPy aspects lock: {lock_payload['error']}")
+
+    aspects_prompt_list = lock_payload['aspects']
+    if aspects_prompt_list is None:
+        if is_main_process() and prompt_generation_args.force_regenerate_dspy_aspects:
+            print(f"Ignoring DSPy aspects lock and regenerating: {lock_payload['path']}")
+
+        trainset = [
+            dspy.Example(
+                dataset_name=data_args.dataset_name,
+                task_type='text-based person retrieval' if training_args.task_type == 'tbpr' else "image-text retrieval",
+                seed_texts=seed_text,
+                eval_split="dev_small",
+                training_args=training_args,
+                model_args=model_args,
+                data_args=data_args,
+                search_args=search_args,
+                prompt_generation_args=prompt_generation_args,
+                val_dataset_single=val_dataset_single,
+                val_dataset_full=val_dataset_full,
+                val_dataloader_single=val_dataloader_single,
+                val_dataloader_full=val_dataloader_full,
+                retrieval_action=retrieval_action,
+                device=device
+            ).with_inputs("dataset_name", "task_type", "seed_texts"),
+        ]
+
+        compiled = optimizer.compile(
+            program,
+            trainset=trainset,
+            valset=trainset,
+            num_trials=num_trials,
+            max_bootstrapped_demos=0,
+            max_labeled_demos=0,
+            minibatch=False,
+            fewshot_aware_proposer=False
+        )
+
+        generated_payload = None
+        if is_main_process():
+            try:
+                prediction = compiled(
+                    dataset_name=data_args.dataset_name,
+                    task_type='text-based person retrieval' if training_args.task_type == 'tbpr' else "image-text retrieval",
+                    seed_texts=seed_text,
+                )
+                generated_aspects = normalize_dspy_aspects(prediction.aspects)
+                locked_path = save_locked_dspy_aspects(
+                    generated_aspects,
+                    data_args.dataset_name,
+                    prompt_generation_args.dspy_strength,
+                    model_args.dspy_model_path,
+                    path_prefix,
+                )
+                generated_payload = {
+                    'aspects': generated_aspects,
+                    'path': locked_path,
+                    'error': None,
+                }
+            except Exception as exc:
+                generated_payload = {
+                    'aspects': None,
+                    'path': lock_payload['path'],
+                    'error': f'{type(exc).__name__}: {exc}',
+                }
+
+        generated_payload = broadcast_object_from_main(generated_payload)
+        if generated_payload['error'] is not None:
+            raise RuntimeError(f"Failed to generate or lock DSPy aspects: {generated_payload['error']}")
+        aspects_prompt_list = generated_payload['aspects']
+        if is_main_process():
+            print(f"DSPy aspects locked at: {generated_payload['path']}")
+    elif is_main_process():
+        print(f"Reusing locked DSPy aspects from: {lock_payload['path']}")
 
     print(aspects_prompt_list)
     if is_main_process():
         print(f'DSPy aspects: {aspects_prompt_list}')
+        aspects_output_path = save_dspy_aspects(
+            aspects_prompt_list,
+            data_args.dataset_name,
+            prompt_generation_args.dspy_strength,
+            model_args.dspy_model_path,
+            path_prefix,
+        )
+        print(f'DSPy aspects saved to: {aspects_output_path}')
 
     if data_args.is_filtered:
         filtered = "filter"

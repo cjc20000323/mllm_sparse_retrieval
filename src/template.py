@@ -1,3 +1,50 @@
+import random
+
+
+RANDOM_VIEW_PROMPT_TYPE = 'prompt_random_5'
+RANDOM_VIEW_COUNT = 5
+random_view_text_prompt_template = 'Summary the {} in above sentence in one word: '
+random_view_image_prompt_template = 'Summary the {} in above image in one word: '
+_random_view_prompt_cache = {}
+
+
+def build_random_view_prompts(tokenizer, seed):
+    """Build five reproducible random-view prompts from normal vocabulary tokens."""
+    cache_key = (id(tokenizer), seed)
+    if cache_key in _random_view_prompt_cache:
+        random_tokens, text_prompts, image_prompts = _random_view_prompt_cache[cache_key]
+        return list(random_tokens), list(text_prompts), list(image_prompts)
+
+    special_token_ids = set(tokenizer.all_special_ids)
+    candidate_tokens = []
+    seen_tokens = set()
+
+    for token_id in sorted(set(tokenizer.get_vocab().values())):
+        if token_id in special_token_ids:
+            continue
+        token = tokenizer.decode([token_id], skip_special_tokens=True).strip()
+        if not token or not token.isalnum() or token in seen_tokens:
+            continue
+        seen_tokens.add(token)
+        candidate_tokens.append(token)
+
+    if len(candidate_tokens) < RANDOM_VIEW_COUNT:
+        raise ValueError(
+            f'The tokenizer only has {len(candidate_tokens)} usable vocabulary tokens; '
+            f'{RANDOM_VIEW_COUNT} are required for random views.'
+        )
+
+    random_tokens = random.Random(seed).sample(candidate_tokens, RANDOM_VIEW_COUNT)
+    text_prompts = [random_view_text_prompt_template.format(token) for token in random_tokens]
+    image_prompts = [random_view_image_prompt_template.format(token) for token in random_tokens]
+    _random_view_prompt_cache[cache_key] = (
+        tuple(random_tokens),
+        tuple(text_prompts),
+        tuple(image_prompts),
+    )
+    return random_tokens, text_prompts, image_prompts
+
+
 llama3_template = '<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n \n'
 llama3_template_image_prefix = '<|start_header_id|>user<|end_header_id|>\n\n<image>\n'
 llama3_template_text_prefix = '<|start_header_id|>user<|end_header_id|>\n\n<sent>\n'

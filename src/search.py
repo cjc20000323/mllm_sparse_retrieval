@@ -48,11 +48,13 @@ from template import img_prompt, \
     llava_34b_template_content_element, retrieval_disassemble_query_prompts_t2it_retrieval_for_concat, \
     mistral_it2t_query_prompt, it2t_query_prompt, llava_mistral_template_fusion_prefix, llama3_template_fusion_prefix, \
     fusion_prompt_for_concat, retrieval_disassemble_query_prompts_it2t_retrieval_for_concat, \
-    retrieval_disassemble_query_prompts_llava_it2t_retrieval_for_concat
+    retrieval_disassemble_query_prompts_llava_it2t_retrieval_for_concat, RANDOM_VIEW_PROMPT_TYPE, \
+    build_random_view_prompts
 from encode import get_img_valid_tokens_values, get_text_valid_tokens_values, get_img_valid_tokens_values_with_cluster, \
     get_text_valid_tokens_values_with_cluster, get_text_valid_disassemble_tokens_values, \
     get_text_valid_tokens_values_fusion, get_text_valid_disassemble_tokens_values_fusion, \
-    get_img_valid_disassemble_tokens_values
+    get_img_valid_disassemble_tokens_values, validate_sparse_logits_multiply_view_count, \
+    validate_random_view_prompt, build_random_view_image_prompt_template
 from hybrid import fuse
 from utils import load_image
 from peft import PeftModel
@@ -146,6 +148,323 @@ def sparse_search(sparse_retriever, batch_topics, batch_ids, search_args):
         sparse_rankings.append(ranking)
     return sparse_scores, sparse_rankings
 
+def _run_fixed_multimodal_validation(
+        task_type,
+        val_dataloader,
+        val_dense_retriever,
+        val_sparse_retriever,
+        val_look_up,
+        val_lookup_indices,
+        model,
+        processor,
+        device,
+        model_args,
+        data_args,
+        search_args,
+        vocab_dict,
+        filtered_ids,
+        validation_dataset_name,
+        use_fp16,
+):
+    """Build validation runs for the fixed LLaVA mixed-modality validation set.
+
+    The normal validation loop predates the t2it/it2t datasets and expects the
+    four-field image-text batch format.  These datasets have task-specific
+    query tuples, so keep this compatibility path local to the new fixed
+    validation switch and leave the original path unchanged when the switch
+    is disabled.
+    """
+
+    val_dense_run = {}
+    val_sparse_run = {}
+
+    def add_values(vector, tokens, values):
+        for token, value in zip(tokens, values):
+            if token in vector:
+                if data_args.sparse_value_type == 'replace':
+                    vector[token] = int(value)
+                elif data_args.sparse_value_type == 'sum':
+                    vector[token] += int(value)
+                elif int(value) > vector[token]:
+                    vector[token] = int(value)
+            else:
+                vector[token] = int(value)
+
+    def dense_update(batch_ids, query_dense_reps):
+        if val_dense_retriever is None:
+            return
+        if isinstance(query_dense_reps, list):
+            for qid, reps in zip(batch_ids, query_dense_reps):
+                reps = torch.stack(reps, dim=0)
+                dense_scores, dense_rankings = search_queries(
+                    val_dense_retriever,
+                    reps.cpu().detach().float().numpy(),
+                    val_look_up,
+                    search_args,
+                )
+                if qid not in val_dense_run:
+                    val_dense_run[qid] = []
+                    for scores, ranking in zip(dense_scores, dense_rankings):
+                        val_dense_run[qid].append(
+                            get_run_dict([qid], [scores], [ranking], search_args.remove_query)
+                        )
+                else:
+                    for view_index, (scores, ranking) in enumerate(zip(dense_scores, dense_rankings)):
+                        val_dense_run[qid][view_index].append(
+                            get_run_dict([qid], [scores], [ranking], search_args.remove_query)
+                        )
+        else:
+            query_dense_reps = F.normalize(query_dense_reps, dim=-1)
+            if model_args.eol_type in (
+                    'all_disassembleeol',
+                    'all_disassembleeol_origin_text',
+                    'all_disassembleeol_concrete',
+                    'all_disassembleeol_concrete_origin_text',
+            ):
+                query_dense_reps = query_dense_reps.reshape(
+                    -1, 5, query_dense_reps.shape[1]
+                ).mean(1)
+            query_dense_reps = query_dense_reps.cpu().detach().float().numpy()
+            dense_scores, dense_rankings = search_queries(
+                val_dense_retriever, query_dense_reps, val_look_up, search_args
+            )
+            val_dense_run.update(
+                get_run_dict(batch_ids, dense_scores, dense_rankings, search_args.remove_query)
+            )
+
+    def sparse_update(batch_ids, query_texts, query_logits, disassemble_logits=None):
+        if val_sparse_retriever is None:
+            return
+
+        batch_topics = []
+        is_text_query = task_type == 't2it'
+        if 'disassembleeol' in model_args.eol_type:
+            if task_type == 't2it':
+                prompt_length = len(retrieval_disassemble_query_prompts_t2it_retrieval_for_concat)
+            elif validation_dataset_name == 'llava':
+                prompt_length = len(retrieval_disassemble_query_prompts_llava_it2t_retrieval_for_concat)
+            else:
+                prompt_length = len(retrieval_disassemble_query_prompts_it2t_retrieval_for_concat)
+
+            # Keep the same two-pass sparse fusion used by the existing test
+            # path for t2it.  it2t uses the image-specific token extraction.
+            for query_index, query_text in enumerate(query_texts):
+                logit = None
+                if 'concrete' in model_args.eol_type and query_logits is not None:
+                    logit = query_logits[query_index]
+                if disassemble_logits is None:
+                    current_disassemble_logits = query_logits[query_index:query_index + 1]
+                else:
+                    current_disassemble_logits = disassemble_logits[
+                        query_index * prompt_length:(query_index + 1) * prompt_length
+                    ]
+
+                vector = {}
+                if is_text_query and data_args.sparse_type == 'fusion':
+                    tokens, values = get_text_valid_disassemble_tokens_values_fusion(
+                        query_text,
+                        processor.tokenizer,
+                        current_disassemble_logits,
+                        vocab_dict,
+                        data_args,
+                        filtered_ids,
+                        'guess',
+                        logit,
+                        model_args,
+                    )
+                    add_values(vector, tokens, values)
+                    if data_args.sparse_value_mean:
+                        for token in vector:
+                            vector[token] //= prompt_length
+                    tokens, values = get_text_valid_disassemble_tokens_values_fusion(
+                        query_text,
+                        processor.tokenizer,
+                        current_disassemble_logits,
+                        vocab_dict,
+                        data_args,
+                        filtered_ids,
+                        'origin_text',
+                        logit,
+                        model_args,
+                    )
+                elif is_text_query:
+                    tokens, values = get_text_valid_disassemble_tokens_values(
+                        query_text,
+                        processor.tokenizer,
+                        current_disassemble_logits,
+                        vocab_dict,
+                        data_args,
+                        filtered_ids,
+                        logit,
+                        model_args,
+                    )
+                else:
+                    tokens, values = get_img_valid_disassemble_tokens_values(
+                        processor.tokenizer,
+                        current_disassemble_logits,
+                        vocab_dict,
+                        data_args,
+                        filtered_ids,
+                        logit,
+                        model_args,
+                    )
+                add_values(vector, tokens, values)
+                query = ''
+                for token, value in vector.items():
+                    query += (' ' + token) * value
+                batch_topics.append(query.strip())
+        else:
+            for query_index, (query_text, logits) in enumerate(zip(query_texts, query_logits)):
+                vector = {}
+                if is_text_query and data_args.sparse_type == 'fusion':
+                    tokens, values = get_text_valid_tokens_values_fusion(
+                        query_text,
+                        processor.tokenizer,
+                        logits,
+                        vocab_dict,
+                        data_args,
+                        filtered_ids,
+                        'guess',
+                    )
+                elif is_text_query:
+                    tokens, values = get_text_valid_tokens_values(
+                        query_text,
+                        processor.tokenizer,
+                        logits,
+                        vocab_dict,
+                        data_args,
+                        filtered_ids,
+                    )
+                elif model_args.eol_type == 'prompteol_same_length':
+                    tokens, values = get_img_valid_tokens_values(
+                        processor.tokenizer,
+                        logits,
+                        vocab_dict,
+                        data_args,
+                        filtered_ids,
+                        text=query_text,
+                    )
+                else:
+                    tokens, values = get_img_valid_tokens_values(
+                        processor.tokenizer,
+                        logits,
+                        vocab_dict,
+                        data_args,
+                        filtered_ids,
+                    )
+                add_values(vector, tokens, values)
+                query = ''
+                for token, value in vector.items():
+                    query += (' ' + token) * value
+                batch_topics.append(query.strip())
+
+        sparse_scores, sparse_rankings = sparse_search(
+            val_sparse_retriever, batch_topics, batch_ids, search_args
+        )
+        val_sparse_run.update(
+            get_run_dict(batch_ids, sparse_scores, sparse_rankings, search_args.remove_query)
+        )
+
+    with torch.no_grad(), torch.cuda.amp.autocast() if use_fp16 else nullcontext():
+        if task_type == 't2it':
+            for _, (query_texts, query_ids) in tqdm(
+                    enumerate(val_dataloader), total=len(val_dataloader), desc='Fixed LLaVA validation'):
+                val_lookup_indices.extend(query_ids)
+                if model_args.calculate_type == 'separate':
+                    query_logits, query_dense_reps = model.encode_data_for_t2it(
+                        query_texts, 'query', processor, device, model_args, data_args
+                    )
+                    disassemble_logits = None
+                else:
+                    query_logits, query_dense_reps = model.encode_data_concat_for_t2it(
+                        query_texts, 'query', processor, device, model_args, data_args
+                    )
+                    disassemble_logits = None
+                    if 'disassembleeol_concrete' in model_args.eol_type:
+                        disassemble_logits = query_logits[data_args.per_device_batch_size:]
+                        query_logits = query_logits[:data_args.per_device_batch_size]
+                    elif 'disassembleeol' in model_args.eol_type:
+                        disassemble_logits = query_logits
+                dense_update(query_ids, query_dense_reps)
+                sparse_update(query_ids, query_texts, query_logits, disassemble_logits)
+        else:
+            if model_args.model_name_or_path == './checkpoints/llava-hf-llava-1.5-7b-hf':
+                prompt = img_prompt_no_special_llava_v1_5
+            elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or \
+                    'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                prompt = qwen2_5_img_prompt
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                prompt = qwen3_img_prompt
+            elif 'InternVL2_5-8B' in model_args.model_name_or_path:
+                prompt = img_prompt_intern_vl_v2_5
+            elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                prompt = mistral_it2t_query_prompt
+            elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or \
+                    'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                prompt = vicuna_img_prompt
+            else:
+                prompt = it2t_query_prompt
+
+            for _, (query_texts, query_images, query_ids) in tqdm(
+                    enumerate(val_dataloader), total=len(val_dataloader), desc='Fixed LLaVA validation'):
+                val_lookup_indices.extend(query_ids)
+                raw_images = [Image.open(BytesIO(query_image)).convert('RGB') for query_image in query_images]
+                if model_args.calculate_type == 'separate':
+                    img_inputs = processor(
+                        images=raw_images,
+                        text=[prompt.replace('<sent>', query_text) for query_text in query_texts],
+                        return_tensors='pt',
+                        padding=True,
+                    )
+                    imgs = img_inputs.to(device)
+                    query_logits, query_dense_reps = model.encode_data_for_it2t(
+                        imgs, 'query', processor, device, model_args, data_args
+                    )
+                    disassemble_logits = None
+                else:
+                    if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                        prompt_template = llava_mistral_template_fusion_prefix
+                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                            prompt_template += llava_mistral_template_content_element.format(img_prompt_for_concat)
+                        prompt_list = (
+                            retrieval_disassemble_query_prompts_llava_it2t_retrieval_for_concat
+                            if validation_dataset_name == 'llava'
+                            else retrieval_disassemble_query_prompts_it2t_retrieval_for_concat
+                        )
+                        for disassemble_prompt in prompt_list:
+                            prompt_template += llava_mistral_template_content_element.format(disassemble_prompt)
+                    else:
+                        prompt_template = llama3_template_fusion_prefix
+                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                            prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                        prompt_list = (
+                            retrieval_disassemble_query_prompts_llava_it2t_retrieval_for_concat
+                            if validation_dataset_name == 'llava'
+                            else retrieval_disassemble_query_prompts_it2t_retrieval_for_concat
+                        )
+                        for disassemble_prompt in prompt_list:
+                            prompt_template += llama3_template_content_element.format(disassemble_prompt)
+                    img_inputs = processor(
+                        images=raw_images,
+                        text=[prompt_template.replace('<sent>', query_text) for query_text in query_texts],
+                        return_tensors='pt',
+                        padding=True,
+                    )
+                    imgs = img_inputs.to(device)
+                    query_logits, query_dense_reps = model.encode_data_concat_for_it2t(
+                        imgs, 'query', processor, device, model_args, data_args
+                    )
+                    disassemble_logits = None
+                    if 'disassembleeol_concrete' in model_args.eol_type:
+                        disassemble_logits = query_logits[data_args.per_device_batch_size:]
+                        query_logits = query_logits[:data_args.per_device_batch_size]
+                    elif 'disassembleeol' in model_args.eol_type:
+                        disassemble_logits = query_logits
+                dense_update(query_ids, query_dense_reps)
+                sparse_update(query_ids, query_texts, query_logits, disassemble_logits)
+
+    return val_dense_run, val_sparse_run
+
 
 def close_sparse_retriever(sparse_retriever, analyzer=None):
     for resource in (sparse_retriever, analyzer):
@@ -169,6 +488,9 @@ def main():
     data_args: PromptRepsLLMDataArguments
     search_args: PromptRepsLLMSearchArguments
     training_args: TrainingArguments
+
+    validate_sparse_logits_multiply_view_count(model_args, data_args)
+    validate_random_view_prompt(model_args, data_args, training_args)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -239,6 +561,12 @@ def main():
         vocab_dict = processor.tokenizer.get_vocab()
         filtered_ids = get_filtered_ids(processor.tokenizer)
     vocab_dict = {v: k for k, v in vocab_dict.items()}
+    if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE and dist.get_rank() == 0:
+        random_view_tokens, _, _ = build_random_view_prompts(
+            processor.tokenizer,
+            data_args.random_view_seed,
+        )
+        print(f'Random view vocabulary tokens (seed={data_args.random_view_seed}): {random_view_tokens}')
 
     if model_args.use_output_embedding_cluster:
         output_token_embeddings = encoder.get_output_embeddings().weight[:len(vocab_dict), :]
@@ -298,31 +626,53 @@ def main():
         )
         encoder = encoder.merge_and_unload()
 
+    # The test dataset always stays data_args.dataset_name.  When requested,
+    # only the validation dataset is taken from the fixed cross-dataset map.
+    val_dataset_name = data_args.dataset_name
+    fixed_val_dataset = None
+    if search_args.use_fixed_validation_dataset:
+        if training_args.task_type == 'ir':
+            fixed_val_dataset = 'flickr'
+        elif training_args.task_type == 'tbpr':
+            fixed_val_dataset = 'RSTPReid'
+        elif training_args.task_type in ('it2t', 't2it'):
+            fixed_val_dataset = 'llava'
+
+        if fixed_val_dataset is not None:
+            val_dataset_name = fixed_val_dataset
+            if dist.get_rank() == 0:
+                print(
+                    f'Using fixed validation dataset {val_dataset_name!r} '
+                    f'for test task type {training_args.task_type!r}.'
+                )
+
     if training_args.task_type == 'cir':
         dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'val', search_args.query_type)
         val_dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'val',
                                                         search_args.query_type)
     elif training_args.task_type == 'tbpr':
         dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
-        if data_args.dataset_name != 'ICFG-PEDES':
+        if search_args.use_fixed_validation_dataset:
+            val_dataset = TextPersonRetrievalDataset(val_dataset_name, processor, 'val', 'full')
+        elif data_args.dataset_name != 'ICFG-PEDES':
             val_dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'val', 'full')
         else:
             val_dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'train', 'full')
     elif training_args.task_type == 't2it':
         dataset = Text2ImagetextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split,
                                                      'query')
-        val_dataset = Text2ImagetextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split,
+        val_dataset = Text2ImagetextRetrievalDataset(val_dataset_name, processor, data_args.dataset_split,
                                                  'query')
     elif training_args.task_type == 'it2t':
         dataset = Imagetext2TextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'query')
-        val_dataset = Imagetext2TextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'query')
+        val_dataset = Imagetext2TextRetrievalDataset(val_dataset_name, processor, data_args.dataset_split, 'query')
     else:
         if search_args.query_type == 'text':
             dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
-            val_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'val', 'full')
+            val_dataset = CrossModalRetrievalDataset(val_dataset_name, processor, 'val', 'full')
         else:
             dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
-            val_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'val', 'single')
+            val_dataset = CrossModalRetrievalDataset(val_dataset_name, processor, 'val', 'single')
 
     val_sampler = Data.DistributedSampler(val_dataset, num_replicas=world_size, shuffle=True, rank=rank)
     val_dataloader = Data.DataLoader(dataset=val_dataset, sampler=val_sampler, batch_size=data_args.per_device_batch_size,
@@ -418,6 +768,37 @@ def main():
             val_sparse_retriever = LuceneImpactSearcher(os.path.join(val_sparse_retriever_indices[i], 'index'), None)
             val_analyzer = JWhiteSpaceAnalyzer()
             val_sparse_retriever.set_analyzer(val_analyzer)
+
+        if search_args.use_fixed_validation_dataset and training_args.task_type in ('t2it', 'it2t'):
+            val_dense_run, val_sparse_run = _run_fixed_multimodal_validation(
+                task_type=training_args.task_type,
+                val_dataloader=val_dataloader,
+                val_dense_retriever=val_dense_retriever,
+                val_sparse_retriever=val_sparse_retriever,
+                val_look_up=val_look_up if val_dense_retriever is not None else [],
+                val_lookup_indices=val_lookup_indices,
+                model=model,
+                processor=processor,
+                device=device,
+                model_args=model_args,
+                data_args=data_args,
+                search_args=search_args,
+                vocab_dict=vocab_dict,
+                filtered_ids=filtered_ids,
+                validation_dataset_name=val_dataset_name,
+                use_fp16=training_args.fp16,
+            )
+            if val_dense_retriever:
+                del val_dense_retriever
+                gc.collect()
+                torch.cuda.empty_cache()
+            if val_sparse_retriever:
+                close_sparse_retriever(val_sparse_retriever, val_analyzer)
+                val_sparse_retriever = None
+                val_analyzer = None
+                gc.collect()
+                torch.cuda.empty_cache()
+            continue
 
         with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(val_dataloader),
@@ -650,7 +1031,13 @@ def main():
                                 query_logits = logits.reshape(-1, len(task_image_prompts), logits.shape[1]).mean(1)
                                 query_dense_reps = reps.reshape(-1, len(task_image_prompts), reps.shape[1]).mean(1)
                 else:
-                    if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                        prompt_template = build_random_view_image_prompt_template(
+                            processor,
+                            model_args,
+                            data_args,
+                        )
+                    elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                         if data_args.prompt_type == 'prompt_5':
                             prompt_template = llava_mistral_template_image_prefix
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
@@ -1086,7 +1473,7 @@ def main():
                                             vector[token] = int(v)
                                     if data_args.sparse_value_mean:
                                         for token in vector.keys():
-                                            if data_args.prompt_type == 'prompt_5':
+                                            if data_args.prompt_type in ('prompt_5', RANDOM_VIEW_PROMPT_TYPE):
                                                 vector[token] //= 5
                                             elif data_args.prompt_type == 'prompt_7':
                                                 vector[token] //= 7
@@ -1176,7 +1563,7 @@ def main():
                                             vector[token] = int(v)
                                     if data_args.sparse_value_mean:
                                         for token in vector.keys():
-                                            if data_args.prompt_type == 'prompt_5':
+                                            if data_args.prompt_type in ('prompt_5', RANDOM_VIEW_PROMPT_TYPE):
                                                 vector[token] //= 5
                                             elif data_args.prompt_type == 'prompt_7':
                                                 vector[token] //= 7
@@ -1448,6 +1835,10 @@ def main():
         use_sparse_value_mean = 'mean'
     else:
         use_sparse_value_mean = 'no_mean'
+    if data_args.sparse_logits_multiply_view_count:
+        use_sparse_value_mean += '_logits_x5'
+    if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+        use_sparse_value_mean += f'_random_view_seed_{data_args.random_view_seed}'
 
     if search_args.val_passage_reps is not None and search_args.val_sparse_index is not None:
         for i in range(9):
@@ -1542,11 +1933,14 @@ def main():
 
             del val_metric
             del fusion_recalls
-            del val_dense_run
-            del val_sparse_run
-            del val_dataset
-            del val_dataloader
-            gc.collect()
+
+    # Keep the validation runs alive throughout the complete alpha sweep.
+    # They are released only after the selected validation weight is known.
+    del val_dense_run
+    del val_sparse_run
+    del val_dataset
+    del val_dataloader
+    gc.collect()
 
     if search_args.passage_reps is not None:
         # 目前尚不清楚这里是怎么工作的
@@ -3064,7 +3458,13 @@ def main():
                                     query_logits = logits.reshape(-1, len(task_image_prompts), logits.shape[1]).mean(1)
                                     query_dense_reps = reps.reshape(-1, len(task_image_prompts), reps.shape[1]).mean(1)
                     else:
-                        if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                            prompt_template = build_random_view_image_prompt_template(
+                                processor,
+                                model_args,
+                                data_args,
+                            )
+                        elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                             if data_args.prompt_type == 'prompt_5':
                                 prompt_template = llava_mistral_template_image_prefix
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
@@ -3532,6 +3932,8 @@ def main():
                                                     vector[token] //= 4
                                                 elif data_args.prompt_type == 'prompt_6':
                                                     vector[token] //= 6
+                                                elif data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                                                    vector[token] //= 5
                                                 else:
                                                     vector[token] //= 7
                                         if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
@@ -3645,6 +4047,8 @@ def main():
                                                     vector[token] //= 4
                                                 elif data_args.prompt_type == 'prompt_6':
                                                     vector[token] //= 6
+                                                elif data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                                                    vector[token] //= 5
                                                 else:
                                                     vector[token] //= 7
                                         query = ""
@@ -3721,6 +4125,8 @@ def main():
                                                 vector[token] //= 4
                                             elif data_args.prompt_type == 'prompt_6':
                                                 vector[token] //= 6
+                                            elif data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                                                vector[token] //= 5
                                             else:
                                                 vector[token] //= 7
                                     query = ""
@@ -3928,6 +4334,10 @@ def main():
         use_sparse_value_mean = 'mean'
     else:
         use_sparse_value_mean = 'no_mean'
+    if data_args.sparse_logits_multiply_view_count:
+        use_sparse_value_mean += '_logits_x5'
+    if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+        use_sparse_value_mean += f'_random_view_seed_{data_args.random_view_seed}'
 
     for i in range(9):
         fusion_run[i].update(
