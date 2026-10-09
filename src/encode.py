@@ -3094,7 +3094,47 @@ def main():
                 else:
                     f.write(json.dumps(data) + "\n")
 
-    if model_args.calculate_type == 'concat':
+    if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+        # Keep random-view dense/sparse directories aligned with random_token_views.sh.
+        common_path = (
+            f'{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/'
+            f'{training_args.encode_type}/{filtered}/{model_args.calculate_type}/'
+            f'{data_args.prompt_type}/{data_args.dataset_split}'
+        )
+        if data_args.sparse_manual:
+            sparse_lengths = f'{data_args.text_sparse_length}_{data_args.image_sparse_length}'
+        else:
+            sparse_lengths = str(data_args.sparse_length)
+        path_suffix = (
+            f'{data_args.num_expended_tokens}_{manual}_{sparse_lengths}_'
+            f'{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_'
+            f'{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'
+        )
+        if data_args.sparse_type == 'fusion':
+            path_suffix += f'_{data_args.sparse_type}'
+
+        dense_dir = os.path.join(data_args.dense_output_dir, common_path, path_suffix)
+        sparse_dir = os.path.join(data_args.sparse_output_dir, common_path, path_suffix)
+        os.makedirs(dense_dir, exist_ok=True)
+        os.makedirs(sparse_dir, exist_ok=True)
+
+        dense_filename = 'query.pkl' if data_args.encode_is_query else f'corpus_{dist.get_rank()}.pkl'
+        sparse_filename = 'query.tsv' if data_args.encode_is_query else f'corpus_{dist.get_rank()}.jsonl'
+        with open(os.path.join(dense_dir, dense_filename), 'wb') as f:
+            pickle.dump((encoded, lookup_indices), f)
+        with open(os.path.join(sparse_dir, sparse_filename), 'w') as f:
+            for data in jsonl_data:
+                if data_args.encode_is_query:
+                    id = data['id']
+                    vector = data['vector']
+                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                    if len(query.strip()) == 0:
+                        continue
+                    f.write(f'{id}\t{query}\n')
+                else:
+                    f.write(json.dumps(data) + "\n")
+
+    elif model_args.calculate_type == 'concat':
         if data_args.sparse_type == 'fusion':
             if data_args.sparse_manual:
                 os.makedirs(
