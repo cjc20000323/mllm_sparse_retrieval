@@ -23,8 +23,15 @@ MASTER_PORT="${MASTER_PORT:-29501}"
 
 BASE_MODEL="${BASE_MODEL:-llava-hf-llava-v1.6-mistral-7b-hf}"
 MODEL_PATH="${MODEL_PATH:-/root/autodl-fs/checkpoints/${BASE_MODEL}}"
-DATASET="${DATASET:-flickr}"
-TASK_TYPE="ir"
+TASK_TYPE="${TASK_TYPE:-ir}"
+if [[ -z "${DATASET:-}" ]]; then
+  if [[ "${TASK_TYPE}" == "tbpr" ]]; then
+    DATASET="RSTPReid"
+  else
+    DATASET="flickr"
+  fi
+fi
+TBPR_TYPE="${TBPR_TYPE:-origin_type}"
 TARGET_TYPE="${TARGET_TYPE:-image}"
 QUERY_TYPE="${QUERY_TYPE:-text}"
 VAL_SPLIT="${VAL_SPLIT:-val}"
@@ -61,6 +68,14 @@ case "${MODEL_PATH}" in
   *llava-hf-llama3-llava-next-8b-hf*|*llava-hf-llava-v1.6-mistral-7b-hf*) ;;
   *)
     echo "prompt_random_5 only supports Llama3-8B and LLaVA-Mistral-7B." >&2
+    exit 1
+    ;;
+esac
+
+case "${TASK_TYPE}" in
+  ir|tbpr) ;;
+  *)
+    echo "Unsupported TASK_TYPE=${TASK_TYPE}; use ir or tbpr." >&2
     exit 1
     ;;
 esac
@@ -115,6 +130,9 @@ if [[ "${SPARSE_TYPE}" == "fusion" ]]; then
   PATH_SUFFIX="${PATH_SUFFIX}_${SPARSE_TYPE}"
 fi
 COMMON_PATH="${MODEL_OUTPUT_NAME}/${DATASET}/${TARGET_TYPE}/${FILTER}/${CALCULATE_TYPE}/${PROMPT_TYPE}"
+if [[ "${TASK_TYPE}" == "tbpr" ]]; then
+  COMMON_PATH="${COMMON_PATH}/${TBPR_TYPE}"
+fi
 
 VAL_DENSE_DIR="dense_output/${COMMON_PATH}/${VAL_SPLIT}/${PATH_SUFFIX}"
 VAL_SPARSE_DIR="sparse_output/${COMMON_PATH}/${VAL_SPLIT}/${PATH_SUFFIX}"
@@ -125,7 +143,7 @@ SEARCH_OUTPUT_DIR="output/${COMMON_PATH}/${TEST_SPLIT}/${PATH_SUFFIX}/result"
 run_encode() {
   local split="$1"
 
-  echo "Encoding ${DATASET}/${split} with ${MODEL_OUTPUT_NAME}, seed=${RANDOM_VIEW_SEED}"
+  echo "Encoding ${TASK_TYPE} ${DATASET}/${split} with ${MODEL_OUTPUT_NAME}, seed=${RANDOM_VIEW_SEED}"
   deepspeed \
     --num_gpus="${GPUS}" \
     --num_nodes="${NUM_NODES}" \
@@ -137,6 +155,7 @@ run_encode() {
     --dataset_name "${DATASET}" \
     --dataset_split "${split}" \
     --task_type "${TASK_TYPE}" \
+    --tbpr_type "${TBPR_TYPE}" \
     --encode_type "${TARGET_TYPE}" \
     --per_device_batch_size "${PER_DEVICE_BATCH_SIZE}" \
     --reps_loc "${REPS_LOC}" \
@@ -167,7 +186,7 @@ run_index() {
 }
 
 run_search() {
-  echo "Searching ${DATASET} with random token views, seed=${RANDOM_VIEW_SEED}"
+  echo "Searching ${TASK_TYPE} ${DATASET} with random token views, seed=${RANDOM_VIEW_SEED}"
   deepspeed \
     --num_gpus="${GPUS}" \
     --num_nodes="${NUM_NODES}" \
@@ -179,6 +198,7 @@ run_search() {
     --dataset_name "${DATASET}" \
     --dataset_split "${TEST_SPLIT}" \
     --task_type "${TASK_TYPE}" \
+    --tbpr_type "${TBPR_TYPE}" \
     --per_device_batch_size "${PER_DEVICE_BATCH_SIZE}" \
     --threads "${THREADS}" \
     --passage_reps "${TEST_DENSE_DIR}" \

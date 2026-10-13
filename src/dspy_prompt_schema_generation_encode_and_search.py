@@ -12,6 +12,7 @@ from contextlib import nullcontext
 from datetime import datetime
 from itertools import chain
 import signal
+from types import SimpleNamespace
 
 import dspy
 import faiss
@@ -43,12 +44,33 @@ from model import MLLMRetrievalModel
 from template import (llava_mistral_template_image_prefix, llava_mistral_template_content_element,
                       img_prompt_for_concat,
                       llama3_template_image_prefix, llama3_template_content_element, llava_mistral_template_text_prefix,
-                      text_prompt_for_concat, llama3_template_text_prefix)
+                      text_prompt_for_concat, llama3_template_text_prefix,
+                      person_retrieval_img_prompt_for_concat, person_retrieval_text_prompt_for_concat)
 
 logger = logging.getLogger(__name__)
 
 model_begin_indice = 28
 path_prefix = '/root/autodl-fs/'
+
+# Set this switch in this script when validation should be selected through
+# ``resolve_validation_dataset_name``.  Keeping it False preserves the
+# original validation-dataset loading behavior below.
+USE_VALIDATION_DATASET_RESOLVER = False
+
+# Warm-start controls.  Keep this switch False to preserve the original DSPy
+# lock/compile path exactly.  When enabled, the manually written aspects below
+# are evaluated first and are also supplied as one labeled DSPy example.
+USE_INITIAL_DSPY_ASPECTS = False
+INITIAL_DSPY_ASPECTS = [
+    'person',
+    'clothing',
+    'appearance',
+    'action',
+    'scene',
+]
+# Optional score recorded from an earlier run.  The current validation code is
+# always rerun when warm-start mode is enabled; this value is only a reference.
+INITIAL_DSPY_ASPECTS_VALIDATION_SCORE = None
 
 
 def is_distributed():
@@ -84,20 +106,50 @@ def get_safe_model_name(model_name_or_path):
     return get_safe_dataset_name(model_name)
 
 
-def save_dspy_aspects(aspects, dataset_name, dspy_mode, dspy_model_name_or_path, output_root):
+def resolve_validation_dataset_name(data_args, training_args, search_args):
+    """Resolve the dataset whose validation split scores generated DSPy aspects.
+
+    An explicit ``--validation_dataset_name`` takes precedence.  The existing
+    ``--use_fixed_validation_dataset`` flag then applies the same task-based
+    mapping as ``search.py``.  Otherwise the validation dataset follows the
+    test dataset selected by ``--dataset_name``.
+    """
+    explicit_dataset_name = (search_args.validation_dataset_name or '').strip()
+    if explicit_dataset_name:
+        return explicit_dataset_name
+
+    if search_args.use_fixed_validation_dataset:
+        fixed_validation_datasets = {
+            'ir': 'flickr',
+            'tbpr': 'RSTPReid',
+            't2it': 'llava',
+            'it2t': 'llava',
+        }
+        return fixed_validation_datasets.get(training_args.task_type, data_args.dataset_name)
+
+    return data_args.dataset_name
+
+
+def save_dspy_aspects(aspects, dataset_name, dspy_mode, dspy_model_name_or_path, output_root,
+                      validation_dataset_name=None):
     write_time = datetime.now().astimezone()
     timestamp = write_time.strftime('%Y%m%d_%H%M%S_%f')
     safe_dataset_name = get_safe_dataset_name(dataset_name)
     safe_dspy_mode = get_safe_dataset_name(dspy_mode)
     safe_dspy_model_name = get_safe_model_name(dspy_model_name_or_path)
+    validation_suffix = ''
+    if validation_dataset_name and validation_dataset_name != dataset_name:
+        validation_suffix = f'_val_{get_safe_dataset_name(validation_dataset_name)}'
     output_dir = os.path.join(output_root, 'dspy_aspects')
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(
         output_dir,
-        f'{safe_dataset_name}_{safe_dspy_mode}_{safe_dspy_model_name}_dspy_aspects_{timestamp}.json',
+        f'{safe_dataset_name}_{safe_dspy_mode}_{safe_dspy_model_name}{validation_suffix}_'
+        f'dspy_aspects_{timestamp}.json',
     )
     output_data = {
         'dataset_name': dataset_name,
+        'validation_dataset_name': validation_dataset_name or dataset_name,
         'dspy_mode': dspy_mode,
         'dspy_model': dspy_model_name_or_path,
         'written_at': write_time.isoformat(timespec='microseconds'),
@@ -113,23 +165,29 @@ def normalize_dspy_aspects(aspects, max_aspects=6):
     return list(dict.fromkeys(aspect.lower() for aspect in aspects))[:max_aspects]
 
 
-def get_locked_dspy_aspects_path(dataset_name, dspy_mode, dspy_model_name_or_path, output_root):
+def get_locked_dspy_aspects_path(dataset_name, dspy_mode, dspy_model_name_or_path, output_root,
+                                 validation_dataset_name=None):
     safe_dataset_name = get_safe_dataset_name(dataset_name)
     safe_dspy_mode = get_safe_dataset_name(dspy_mode)
     safe_dspy_model_name = get_safe_model_name(dspy_model_name_or_path)
+    validation_suffix = ''
+    if validation_dataset_name and validation_dataset_name != dataset_name:
+        validation_suffix = f'_val_{get_safe_dataset_name(validation_dataset_name)}'
     return os.path.join(
         output_root,
         'dspy_aspects',
-        f'{safe_dataset_name}_{safe_dspy_mode}_{safe_dspy_model_name}_locked.json',
+        f'{safe_dataset_name}_{safe_dspy_mode}_{safe_dspy_model_name}{validation_suffix}_locked.json',
     )
 
 
-def load_locked_dspy_aspects(dataset_name, dspy_mode, dspy_model_name_or_path, output_root):
+def load_locked_dspy_aspects(dataset_name, dspy_mode, dspy_model_name_or_path, output_root,
+                             validation_dataset_name=None):
     locked_path = get_locked_dspy_aspects_path(
         dataset_name,
         dspy_mode,
         dspy_model_name_or_path,
         output_root,
+        validation_dataset_name,
     )
     if not os.path.isfile(locked_path):
         return None, locked_path
@@ -155,6 +213,14 @@ def load_locked_dspy_aspects(dataset_name, dspy_mode, dspy_model_name_or_path, o
             f"expected {dspy_model_name_or_path!r}, got {output_data.get('dspy_model')!r}"
         )
 
+    expected_validation_dataset = validation_dataset_name or dataset_name
+    locked_validation_dataset = output_data.get('validation_dataset_name', dataset_name)
+    if locked_validation_dataset != expected_validation_dataset:
+        raise ValueError(
+            f'DSPy aspects lock validation dataset mismatch in {locked_path}: '
+            f"expected {expected_validation_dataset!r}, got {locked_validation_dataset!r}"
+        )
+
     aspects = output_data.get('aspects')
     if not isinstance(aspects, list) or not aspects or not all(isinstance(aspect, str) for aspect in aspects):
         raise ValueError(f'Invalid DSPy aspects lock file: {locked_path}')
@@ -162,7 +228,8 @@ def load_locked_dspy_aspects(dataset_name, dspy_mode, dspy_model_name_or_path, o
     return normalize_dspy_aspects(aspects), locked_path
 
 
-def save_locked_dspy_aspects(aspects, dataset_name, dspy_mode, dspy_model_name_or_path, output_root):
+def save_locked_dspy_aspects(aspects, dataset_name, dspy_mode, dspy_model_name_or_path, output_root,
+                             validation_dataset_name=None, selection_metadata=None):
     aspects = normalize_dspy_aspects(aspects)
     if not aspects:
         raise ValueError('Cannot lock an empty DSPy aspects list.')
@@ -171,16 +238,20 @@ def save_locked_dspy_aspects(aspects, dataset_name, dspy_mode, dspy_model_name_o
         dspy_mode,
         dspy_model_name_or_path,
         output_root,
+        validation_dataset_name,
     )
     os.makedirs(os.path.dirname(locked_path), exist_ok=True)
     write_time = datetime.now().astimezone()
     output_data = {
         'dataset_name': dataset_name,
+        'validation_dataset_name': validation_dataset_name or dataset_name,
         'dspy_mode': dspy_mode,
         'dspy_model': dspy_model_name_or_path,
         'written_at': write_time.isoformat(timespec='microseconds'),
         'aspects': aspects,
     }
+    if selection_metadata is not None:
+        output_data['selection'] = selection_metadata
     temporary_path = f'{locked_path}.tmp.{os.getpid()}'
     try:
         with open(temporary_path, 'w', encoding='utf-8') as locked_file:
@@ -481,12 +552,23 @@ class RetrievalAction:
     def generate_concat_prompts(self, aspects_prompt_list, encode_type):
         constructed_text_prompts, constructed_img_prompts = construct_prompt(aspects_prompt_list,
                                                                              self.training_args.task_type)
+        # DSPy TBPR always uses the type-style person-retrieval wrapper.
+        # The origin_type/type_1/type_2 variants are intentionally not used here.
+        use_tbpr_type_prompt = self.training_args.task_type == 'tbpr'
+        text_base_prompt = (
+            person_retrieval_text_prompt_for_concat
+            if use_tbpr_type_prompt else text_prompt_for_concat
+        )
+        image_base_prompt = (
+            person_retrieval_img_prompt_for_concat
+            if use_tbpr_type_prompt else img_prompt_for_concat
+        )
 
         if encode_type == 'text':
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in self.model_args.model_name_or_path:
                 prompt_template = llava_mistral_template_text_prefix
                 if 'concrete' in self.model_args.eol_type or 'all' not in self.model_args.eol_type:
-                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
+                    prompt_template += llava_mistral_template_content_element.format(text_base_prompt)
                 for llava_mistral_retrieval_disassemble_text_prompt in constructed_text_prompts:
                     content_element = llava_mistral_template_content_element.format(
                         llava_mistral_retrieval_disassemble_text_prompt)
@@ -494,7 +576,7 @@ class RetrievalAction:
             else:
                 prompt_template = llama3_template_text_prefix
                 if 'concrete' in self.model_args.eol_type or 'all' not in self.model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+                    prompt_template += llama3_template_content_element.format(text_base_prompt)
                 for llama3_retrieval_disassemble_text_prompt in constructed_text_prompts:
                     content_element = llama3_template_content_element.format(
                         llama3_retrieval_disassemble_text_prompt)
@@ -504,7 +586,7 @@ class RetrievalAction:
                 prompt_template = llava_mistral_template_image_prefix
                 if 'concrete' in self.model_args.eol_type or 'all' not in self.model_args.eol_type:
                     prompt_template += llava_mistral_template_content_element.format(
-                        img_prompt_for_concat)
+                        image_base_prompt)
                 for llava_mistral_retrieval_disassemble_image_prompt in constructed_img_prompts:
                     content_element = llava_mistral_template_content_element.format(
                         llava_mistral_retrieval_disassemble_image_prompt)
@@ -512,7 +594,7 @@ class RetrievalAction:
             else:
                 prompt_template = llama3_template_image_prefix
                 if 'concrete' in self.model_args.eol_type or 'all' not in self.model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(img_prompt_for_concat)
+                    prompt_template += llama3_template_content_element.format(image_base_prompt)
                 for llama3_retrieval_disassemble_image_prompt in constructed_img_prompts:
                     content_element = llama3_template_content_element.format(
                         llama3_retrieval_disassemble_image_prompt)
@@ -1454,7 +1536,7 @@ def main():
         auto=None,
         num_candidates=num_candidates,
         max_bootstrapped_demos=0,
-        max_labeled_demos=0,
+        max_labeled_demos=1 if USE_INITIAL_DSPY_ASPECTS else 0,
         init_temperature=1.3,
         num_threads=1,
         verbose=True,
@@ -1560,23 +1642,44 @@ def main():
     vocab_dict = {v: k for k, v in vocab_dict.items()}
     print(len(vocab_dict))
 
+    if USE_VALIDATION_DATASET_RESOLVER:
+        validation_dataset_name = resolve_validation_dataset_name(
+            data_args,
+            training_args,
+            search_args,
+        )
+    else:
+        # Keep the original behavior: the validation dataset follows the test
+        # dataset argument, and the TBPR ICFG-PEDES train fallback below is
+        # handled exactly as before.
+        validation_dataset_name = data_args.dataset_name
+    if is_main_process():
+        print(
+            f'Using validation dataset {validation_dataset_name!r} for DSPy prompt evaluation '
+            f'(resolver enabled: {USE_VALIDATION_DATASET_RESOLVER}, '
+            f'test dataset: {data_args.dataset_name!r}, task type: {training_args.task_type!r}).'
+        )
+
     if training_args.task_type == 'cir':
-        val_dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'val',
+        val_dataset = ComposedTextImageRetrievalDataset(validation_dataset_name, processor, 'val',
                                                         training_args.encode_type)
     elif training_args.task_type == 'tbpr':
-        if data_args.dataset_name == 'ICFG-PEDES':
-            val_dataset_single = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'train', 'single')
-            val_dataset_full = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'train', 'full')
-        else:
-            val_dataset_single = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'val', 'single')
-            val_dataset_full = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'val', 'full')
+        # ICFG-PEDES has no regular validation split in the original setup.
+        # Preserve this fallback whenever the resolver switch is disabled.
+        use_icfg_train_fallback = (
+            not USE_VALIDATION_DATASET_RESOLVER
+            and data_args.dataset_name == 'ICFG-PEDES'
+        )
+        validation_split = 'train' if use_icfg_train_fallback else 'val'
+        val_dataset_single = TextPersonRetrievalDataset(validation_dataset_name, processor, validation_split, 'single')
+        val_dataset_full = TextPersonRetrievalDataset(validation_dataset_name, processor, validation_split, 'full')
     elif training_args.task_type == 't2it':
-        val_dataset = Text2ImagetextRetrievalDataset(data_args.dataset_name, processor, 'val', 'corpus')
+        val_dataset = Text2ImagetextRetrievalDataset(validation_dataset_name, processor, 'val', 'corpus')
     elif training_args.task_type == 'it2t':
-        val_dataset = Imagetext2TextRetrievalDataset(data_args.dataset_name, processor, 'val', 'corpus')
+        val_dataset = Imagetext2TextRetrievalDataset(validation_dataset_name, processor, 'val', 'corpus')
     else:
-        val_dataset_full = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'val', 'full')
-        val_dataset_single = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'val', 'single')
+        val_dataset_full = CrossModalRetrievalDataset(validation_dataset_name, processor, 'val', 'full')
+        val_dataset_single = CrossModalRetrievalDataset(validation_dataset_name, processor, 'val', 'single')
     sampler = Data.DistributedSampler(val_dataset_single, num_replicas=dist.get_world_size(), shuffle=True,
                                       rank=dist.get_rank())
     val_dataloader_single = Data.DataLoader(dataset=val_dataset_single, sampler=sampler, pin_memory=True,
@@ -1649,13 +1752,14 @@ def main():
     lock_payload = None
     if is_main_process():
         try:
-            if prompt_generation_args.force_regenerate_dspy_aspects:
+            if USE_INITIAL_DSPY_ASPECTS or prompt_generation_args.force_regenerate_dspy_aspects:
                 locked_aspects = None
                 locked_path = get_locked_dspy_aspects_path(
                     data_args.dataset_name,
                     prompt_generation_args.dspy_strength,
                     model_args.dspy_model_path,
                     path_prefix,
+                    validation_dataset_name,
                 )
             else:
                 locked_aspects, locked_path = load_locked_dspy_aspects(
@@ -1663,6 +1767,7 @@ def main():
                     prompt_generation_args.dspy_strength,
                     model_args.dspy_model_path,
                     path_prefix,
+                    validation_dataset_name,
                 )
             lock_payload = {
                 'aspects': locked_aspects,
@@ -1677,6 +1782,7 @@ def main():
                     prompt_generation_args.dspy_strength,
                     model_args.dspy_model_path,
                     path_prefix,
+                    validation_dataset_name,
                 ),
                 'error': f'{type(exc).__name__}: {exc}',
             }
@@ -1687,28 +1793,74 @@ def main():
 
     aspects_prompt_list = lock_payload['aspects']
     if aspects_prompt_list is None:
-        if is_main_process() and prompt_generation_args.force_regenerate_dspy_aspects:
+        if is_main_process() and (
+                USE_INITIAL_DSPY_ASPECTS or prompt_generation_args.force_regenerate_dspy_aspects
+        ):
             print(f"Ignoring DSPy aspects lock and regenerating: {lock_payload['path']}")
 
+        initial_aspects = None
+        initial_score = None
+        if USE_INITIAL_DSPY_ASPECTS:
+            initial_aspects = normalize_dspy_aspects(INITIAL_DSPY_ASPECTS)
+            if not initial_aspects:
+                raise ValueError('USE_INITIAL_DSPY_ASPECTS is enabled, but INITIAL_DSPY_ASPECTS is empty.')
+
+        train_example_fields = {
+            'dataset_name': data_args.dataset_name,
+            'task_type': 'text-based person retrieval' if training_args.task_type == 'tbpr' else "image-text retrieval",
+            'seed_texts': seed_text,
+            'eval_split': "dev_small",
+            'training_args': training_args,
+            'model_args': model_args,
+            'data_args': data_args,
+            'search_args': search_args,
+            'prompt_generation_args': prompt_generation_args,
+            'validation_dataset_name': validation_dataset_name,
+            'val_dataset_single': val_dataset_single,
+            'val_dataset_full': val_dataset_full,
+            'val_dataloader_single': val_dataloader_single,
+            'val_dataloader_full': val_dataloader_full,
+            'retrieval_action': retrieval_action,
+            'device': device,
+        }
+        if USE_INITIAL_DSPY_ASPECTS:
+            # Keep the hand-written aspects as a labeled DSPy example so the
+            # optimizer can use them as a prompt-level starting demonstration.
+            train_example_fields['aspects'] = initial_aspects
+
         trainset = [
-            dspy.Example(
-                dataset_name=data_args.dataset_name,
-                task_type='text-based person retrieval' if training_args.task_type == 'tbpr' else "image-text retrieval",
-                seed_texts=seed_text,
-                eval_split="dev_small",
-                training_args=training_args,
-                model_args=model_args,
-                data_args=data_args,
-                search_args=search_args,
-                prompt_generation_args=prompt_generation_args,
-                val_dataset_single=val_dataset_single,
-                val_dataset_full=val_dataset_full,
-                val_dataloader_single=val_dataloader_single,
-                val_dataloader_full=val_dataloader_full,
-                retrieval_action=retrieval_action,
-                device=device
-            ).with_inputs("dataset_name", "task_type", "seed_texts"),
+            dspy.Example(**train_example_fields).with_inputs(
+                "dataset_name", "task_type", "seed_texts"
+            ),
         ]
+
+        if USE_INITIAL_DSPY_ASPECTS:
+            # Re-evaluate the supplied starting point with exactly the same
+            # validation path used by dspy_metric for generated candidates.
+            initial_score = dspy_metric(
+                trainset[0],
+                SimpleNamespace(aspects=initial_aspects),
+            )
+            initial_score = float(
+                broadcast_object_from_main(
+                    initial_score if is_main_process() else None
+                )
+            )
+            if is_main_process():
+                print(f'Initial DSPy aspects: {initial_aspects}')
+                print(f'Initial DSPy validation score: {initial_score}')
+                if INITIAL_DSPY_ASPECTS_VALIDATION_SCORE is not None:
+                    print(
+                        'Provided initial DSPy validation score: '
+                        f'{INITIAL_DSPY_ASPECTS_VALIDATION_SCORE}'
+                    )
+                    if abs(
+                            initial_score - INITIAL_DSPY_ASPECTS_VALIDATION_SCORE
+                    ) > 1e-6:
+                        print(
+                            'Warning: provided initial DSPy validation score '
+                            'does not match the score recomputed by dspy_metric.'
+                        )
 
         compiled = optimizer.compile(
             program,
@@ -1716,7 +1868,7 @@ def main():
             valset=trainset,
             num_trials=num_trials,
             max_bootstrapped_demos=0,
-            max_labeled_demos=0,
+            max_labeled_demos=1 if USE_INITIAL_DSPY_ASPECTS else 0,
             minibatch=False,
             fewshot_aware_proposer=False
         )
@@ -1730,18 +1882,26 @@ def main():
                     seed_texts=seed_text,
                 )
                 generated_aspects = normalize_dspy_aspects(prediction.aspects)
-                locked_path = save_locked_dspy_aspects(
-                    generated_aspects,
-                    data_args.dataset_name,
-                    prompt_generation_args.dspy_strength,
-                    model_args.dspy_model_path,
-                    path_prefix,
-                )
-                generated_payload = {
-                    'aspects': generated_aspects,
-                    'path': locked_path,
-                    'error': None,
-                }
+                if USE_INITIAL_DSPY_ASPECTS:
+                    generated_payload = {
+                        'aspects': generated_aspects,
+                        'path': lock_payload['path'],
+                        'error': None,
+                    }
+                else:
+                    locked_path = save_locked_dspy_aspects(
+                        generated_aspects,
+                        data_args.dataset_name,
+                        prompt_generation_args.dspy_strength,
+                        model_args.dspy_model_path,
+                        path_prefix,
+                        validation_dataset_name,
+                    )
+                    generated_payload = {
+                        'aspects': generated_aspects,
+                        'path': locked_path,
+                        'error': None,
+                    }
             except Exception as exc:
                 generated_payload = {
                     'aspects': None,
@@ -1752,9 +1912,78 @@ def main():
         generated_payload = broadcast_object_from_main(generated_payload)
         if generated_payload['error'] is not None:
             raise RuntimeError(f"Failed to generate or lock DSPy aspects: {generated_payload['error']}")
-        aspects_prompt_list = generated_payload['aspects']
-        if is_main_process():
-            print(f"DSPy aspects locked at: {generated_payload['path']}")
+
+        if USE_INITIAL_DSPY_ASPECTS:
+            candidate_aspects = normalize_dspy_aspects(generated_payload['aspects'])
+            if not candidate_aspects:
+                raise ValueError('DSPy generated an empty aspects list in warm-start mode.')
+
+            candidate_score = dspy_metric(
+                trainset[0],
+                SimpleNamespace(aspects=candidate_aspects),
+            )
+            candidate_score = float(
+                broadcast_object_from_main(
+                    candidate_score if is_main_process() else None
+                )
+            )
+
+            selected_payload = None
+            if is_main_process():
+                if candidate_score > initial_score:
+                    selected_source = 'dspy'
+                    selected_aspects = candidate_aspects
+                    selected_score = candidate_score
+                else:
+                    selected_source = 'initial'
+                    selected_aspects = initial_aspects
+                    selected_score = initial_score
+
+                selection_metadata = {
+                    'mode': 'initial_aspects_warm_start',
+                    'initial_aspects': initial_aspects,
+                    'initial_score': initial_score,
+                    'dspy_aspects': candidate_aspects,
+                    'dspy_score': candidate_score,
+                    'selected_source': selected_source,
+                    'selected_score': selected_score,
+                    'provided_initial_score': INITIAL_DSPY_ASPECTS_VALIDATION_SCORE,
+                }
+                locked_path = save_locked_dspy_aspects(
+                    selected_aspects,
+                    data_args.dataset_name,
+                    prompt_generation_args.dspy_strength,
+                    model_args.dspy_model_path,
+                    path_prefix,
+                    validation_dataset_name,
+                    selection_metadata,
+                )
+                selected_payload = {
+                    'aspects': selected_aspects,
+                    'path': locked_path,
+                    'source': selected_source,
+                    'score': selected_score,
+                    'error': None,
+                }
+
+            selected_payload = broadcast_object_from_main(selected_payload)
+            if selected_payload['error'] is not None:
+                raise RuntimeError(
+                    f"Failed to save warm-start DSPy aspects: {selected_payload['error']}"
+                )
+            aspects_prompt_list = selected_payload['aspects']
+            if is_main_process():
+                print(f'Initial DSPy validation score: {initial_score}')
+                print(f'DSPy candidate validation score: {candidate_score}')
+                print(
+                    f"Selected {selected_payload['source']} aspects with score "
+                    f"{selected_payload['score']}: {aspects_prompt_list}"
+                )
+                print(f"DSPy aspects locked at: {selected_payload['path']}")
+        else:
+            aspects_prompt_list = generated_payload['aspects']
+            if is_main_process():
+                print(f"DSPy aspects locked at: {generated_payload['path']}")
     elif is_main_process():
         print(f"Reusing locked DSPy aspects from: {lock_payload['path']}")
 
@@ -1767,6 +1996,7 @@ def main():
             prompt_generation_args.dspy_strength,
             model_args.dspy_model_path,
             path_prefix,
+            validation_dataset_name,
         )
         print(f'DSPy aspects saved to: {aspects_output_path}')
 

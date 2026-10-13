@@ -489,6 +489,10 @@ def main():
     search_args: PromptRepsLLMSearchArguments
     training_args: TrainingArguments
 
+    fixed_alpha = float(search_args.alpha)
+    if search_args.use_fixed_alpha and not 0.0 <= fixed_alpha <= 1.0:
+        raise ValueError(f"--alpha must be between 0 and 1 when --use_fixed_alpha is enabled; got {fixed_alpha}")
+
     validate_sparse_logits_multiply_view_count(model_args, data_args)
     validate_random_view_prompt(model_args, data_args, training_args)
 
@@ -707,10 +711,10 @@ def main():
     val_sparse_retriever_indices = []
 
     
-    if search_args.val_passage_reps is not None:
+    if not search_args.use_fixed_alpha and search_args.val_passage_reps is not None:
         val_dense_retriever_indices = [search_args.val_passage_reps]
 
-    if search_args.val_sparse_index is not None:
+    if not search_args.use_fixed_alpha and search_args.val_sparse_index is not None:
         val_sparse_retriever_indices = [search_args.val_sparse_index]
 
     if dist.get_rank() == 0:
@@ -1432,7 +1436,7 @@ def main():
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         logit = query_logits[text_indice]
                                     text = texts[text_indice]
-                                    if data_args.prompt_type == 'prompt_5':
+                                    if data_args.prompt_type in {'prompt_5', RANDOM_VIEW_PROMPT_TYPE}:
                                         length = 5
                                     elif data_args.prompt_type == 'prompt_3':
                                         length = 3
@@ -1522,7 +1526,7 @@ def main():
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         logit = query_logits[text_indice]
                                     text = texts[text_indice]
-                                    if data_args.prompt_type == 'prompt_5':
+                                    if data_args.prompt_type in {'prompt_5', RANDOM_VIEW_PROMPT_TYPE}:
                                         length = 5
                                     elif data_args.prompt_type == 'prompt_3':
                                         length = 3
@@ -1622,7 +1626,7 @@ def main():
                                         vector[token] = int(v)
                                 if data_args.sparse_value_mean:
                                     for token in vector.keys():
-                                        if data_args.prompt_type == 'prompt_5':
+                                        if data_args.prompt_type in {'prompt_5', RANDOM_VIEW_PROMPT_TYPE}:
                                             vector[token] //= 5
                                         elif data_args.prompt_type == 'prompt_7':
                                             vector[token] //= 7
@@ -1814,7 +1818,7 @@ def main():
             torch.cuda.empty_cache()
 
     max_val_fusion_metric = 0
-    best_weight = 0.5
+    best_weight = fixed_alpha if search_args.use_fixed_alpha else 0.5
 
     if data_args.is_filtered:
         filtered = "filter"
@@ -1840,7 +1844,11 @@ def main():
     if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
         use_sparse_value_mean += f'_random_view_seed_{data_args.random_view_seed}'
 
-    if search_args.val_passage_reps is not None and search_args.val_sparse_index is not None:
+    if (
+            not search_args.use_fixed_alpha
+            and search_args.val_passage_reps is not None
+            and search_args.val_sparse_index is not None
+    ):
         for i in range(9):
             val_fusion_run[i].update(
                 fuse(
@@ -2380,7 +2388,7 @@ def main():
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         logit = query_logits[text_indice]
                                     text = texts[text_indice]
-                                    if data_args.prompt_type == 'prompt_5':
+                                    if data_args.prompt_type in {'prompt_5', RANDOM_VIEW_PROMPT_TYPE}:
                                         length = 5
                                     elif data_args.prompt_type == 'prompt_1':
                                         length = 1
@@ -2431,7 +2439,7 @@ def main():
                                             vector[token] = int(v)
                                     if data_args.sparse_value_mean:
                                         for token in vector.keys():
-                                            if data_args.prompt_type == 'prompt_5':
+                                            if data_args.prompt_type in {'prompt_5', RANDOM_VIEW_PROMPT_TYPE}:
                                                 vector[token] //= 5
                                             elif data_args.prompt_type == 'prompt_1':
                                                 vector[token] //= 1
@@ -2493,7 +2501,7 @@ def main():
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         logit = query_logits[text_indice]
                                     text = texts[text_indice]
-                                    if data_args.prompt_type == 'prompt_5':
+                                    if data_args.prompt_type in {'prompt_5', RANDOM_VIEW_PROMPT_TYPE}:
                                         length = 5
                                     elif data_args.prompt_type == 'prompt_1':
                                         length = 1
@@ -2542,7 +2550,7 @@ def main():
                                             vector[token] = int(v)
                                     if data_args.sparse_value_mean:
                                         for token in vector.keys():
-                                            if data_args.prompt_type == 'prompt_5':
+                                            if data_args.prompt_type in {'prompt_5', RANDOM_VIEW_PROMPT_TYPE}:
                                                 vector[token] //= 5
                                             elif data_args.prompt_type == 'prompt_1':
                                                 vector[token] //= 1
@@ -3867,7 +3875,7 @@ def main():
                                         if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                             logit = query_logits[text_indice]
                                         text = texts[text_indice]
-                                        if data_args.prompt_type == 'prompt_5':
+                                        if data_args.prompt_type in {'prompt_5', RANDOM_VIEW_PROMPT_TYPE}:
                                             length = 5
                                         elif data_args.prompt_type == 'prompt_1':
                                             length = 1
@@ -4414,7 +4422,10 @@ def main():
             fusion_recalls = {k: sum(metric.fusion_recall_lists[k]) for k in metric.recall_k_setting_list}
             if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_val_fusion_metric:
                 max_val_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
-                if search_args.val_passage_reps is None or search_args.val_sparse_index is None:
+                if (
+                        not search_args.use_fixed_alpha
+                        and (search_args.val_passage_reps is None or search_args.val_sparse_index is None)
+                ):
                     best_weight = float((i+1) / 10)
         else:
             fusion_recalls = {dress: {k: sum(metric.fusion_recall_lists[dress][k]) for k in metric.recall_k_setting_list} for dress in metric.fashion_iq_list}
@@ -4424,9 +4435,19 @@ def main():
                 max_val_fusion_metric = (fusion_recalls['dress'][10] + fusion_recalls['dress'][50] +
                                          fusion_recalls['shirt'][10] + fusion_recalls['shirt'][50] +
                                          fusion_recalls['toptee'][10] + fusion_recalls['toptee'][50]) / 6
-                if search_args.val_passage_reps is None or search_args.val_sparse_index is None:
+                if (
+                        not search_args.use_fixed_alpha
+                        and (search_args.val_passage_reps is None or search_args.val_sparse_index is None)
+                ):
                     best_weight = float((i + 1) / 10)
         metric.print_recall(output_path)
+
+    if dist.get_rank() == 0:
+        selection_source = "script --alpha" if search_args.use_fixed_alpha else "validation/test selection"
+        print(
+            f"Final hybrid weights: dense alpha={best_weight:.4f}, "
+            f"sparse beta={1 - best_weight:.4f} ({selection_source})"
+        )
 
     best_test_fusion_run = {}
     best_test_fusion_run.update(

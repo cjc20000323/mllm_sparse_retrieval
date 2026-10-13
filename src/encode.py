@@ -127,16 +127,17 @@ def validate_random_view_prompt(model_args, data_args, training_args):
         )
     if model_args.calculate_type != 'concat':
         raise ValueError(f'{RANDOM_VIEW_PROMPT_TYPE} requires calculate_type=concat.')
-    if training_args.task_type in {'cir', 'tbpr', 't2it', 'it2t'}:
+    if training_args.task_type in {'cir', 't2it', 'it2t'}:
         raise ValueError(
-            f'{RANDOM_VIEW_PROMPT_TYPE} currently supports the standard image-text retrieval branch only.'
+            f'{RANDOM_VIEW_PROMPT_TYPE} supports the standard image-text retrieval and TBPR branches only.'
         )
 
 
-def build_random_view_image_prompt_template(processor, model_args, data_args):
+def build_random_view_image_prompt_template(processor, model_args, data_args, person_retrieval=False):
     _, _, random_image_prompts = build_random_view_prompts(
         processor.tokenizer,
         data_args.random_view_seed,
+        person_retrieval=person_retrieval,
     )
 
     if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
@@ -147,7 +148,8 @@ def build_random_view_image_prompt_template(processor, model_args, data_args):
         content_template = llama3_template_content_element
 
     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-        prompt_template += content_template.format(img_prompt_for_concat)
+        base_prompt = person_retrieval_img_prompt_for_concat if person_retrieval else img_prompt_for_concat
+        prompt_template += content_template.format(base_prompt)
     for random_image_prompt in random_image_prompts:
         prompt_template += content_template.format(random_image_prompt)
     return prompt_template
@@ -1439,7 +1441,14 @@ def main():
                     logits, reps = model.encode_data_for_tbpr(imgs, 'image', processor, device, model_args,
                                                               data_args)
                 else:
-                    if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                        prompt_template = build_random_view_image_prompt_template(
+                            processor,
+                            model_args,
+                            data_args,
+                            person_retrieval=data_args.tbpr_type == 'type',
+                        )
+                    elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                         if data_args.tbpr_type == 'origin_type':
                             prompt_template = llava_mistral_template_image_prefix
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
@@ -1736,7 +1745,7 @@ def main():
                         if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                             logit = logits[img_indice]
                         text = texts[img_indice]
-                        if data_args.prompt_type == 'prompt_5':
+                        if data_args.prompt_type in {'prompt_5', RANDOM_VIEW_PROMPT_TYPE}:
                             length = 5
                         elif data_args.prompt_type == 'prompt_1':
                             length = 1
@@ -1780,7 +1789,7 @@ def main():
                                 vector[token] = int(v)
                         if data_args.sparse_value_mean:
                             for token in vector.keys():
-                                if data_args.prompt_type == 'prompt_5':
+                                if data_args.prompt_type in {'prompt_5', RANDOM_VIEW_PROMPT_TYPE}:
                                     vector[token] //= 5
                                 elif data_args.prompt_type == 'prompt_1':
                                     vector[token] //= 1
@@ -3099,8 +3108,11 @@ def main():
         common_path = (
             f'{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/'
             f'{training_args.encode_type}/{filtered}/{model_args.calculate_type}/'
-            f'{data_args.prompt_type}/{data_args.dataset_split}'
+            f'{data_args.prompt_type}'
         )
+        if training_args.task_type == 'tbpr':
+            common_path += f'/{data_args.tbpr_type}'
+        common_path += f'/{data_args.dataset_split}'
         if data_args.sparse_manual:
             sparse_lengths = f'{data_args.text_sparse_length}_{data_args.image_sparse_length}'
         else:

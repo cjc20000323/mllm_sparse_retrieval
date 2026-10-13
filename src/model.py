@@ -1477,7 +1477,10 @@ class MLLMRetrievalModel(nn.Module):
                     begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                        if data_args.prompt_type == 'prompt_5':
+                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                            if i % (len(random_text_prompts) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_5':
                             if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_1':
@@ -1502,7 +1505,10 @@ class MLLMRetrievalModel(nn.Module):
                             if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
-                        if data_args.prompt_type == 'prompt_5':
+                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                            if i % (len(random_text_prompts) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_5':
                             if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_1':
@@ -1620,7 +1626,10 @@ class MLLMRetrievalModel(nn.Module):
                     begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                        if data_args.prompt_type == 'prompt_5':
+                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                            if i % (len(random_text_prompts) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_5':
                             if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_1':
@@ -1645,7 +1654,10 @@ class MLLMRetrievalModel(nn.Module):
                             if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
-                        if data_args.prompt_type == 'prompt_5':
+                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                            if i % (len(random_text_prompts) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_5':
                             if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_1':
@@ -2625,7 +2637,26 @@ class MLLMRetrievalModel(nn.Module):
 
 
     def encode_data_concat_for_tbpr(self, input, input_type, processor, device, model_args, data_args):
-        if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+        random_text_prompts = []
+        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+            person_retrieval = data_args.tbpr_type == 'type'
+            _, random_text_prompts, _ = build_random_view_prompts(
+                processor.tokenizer,
+                data_args.random_view_seed,
+                person_retrieval=person_retrieval,
+            )
+            if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                prompt_template = llava_mistral_template_text_prefix
+                content_element_template = llava_mistral_template_content_element
+            else:
+                prompt_template = llama3_template_text_prefix
+                content_element_template = llama3_template_content_element
+            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                base_prompt = person_retrieval_text_prompt_for_concat if person_retrieval else text_prompt_for_concat
+                prompt_template += content_element_template.format(base_prompt)
+            for random_text_prompt in random_text_prompts:
+                prompt_template += content_element_template.format(random_text_prompt)
+        elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
             prompt_template = llava_mistral_template_text_prefix
             if data_args.tbpr_type == 'origin_type':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
@@ -2878,7 +2909,10 @@ class MLLMRetrievalModel(nn.Module):
                     begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                        if data_args.prompt_type == 'prompt_5':
+                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                            if i % (len(random_text_prompts) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_5':
                             if i % (
                                     len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
@@ -2901,7 +2935,10 @@ class MLLMRetrievalModel(nn.Module):
                             if i % (len(retrieval_disassemble_text_prompts_person_retrieval_7_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
-                        if data_args.prompt_type == 'prompt_5':
+                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                            if i % (len(random_text_prompts) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_5':
                             if i % (
                                     len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
@@ -3032,7 +3069,10 @@ class MLLMRetrievalModel(nn.Module):
                     begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                        if data_args.prompt_type == 'prompt_5':
+                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                            if i % (len(random_text_prompts) + 2) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_5':
                             if i % (
                                     len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
@@ -3061,7 +3101,10 @@ class MLLMRetrievalModel(nn.Module):
                                     len(retrieval_disassemble_text_prompts_person_retrieval_7_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
-                        if data_args.prompt_type == 'prompt_5':
+                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                            if i % (len(random_text_prompts) + 1) != 0:
+                                begin_col_list.append(begin_of_text_indices[1][i].item())
+                        elif data_args.prompt_type == 'prompt_5':
                             if i % (
                                     len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())

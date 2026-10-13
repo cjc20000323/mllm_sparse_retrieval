@@ -5,12 +5,14 @@ RANDOM_VIEW_PROMPT_TYPE = 'prompt_random_5'
 RANDOM_VIEW_COUNT = 5
 random_view_text_prompt_template = 'Summary the {} in above sentence in one word: '
 random_view_image_prompt_template = 'Summary the {} in above image in one word: '
+random_view_text_prompt_template_person_retrieval = 'Summary the {} of person in above sentence in one word: '
+random_view_image_prompt_template_person_retrieval = 'Summary the {} of person in above image in one word: '
 _random_view_prompt_cache = {}
 
 
-def build_random_view_prompts(tokenizer, seed):
+def build_random_view_prompts(tokenizer, seed, person_retrieval=False):
     """Build five reproducible random-view prompts from normal vocabulary tokens."""
-    cache_key = (id(tokenizer), seed)
+    cache_key = (id(tokenizer), seed, person_retrieval)
     if cache_key in _random_view_prompt_cache:
         random_tokens, text_prompts, image_prompts = _random_view_prompt_cache[cache_key]
         return list(random_tokens), list(text_prompts), list(image_prompts)
@@ -35,8 +37,16 @@ def build_random_view_prompts(tokenizer, seed):
         )
 
     random_tokens = random.Random(seed).sample(candidate_tokens, RANDOM_VIEW_COUNT)
-    text_prompts = [random_view_text_prompt_template.format(token) for token in random_tokens]
-    image_prompts = [random_view_image_prompt_template.format(token) for token in random_tokens]
+    text_prompt_template = (
+        random_view_text_prompt_template_person_retrieval
+        if person_retrieval else random_view_text_prompt_template
+    )
+    image_prompt_template = (
+        random_view_image_prompt_template_person_retrieval
+        if person_retrieval else random_view_image_prompt_template
+    )
+    text_prompts = [text_prompt_template.format(token) for token in random_tokens]
+    image_prompts = [image_prompt_template.format(token) for token in random_tokens]
     _random_view_prompt_cache[cache_key] = (
         tuple(random_tokens),
         tuple(text_prompts),

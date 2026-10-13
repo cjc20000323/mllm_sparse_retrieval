@@ -19,6 +19,15 @@ CALCULATE_TYPE=concat
 PROMPT_TYPE=prompt_5
 USE_MEAN=no_mean
 DATASET_SPLIT=test
+# Set USE_FIXED_ALPHA=true to use ALPHA directly; false keeps existing selection logic.
+ALPHA="${ALPHA:-0.9}"
+BETA="${BETA:-0.1}"
+USE_FIXED_ALPHA="${USE_FIXED_ALPHA:-false}"
+
+FUSION_ALPHA_ARGS=()
+if [[ "${USE_FIXED_ALPHA}" == "true" ]]; then
+    FUSION_ALPHA_ARGS+=(--use_fixed_alpha)
+fi
 
 
 deepspeed --num_gpus=$GPUS --num_nodes=$NUM_NODES src/rerank.py \
@@ -37,8 +46,9 @@ deepspeed --num_gpus=$GPUS --num_nodes=$NUM_NODES src/rerank.py \
     --use_gpu \
     --retrieval_batch_size 1 \
     --num_expended_tokens 0 \
-    --alpha 0.9 \
-    --beta 0.1 \
+    --alpha "${ALPHA}" \
+    --beta "${BETA}" \
+    "${FUSION_ALPHA_ARGS[@]}" \
     --reps_loc 'after_pad' \
     --eol_type disassembleeol_separate \
     --sparse_value_type sum \

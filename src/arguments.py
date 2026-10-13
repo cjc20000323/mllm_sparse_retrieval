@@ -117,11 +117,24 @@ class PromptRepsLLMSearchArguments:
             "help": "Use Flickr30K/RSTPReid/LLaVA as the validation dataset according to the test task type."
         },
     )
+    validation_dataset_name: str = field(
+        default=None,
+        metadata={
+            "help": "Dataset whose val split is used for DSPy prompt evaluation. "
+                    "Overrides --use_fixed_validation_dataset when provided."
+        },
+    )
     depth: int = field(default=1000)
     save_dir: str = field(default=None, metadata={"help": "Where to save the run files"})
     quiet: bool = field(default=True, metadata={"help": "Whether to print the progress"})
     use_gpu: bool = field(default=False, metadata={"help": "Whether to use GPU"})
     alpha: float = field(default=0.5, metadata={"help": "The weight for dense retrieval"})
+    use_fixed_alpha: bool = field(
+        default=False,
+        metadata={
+            "help": "Use --alpha directly for final hybrid fusion instead of selecting alpha on validation."
+        },
+    )
     retrieval_batch_size: int = field(default=0, metadata={"help": "Batch size for retrieval"})
     remove_query: bool = field(default=False, metadata={"help": "Whether to remove query id from the ranking"})
     threads: int = field(default=1, metadata={"help": "Number of threads for sparse retrieval"})
