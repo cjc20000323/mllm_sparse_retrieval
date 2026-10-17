@@ -17,8 +17,8 @@ NUM_IMAGES="${NUM_IMAGES:-10}"
 SPLIT="${SPLIT:-test}"
 SEED="${SEED:-2026}"
 
-# Use "all" for every dataset currently supported by dataset.py.  The alias
-# "llava" expands to both llava_t2it and llava_it2t layouts.
+# Use "all" for every supported dataset.  LLaVA is handled only as an
+# image+text-to-text (it2t) dataset.
 DATASETS="${DATASETS:-all}"
 
 # A 70B checkpoint normally needs multiple visible GPUs.  Set

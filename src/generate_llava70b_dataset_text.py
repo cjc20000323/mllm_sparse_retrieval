@@ -8,8 +8,8 @@ written to a separate directory that mirrors the layouts expected by
 The program supports the datasets currently handled by dataset.py:
 
 * image -> text: coco, flickr, fashion-iq, CUHK-PEDES, ICFG-PEDES, RSTPReid
-* text -> image+text: webqa, edis, llava_t2it
-* image+text -> text: remuq, llava_it2t
+* text -> image+text: webqa, edis
+* image+text -> text: remuq, llava
 
 For the mixed-modality datasets, the model is asked for a question and an
 answer.  For the other datasets, it is asked for an image description.
@@ -49,8 +49,7 @@ IMAGE_DATASETS = (
 T2IT_DATASETS = ("webqa", "edis")
 ALL_DATASETS = IMAGE_DATASETS + T2IT_DATASETS + (
     "remuq",
-    "llava_t2it",
-    "llava_it2t",
+    "llava",
 )
 
 DATASET_DIR_NAMES = {
@@ -63,8 +62,7 @@ DATASET_DIR_NAMES = {
     "webqa": "WebQA",
     "edis": "EDIS",
     "remuq": "UMRB-ReMuQ",
-    "llava_t2it": "UMRB-LLaVA",
-    "llava_it2t": "UMRB-LLaVA",
+    "llava": "UMRB-LLaVA",
 }
 
 PERSON_JSON_NAMES = {
@@ -76,7 +74,6 @@ PERSON_JSON_NAMES = {
 T2IT_CORPUS_PARTS = {
     "webqa": 2,
     "edis": 4,
-    "llava_t2it": 2,
 }
 
 
@@ -677,8 +674,7 @@ class DatasetGenerator:
         return frame
 
     def _t2it_samples(self, dataset: str) -> list[ImageSample]:
-        source_dataset = "llava_t2it" if dataset == "llava_t2it" else dataset
-        base = self._data_dir(source_dataset)
+        base = self._data_dir(dataset)
         qrels = self._read_parquet(base / "qrels-00000-of-00001.parquet")
         target_ids = {
             _normalise_id(value) for value in qrels["corpus-id"].tolist()
@@ -716,8 +712,7 @@ class DatasetGenerator:
         return samples
 
     def _it2t_samples(self, dataset: str) -> list[ImageSample]:
-        source_dataset = "llava_it2t" if dataset == "llava_it2t" else dataset
-        base = self._data_dir(source_dataset)
+        base = self._data_dir(dataset)
         query = self._filter_split(self._read_parquet(base / "query.parquet"))
         samples: list[ImageSample] = []
         seen: set[str] = set()
@@ -955,8 +950,6 @@ class DatasetGenerator:
         results: list[GenerationResult],
     ) -> list[str]:
         output_dir = self._output_data_dir(dataset)
-        if dataset == "llava_t2it":
-            output_dir = output_dir / "t2it"
         output_dir.mkdir(parents=True, exist_ok=True)
 
         query_rows: list[dict[str, Any]] = []
@@ -1031,8 +1024,6 @@ class DatasetGenerator:
         results: list[GenerationResult],
     ) -> list[str]:
         output_dir = self._output_data_dir(dataset)
-        if dataset == "llava_it2t":
-            output_dir = output_dir / "it2t"
         output_dir.mkdir(parents=True, exist_ok=True)
 
         query_rows: list[dict[str, Any]] = []
@@ -1108,11 +1099,11 @@ class DatasetGenerator:
             samples = self._sample(self._person_samples(dataset))
             results = [self.model.describe(sample) for sample in samples]
             self._write_person(dataset, samples, results)
-        elif dataset in T2IT_DATASETS or dataset == "llava_t2it":
+        elif dataset in T2IT_DATASETS:
             samples = self._sample(self._t2it_samples(dataset))
             results = [self.model.make_qa(sample) for sample in samples]
             self._write_t2it(dataset, samples, results)
-        elif dataset == "remuq" or dataset == "llava_it2t":
+        elif dataset in ("remuq", "llava"):
             samples = self._sample(self._it2t_samples(dataset))
             results = [self.model.make_qa(sample) for sample in samples]
             self._write_it2t(dataset, samples, results)
@@ -1136,10 +1127,6 @@ def _expand_datasets(value: str) -> list[str]:
             for item in ALL_DATASETS:
                 if item not in expanded:
                     expanded.append(item)
-        elif name == "llava":
-            for item in ("llava_t2it", "llava_it2t"):
-                if item not in expanded:
-                    expanded.append(item)
         elif name in ALL_DATASETS and name not in expanded:
             expanded.append(name)
         else:
@@ -1157,7 +1144,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--datasets",
         default="all",
-        help="comma/space separated names, or all; llava expands to both directions",
+        help="comma/space separated names, or all; llava is handled only as it2t",
     )
     parser.add_argument(
         "--split",
