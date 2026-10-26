@@ -1,27 +1,48 @@
-"""Plot dense/sparse hybrid-weight recall curves in a three-panel figure.
+"""Plot dense/sparse hybrid-weight recall curves as separate dataset figures.
 
 The x-axis is the dense-representation weight alpha.  The sparse-representation
 weight is 1 - alpha, matching the fusion sweep in ``src/search.py``.
 
 The populated series are the supplied Llama3-8B and Llama3-Mistral-7B Flickr
-and WebQA results plus the RSTPReid person text-retrieval results.
+and WebQA results plus the RSTPReid / CUHK-PEDES person text-retrieval results.
 The source workbooks store recall as a fraction; the plot uses percentages.
-Three figures are generated for Recall@1, Recall@5, and Recall@10, plus one
-separate figure for their per-weight average. All other series are intentionally
-empty because they are not part of the supplied result. Each series dictionary
-also receives an ``average`` entry containing the element-wise mean of Recall@1,
-Recall@5, and Recall@10.
+Each of Recall@1, Recall@5, Recall@10, and their per-weight average is exported
+as three independent single-panel PDFs: Flickr, person retrieval, and WebQA.
+This produces 12 files in the current working directory, named
+``hybrid_weight_recall_{panel}_{metric}.pdf``. Existing three-panel PDFs are
+neither overwritten nor deleted. Run this script as before; no CLI changes.
+Flickr Recall@10 retains its compact, large-type layout. Flickr and person
+Average Recall match rstpreid_length.pdf's landscape page and axes bounds,
+large typography, grid, and stroke sizes, with internal legends and no title.
+All other series are intentionally empty because they are not part of the
+supplied result. Each series dictionary also receives an ``average`` entry
+containing the element-wise mean of Recall@1, Recall@5, and Recall@10.
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.ticker import MaxNLocator
 
 
 ALPHA = np.arange(0.1, 1.0, 0.1)
 EMPTY = np.array([], dtype=float)
 RECALL_LEVELS = (1, 5, 10)
-OUTPUT_PATH_TEMPLATE = "hybrid_weight_recall_three_panel_recall_{recall}.pdf"
-AVERAGE_OUTPUT_PATH = "hybrid_weight_recall_three_panel_average.pdf"
+OUTPUT_PATH_TEMPLATE = "hybrid_weight_recall_{panel}_{metric}.pdf"
+PANEL_FIGSIZE = (7, 6)
+COMPACT_FLICKR_FIGSIZE = (3.4, 3.8)
+COMPACT_FLICKR_METRICS = (10,)
+PAPER_AVERAGE_PANELS = ("flickr", "person_retrieval")
+# Measured from rstpreid_length.pdf; fixed bounds prevent data-dependent crops.
+PAPER_AVERAGE_PAGE_SIZE_POINTS = (526.990625, 354.5648879717)
+PAPER_AVERAGE_AXES_BOUNDS_POINTS = (76.990625, 67.834375, 446.4, 277.2)
+PAPER_AVERAGE_FIGSIZE = tuple(value / 72 for value in PAPER_AVERAGE_PAGE_SIZE_POINTS)
+COMPACT_FLICKR_LEGEND = {
+    "LLaVA-8B · image retrieval": "8B T2I",
+    "LLaVA-8B · text retrieval": "8B I2T",
+    "LLaVA-Mistral-7B · image retrieval": "Mistral T2I",
+    "LLaVA-Mistral-7B · text retrieval": "Mistral I2T",
+}
 
 # The pastel palette follows plot_alpha.py, plot_prompt.py, and plot_length.py.
 COLORS = {
@@ -342,48 +363,138 @@ def plot_panel(ax, title, series, recall_label):
         )
 
 
-def save_three_panel(metric, metric_label, output_path):
-    """Save the three dataset panels for one recall metric."""
-    fig, axes = plt.subplots(1, 3, figsize=(20, 6), sharex=True)
-
-    plot_panel(
-        axes[0],
-        "Flickr · image-text retrieval",
-        build_results(FLICKR_SERIES, metric),
-        metric_label,
-    )
-    plot_panel(
-        axes[1],
-        "RSTPReid / CUHK-PEDES · person text retrieval",
-        build_person_retrieval_results(metric),
-        metric_label,
-    )
-    plot_panel(
-        axes[2],
-        "WebQA · mixed-modal retrieval",
-        build_results(WEBQA_SERIES, metric),
-        metric_label,
+def build_panels(metric):
+    """Keep the original three panel groupings and their series unchanged."""
+    return (
+        ("flickr", "Flickr · image-text retrieval", build_results(FLICKR_SERIES, metric)),
+        ("person_retrieval", "RSTPReid / CUHK-PEDES · person text retrieval",
+         build_person_retrieval_results(metric)),
+        ("webqa", "WebQA · mixed-modal retrieval", build_results(WEBQA_SERIES, metric)),
     )
 
-    fig.tight_layout()
-    fig.savefig(output_path, format="pdf", bbox_inches="tight", pad_inches=0.05)
-    plt.close(fig)
-    print(f"Saved figure to {output_path}")
+
+def _apply_compact_flickr_style(fig, ax):
+    """Keep ~7.7pt text after each figure is scaled to 4.1cm paper width."""
+    ax.set_title(ax.get_title().replace(" retrieval", "\nretrieval"), fontsize=18, pad=7)
+    ax.set_xlabel("Dense weight α\n(sparse = 1 − α)", fontsize=18, labelpad=5)
+    ax.set_ylabel(ax.get_ylabel(), fontsize=18, labelpad=4)
+    ax.set_xticks(ALPHA[::2])
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
+    ax.tick_params(axis="both", labelsize=16, pad=3)
+    handles, labels = ax.get_legend_handles_labels()
+    if ax.get_legend() is not None:
+        ax.get_legend().remove()
+    if handles:
+        legend = ax.legend(
+            handles, [COMPACT_FLICKR_LEGEND.get(label, label) for label in labels],
+            loc="lower center", bbox_to_anchor=(0.5, 0.01), bbox_transform=fig.transFigure,
+            ncol=2, fontsize=16, frameon=True, handlelength=1.15, handletextpad=0.3,
+            columnspacing=0.7, borderpad=0.3, labelspacing=0.3,
+        )
+        # Reserve the footer explicitly; include this artist again when exporting.
+        legend.set_in_layout(False)
+    fig.tight_layout(rect=(0, 0.2, 1, 1), pad=0.55)
+
+
+def _apply_paper_average_style(fig, ax, panel):
+    """Match the length figure's landscape layout without changing curve data."""
+    width, height = PAPER_AVERAGE_PAGE_SIZE_POINTS
+    left, bottom, panel_width, panel_height = PAPER_AVERAGE_AXES_BOUNDS_POINTS
+    fig.subplots_adjust(left=left / width, right=(left + panel_width) / width,
+                        bottom=bottom / height, top=(bottom + panel_height) / height)
+    ax.set_title("")
+    ax.set_xlabel("Dense weight α", fontsize=25, labelpad=4)
+    ax.set_ylabel(ax.get_ylabel(), fontsize=25, labelpad=4)
+    ax.set_xticks(ALPHA[::2])
+    ax.set_yticks([70, 80, 90] if panel == "flickr" else [0, 10, 20, 30])
+    ax.set_ylim((64, 92) if panel == "flickr" else (0, 32))
+    ax.tick_params(axis="both", labelsize=30, pad=3.5, length=3.5, width=0.8)
+    ax.grid(True, color="#b0b0b0", alpha=1, linewidth=0.8, linestyle="-")
+    for line in ax.lines:
+        line.set_linewidth(3)
+        line.set_markersize(8)
+    handles, labels = ax.get_legend_handles_labels()
+    if ax.get_legend() is not None:
+        ax.get_legend().remove()
+    if not handles:
+        return
+    if panel == "flickr":
+        labels = [COMPACT_FLICKR_LEGEND.get(label, label).replace("8B", "LLaMA", 1) for label in labels]
+    else:
+        # Dataset determines marker shape; model determines color and line style.
+        # Separate the keys while preserving all four curve identities.
+        handles = [
+            Line2D([], [], color="#555555", linestyle="none", marker=marker, markersize=8)
+            for marker in ("o", "s")
+        ] + [
+            Line2D([], [], color=COLORS[model], linestyle=LINESTYLES[model], linewidth=3)
+            for model in ("llava_8b", "llava_mistral")
+        ]
+        labels = ["RSTPReid", "CUHK-PEDES", "LLaMA", "Mistral"]
+    ax.legend(
+        handles, labels, loc="lower right" if panel == "flickr" else "lower center",
+        ncol=2, fontsize=25, handlelength=1.4, handletextpad=0.4,
+        borderpad=0.4, columnspacing=0.4 if panel == "flickr" else 0.8, labelspacing=0.3,
+        borderaxespad=0.25, frameon=True,
+    )
+
+
+def create_panel_figure(panel, title, series, metric_label, *, compact=False, paper_layout=False):
+    """Build a standalone panel without hiding its curves behind the legend."""
+    if paper_layout and panel not in PAPER_AVERAGE_PANELS:
+        raise ValueError(f"Paper layout requires one of {PAPER_AVERAGE_PANELS}, got {panel!r}")
+    figsize = PAPER_AVERAGE_FIGSIZE if paper_layout else COMPACT_FLICKR_FIGSIZE if compact else PANEL_FIGSIZE
+    fig, ax = plt.subplots(figsize=figsize)
+    try:
+        plot_panel(ax, title, series, metric_label)
+        if panel == "person_retrieval" and not paper_layout and ax.get_legend() is not None:
+            # Four long dataset/model labels cover the lower curve in a
+            # standalone panel. Keep the same styles, below the plotting area.
+            ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.18),
+                      ncol=2, fontsize=9, frameon=True)
+        if paper_layout:
+            _apply_paper_average_style(fig, ax, panel)
+        elif compact:
+            _apply_compact_flickr_style(fig, ax)
+        else:
+            fig.tight_layout()
+    except BaseException:
+        plt.close(fig)
+        raise
+    return fig, ax
+
+
+def save_single_panels(metric, metric_label, *, panels=None):
+    """Save independent dataset figures, optionally selecting panels by name."""
+    metric_suffix = "average" if metric == AVERAGE_RECALL_KEY else f"recall_{metric}"
+    selected_panels = set(panels) if panels is not None else None
+    for panel, title, series in build_panels(metric):
+        if selected_panels is not None and panel not in selected_panels:
+            continue
+        output_path = OUTPUT_PATH_TEMPLATE.format(panel=panel, metric=metric_suffix)
+        paper_layout = metric == AVERAGE_RECALL_KEY and panel in PAPER_AVERAGE_PANELS
+        compact = panel == "flickr" and metric in COMPACT_FLICKR_METRICS
+        fig, ax = create_panel_figure(panel, title, series, metric_label,
+                                    compact=compact, paper_layout=paper_layout)
+        try:
+            extra = {"bbox_extra_artists": [ax.get_legend()]} if compact and ax.get_legend() is not None else {}
+            export_style = {"pdf.fonttype": 42} if compact or paper_layout else {}
+            if paper_layout:
+                export_style["savefig.bbox"] = None
+            with plt.rc_context(export_style):
+                fig.savefig(output_path, format="pdf",
+                            bbox_inches=None if paper_layout else "tight",
+                            pad_inches=0 if paper_layout else 0.05, **extra)
+        finally:
+            plt.close(fig)
+        print(f"Saved figure to {output_path}")
 
 
 def main():
     for recall in RECALL_LEVELS:
-        save_three_panel(
-            recall,
-            f"Recall@{recall}",
-            OUTPUT_PATH_TEMPLATE.format(recall=recall),
-        )
+        save_single_panels(recall, f"Recall@{recall}")
 
-    save_three_panel(
-        AVERAGE_RECALL_KEY,
-        "Average Recall",
-        AVERAGE_OUTPUT_PATH,
-    )
+    save_single_panels(AVERAGE_RECALL_KEY, "Average Recall")
 
 
 if __name__ == "__main__":

@@ -27,12 +27,10 @@ from arguments import TrainingArguments
 from template import lamra_2_img_prompt, lamra_2_text_prompt, lamra_2_tbpr_prompt, lamra_2_5_text_prompt, \
     lamra_2_5_img_prompt, lamra_2_5_tbpr_prompt, vlm2vec_img_prompt, vlm2vec_text_prompt, vlm2vec_tbpr_prompt, \
     lamra_2_5_it2t_corpus_prompt, lamra_2_5_t2it_corpus_prompt, lamra_2_it2t_corpus_prompt, lamra_2_t2it_corpus_prompt
-from dataset import CrossModalRetrievalDataset, TextPersonRetrievalDataset, Text2ImagetextRetrievalDataset, \
-    Imagetext2TextRetrievalDataset
-from models.blip_itm import blip_itm
-from eva_clip import create_model_and_transforms, get_tokenizer
-from sentence_transformers import SentenceTransformer
-from peft import PeftModel
+from dense_encoding import DenseEncoderArguments
+from mmret_dense import is_mmret_model, run_mmret_encoding
+from unime_dense import is_unime_model, run_unime_encoding
+from vlm2vec_dense import is_vlm2vec_model, run_vlm2vec_encoding
 
 model_begin_indice = 28
 path_prefix = '/root/autodl-fs/'
@@ -77,12 +75,33 @@ def patch_gme_remote_code(encoder):
 
 
 def main():
-    parser = HfArgumentParser((ModelArguments, PromptRepsLLMDataArguments, TrainingArguments))
+    parser = HfArgumentParser((ModelArguments, PromptRepsLLMDataArguments, TrainingArguments,
+                              DenseEncoderArguments))
 
-    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, training_args, dense_args = parser.parse_args_into_dataclasses()
     model_args: ModelArguments
     data_args: PromptRepsLLMDataArguments
     training_args: TrainingArguments
+
+    if is_vlm2vec_model(model_args.model_name_or_path, dense_args.dense_model_type):
+        run_vlm2vec_encoding(model_args, data_args, training_args, dense_args)
+        return
+    if is_unime_model(model_args.model_name_or_path, dense_args.dense_model_type):
+        run_unime_encoding(model_args, data_args, training_args, dense_args)
+        return
+    if is_mmret_model(model_args.model_name_or_path, dense_args.dense_model_type):
+        run_mmret_encoding(model_args, data_args, training_args, dense_args)
+        return
+    if dense_args.data_root is not None:
+        raise ValueError("--data_root is supported only by the native MMRet, UniME and VLM2Vec encoders.")
+
+    # Optional legacy backends must not be imported for the native dense paths.
+    from dataset import (CrossModalRetrievalDataset, TextPersonRetrievalDataset,
+                         Text2ImagetextRetrievalDataset, Imagetext2TextRetrievalDataset)
+    from models.blip_itm import blip_itm
+    from eva_clip import create_model_and_transforms, get_tokenizer
+    from sentence_transformers import SentenceTransformer
+    from peft import PeftModel
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

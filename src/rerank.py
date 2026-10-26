@@ -26,6 +26,11 @@ from encode import get_filtered_ids
 from metrices import RecallMetrics
 from model import MLLMRetrievalModel
 from reranker import Reranker
+from rerank_prior_cache import validate_prior_cache_options
+from time_estimation import (
+    RerankTimeEstimationArguments, RerankTimeEstimateWriter,
+    StageTimeObserver, TorchStageCollectives,
+)
 
 torch.set_printoptions(threshold=10000)  # 数字根据你的张量尺寸调整
 import torch.nn as nn
@@ -161,15 +166,25 @@ def close_sparse_retriever(sparse_retriever, analyzer=None):
     gc.collect()
 
 
-def main():
+def _run_rerank():
     parser = HfArgumentParser(
-        (ModelArguments, PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, TrainingArguments))
+        (ModelArguments, PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments,
+         TrainingArguments, RerankTimeEstimationArguments))
 
-    model_args, data_args, search_args, training_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, search_args, training_args, time_estimate_args = parser.parse_args_into_dataclasses()
     model_args: ModelArguments
     data_args: PromptRepsLLMDataArguments
     search_args: PromptRepsLLMSearchArguments
     training_args: TrainingArguments
+    if search_args.rerank_batch_size <= 0:
+        raise ValueError("--rerank_batch_size must be positive")
+    if search_args.use_rerank_prior_cache:
+        validate_prior_cache_options(True, search_args.modify_type, search_args.rerank_template,
+                                     training_args.task_type, search_args.query_type, search_args.rerank_type)
+    time_estimate_args.validate(model_args, search_args)
+    estimate_time_only = time_estimate_args.estimate_time_only
+    if estimate_time_only and search_args.passage_reps is None and search_args.sparse_index is None:
+        raise ValueError("--estimate_time_only requires a dense representation path or sparse index")
 
     fixed_alpha = float(search_args.alpha)
     if search_args.use_fixed_alpha and not 0.0 <= fixed_alpha <= 1.0:
@@ -179,15 +194,18 @@ def main():
 
     device_map = "cuda"
     world_size = int(os.environ.get("WORLD_SIZE", 1))
+    rank = 0
     print(os.environ.get("WORLD_SIZE"))
     ddp = world_size != 1
     print(ddp)
     # if ddp and False:
-    if ddp:
+    if ddp or "RANK" in os.environ:
         device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)}
         # gradient_accumulation_steps = gradient_accumulation_steps // world_size
 
         if not dist.is_initialized():
+            if torch.cuda.is_available():
+                torch.cuda.set_device(int(os.environ.get("LOCAL_RANK") or 0))
             torch.distributed.init_process_group("nccl", timeout=timedelta(seconds=3600))
         rank, world_size = torch.distributed.get_rank(), torch.distributed.get_world_size()
         device_id = rank % torch.cuda.device_count()
@@ -195,6 +213,47 @@ def main():
         torch.cuda.set_device(device)
 
         print(device)
+
+    time_writer = None
+    time_collectives = None
+    synchronize_for_timing = None
+    if estimate_time_only:
+        time_collectives = TorchStageCollectives(device)
+        synchronize_for_timing = (
+            (lambda used_device=device: torch.cuda.synchronize(used_device))
+            if torch.cuda.is_available() else (lambda: None)
+        )
+        time_writer = RerankTimeEstimateWriter(
+            training_args.output_dir,
+            {
+                "model_name_or_path": model_args.model_name_or_path,
+                "dataset_name": data_args.dataset_name,
+                "dataset_split": data_args.dataset_split,
+                "query_type": search_args.query_type,
+                "eol_type": model_args.eol_type,
+                "calculate_type": model_args.calculate_type,
+                "prompt_type": data_args.prompt_type,
+                "world_size": world_size,
+                "per_device_batch_size": data_args.per_device_batch_size,
+                "retrieval_batch_size": search_args.retrieval_batch_size,
+                "depth": search_args.depth,
+                "rerank_num": search_args.rerank_num,
+                "rerank_type": search_args.rerank_type,
+                "rerank_template": search_args.rerank_template,
+                "rerank_batch_size": search_args.rerank_batch_size,
+                "use_fixed_alpha": search_args.use_fixed_alpha,
+                "requested_alpha": search_args.alpha,
+            },
+            rank=time_collectives.rank,
+        )
+        time_writer.save()
+        if rank == 0:
+            print(
+                "[time-estimate] enabled for disassembleeol_separate+concat: "
+                "20 warmup work units, >=5s between samples, 5 rates with CV <5%. "
+                "Retrieval remains complete; reranking may stop early. "
+                "Validation/alpha selection and index loading are excluded."
+            )
 
     if training_args.bf16:
         torch_type = torch.bfloat16
@@ -303,33 +362,46 @@ def main():
         )
         encoder = encoder.merge_and_unload()
 
+    generated_validation_kwargs = {
+        'use_generated_validation_data': data_args.use_generated_validation_data,
+        'generated_validation_data_root': data_args.generated_validation_data_root,
+    }
+
     if training_args.task_type == 'cir':
         dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split,
                                                     search_args.query_type)
         val_dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'val',
-                                                    search_args.query_type)
+                                                        search_args.query_type,
+                                                        **generated_validation_kwargs)
     elif training_args.task_type == 'tbpr':
         dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'single')
-        if data_args.dataset_name == 'RSTPReid':
+        if data_args.use_generated_validation_data:
+            val_dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'val', 'full',
+                                                      **generated_validation_kwargs)
+        elif data_args.dataset_name == 'RSTPReid':
             val_dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'val', 'full')
         else:
             val_dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'train', 'full')
     elif training_args.task_type == 't2it':
         dataset = Text2ImagetextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split,
                                                      'query')
-        val_dataset = Text2ImagetextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split,
-                                                         'query')
+        val_split = 'val' if data_args.use_generated_validation_data else data_args.dataset_split
+        val_dataset = Text2ImagetextRetrievalDataset(data_args.dataset_name, processor, val_split, 'query',
+                                                      **generated_validation_kwargs)
     elif training_args.task_type == 'it2t':
         dataset = Imagetext2TextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'query')
-        val_dataset = Imagetext2TextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split,
-                                                     'query')
+        val_split = 'val' if data_args.use_generated_validation_data else data_args.dataset_split
+        val_dataset = Imagetext2TextRetrievalDataset(data_args.dataset_name, processor, val_split, 'query',
+                                                     **generated_validation_kwargs)
     else:
         if search_args.query_type == 'text':
             dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
-            val_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'val', 'full')
+            val_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'val', 'full',
+                                                     **generated_validation_kwargs)
         else:
             dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
-            val_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'val', 'single')
+            val_dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'val', 'single',
+                                                     **generated_validation_kwargs)
 
     val_sampler = Data.DistributedSampler(val_dataset, num_replicas=world_size, shuffle=True, rank=rank)
     val_dataloader = Data.DataLoader(dataset=val_dataset, sampler=val_sampler,
@@ -1549,7 +1621,8 @@ def main():
                                              fusion_recalls['shirt'][10] + fusion_recalls['shirt'][50] +
                                              fusion_recalls['toptee'][10] + fusion_recalls['toptee'][50]) / 6
                     best_weight = float((i + 1) / 10)
-            val_metric.print_recall(output_path)
+            if not estimate_time_only:
+                val_metric.print_recall(output_path)
 
         del val_metric
         del fusion_recalls
@@ -1625,9 +1698,24 @@ def main():
             analyzer = JWhiteSpaceAnalyzer()
             sparse_retriever.set_analyzer(analyzer)
 
+        retrieval_observer = None
+        test_progress = tqdm
+        if estimate_time_only:
+            retrieval_observer = StageTimeObserver(
+                "retrieval", early_stop=False, collectives=time_collectives,
+                synchronize=synchronize_for_timing,
+            )
+
+            def test_progress(items, total):
+                return retrieval_observer.progress(
+                    items, total=total, total_items=len(sampler),
+                    item_count=lambda entry: len(entry[1][0]), progress_factory=tqdm,
+                    desc="[retrieval] test disassembleeol_separate+concat", unit="batch",
+                )
+
         if training_args.task_type == 'cir':
             with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-                for batch_idx, (texts, imgs_path, target_path, text_ids, img_ids, composed_ids, dress_type) in tqdm(
+                for batch_idx, (texts, imgs_path, target_path, text_ids, img_ids, composed_ids, dress_type) in test_progress(
                         enumerate(test_dataloader),
                         total=len(test_dataloader)):
                     '''
@@ -1912,7 +2000,7 @@ def main():
 
         elif training_args.task_type == 'tbpr':
             with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-                for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
+                for batch_idx, (texts, imgs_path, text_ids, img_ids) in test_progress(enumerate(test_dataloader),
                                                                              total=len(test_dataloader)):
                     lookup_indices.extend(text_ids)
                     if model_args.calculate_type == 'separate':
@@ -2208,7 +2296,7 @@ def main():
                                                  search_args.remove_query))
         elif training_args.task_type == 't2it':
             with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-                for batch_idx, (query_texts, query_ids) in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
+                for batch_idx, (query_texts, query_ids) in test_progress(enumerate(test_dataloader), total=len(test_dataloader)):
                     lookup_indices.extend(query_ids)
                     if model_args.calculate_type == 'separate':
                         query_logits, query_dense_reps = model.encode_data_for_t2it(query_texts, 'query', processor,
@@ -2534,7 +2622,7 @@ def main():
                         pass
                     else:
                         prompts = llama3_retrieval_disassemble_image_prompts
-                for batch_idx, (query_texts, query_images, query_ids) in tqdm(enumerate(test_dataloader),
+                for batch_idx, (query_texts, query_images, query_ids) in test_progress(enumerate(test_dataloader),
                                                                               total=len(test_dataloader)):
                     lookup_indices.extend(query_ids)
                     if model_args.calculate_type == 'separate':
@@ -2725,7 +2813,7 @@ def main():
 
         else:
             with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
-                for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
+                for batch_idx, (texts, imgs_path, text_ids, img_ids) in test_progress(enumerate(test_dataloader),
                                                                              total=len(test_dataloader)):
                     if search_args.query_type == 'text':
                         lookup_indices.extend(text_ids)
@@ -3649,6 +3737,12 @@ def main():
                         del query_dense_reps
                         del query_logits
 
+        if retrieval_observer is not None:
+            if retrieval_observer.report is None:
+                raise RuntimeError("The selected retrieval path did not complete its timing observer")
+            time_writer.metadata["num_dataset_items"] = len(dataset)
+            time_writer.record("retrieval", retrieval_observer.report)
+
         if dense_retriever:
             del dense_retriever
             torch.cuda.empty_cache()
@@ -3801,7 +3895,8 @@ def main():
                         and (search_args.val_passage_reps is None or search_args.val_sparse_index is None)
                 ):
                     best_weight = float((i + 1) / 10)
-        metric.print_recall(output_path)
+        if not estimate_time_only:
+            metric.print_recall(output_path)
 
     if dist.get_rank() == 0:
         selection_source = "script --alpha" if search_args.use_fixed_alpha else "validation/test selection"
@@ -3818,15 +3913,40 @@ def main():
         )
     )
 
+    rerank_kwargs = {"rerank_batch_size": search_args.rerank_batch_size}
+    if search_args.use_rerank_prior_cache:
+        prior_report = ranker.prepare_caption_prior_cache(
+            data_args, training_args, model_args, search_args,
+            search_args.rerank_batch_size, search_args.rerank_template, search_args.rerank_type,
+        )
+        rerank_kwargs["prior_cache_prepared"] = True
+        if time_writer is not None:
+            time_writer.metadata["prior_cache"] = prior_report
+    if estimate_time_only:
+        rerank_observer = StageTimeObserver(
+            "rerank", early_stop=True, collectives=time_collectives,
+            synchronize=synchronize_for_timing,
+        )
+        rerank_kwargs["progress_observer"] = rerank_observer
+
     if 'caption_generation' in search_args.rerank_template:
         rerank_best_test_fusion_run = ranker.caption_generation_rerank(best_test_fusion_run, search_args.rerank_type,
                                                     search_args.rerank_num, data_args,
                                                     training_args, model_args, search_args,
-                                                    rerank_prompt_type=search_args.rerank_template)
+                                                    rerank_prompt_type=search_args.rerank_template, **rerank_kwargs)
     else:
         rerank_best_test_fusion_run = ranker.rerank(best_test_fusion_run, search_args.rerank_type, search_args.rerank_num, data_args,
-                                        training_args, model_args, rerank_prompt_type=search_args.rerank_template)
+                                        training_args, model_args, rerank_prompt_type=search_args.rerank_template,
+                                        **rerank_kwargs)
 
+    if estimate_time_only:
+        if rerank_observer.report is None:
+            raise RuntimeError("The selected rerank path did not complete its timing observer")
+        time_writer.metadata["selected_alpha"] = best_weight
+        time_writer.record("rerank", rerank_observer.report)
+        # Every rank reached the observer's final gather. Return normally;
+        # main() owns process-group cleanup, not an individual-rank exit.
+        return
 
     output_path = os.path.join(rerank_output_dir, 'best.xlsx')
 
@@ -3873,11 +3993,17 @@ def main():
     dist.barrier()
 
     # 确保所有进程同步退出
-    if dist.get_rank() == 0:
-        # 主进程最后退出
-        torch.distributed.destroy_process_group()
-    else:
-        torch.distributed.destroy_process_group()
+    # Process-group ownership and cleanup are handled by main().
+
+
+def main():
+    already_initialized = dist.is_available() and dist.is_initialized()
+    try:
+        return _run_rerank()
+    finally:
+        # No new barrier here: on a real failure another rank may have exited.
+        if not already_initialized and dist.is_available() and dist.is_initialized():
+            dist.destroy_process_group()
 
 
 if __name__ == '__main__':

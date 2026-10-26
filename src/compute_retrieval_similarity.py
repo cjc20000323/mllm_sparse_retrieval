@@ -1,8 +1,9 @@
 """Compute dense/sparse retrieval agreement on saved test runs.
 
-The search script writes one pickle for each sparse_manual setting.  Once both
-pickles are available, this module computes query-level Overlap, Spearman rank
-correlation, and RBO, then writes their averages to one Excel workbook.
+The search script writes one pickle for each sparse_manual setting.  This module
+computes query-level Overlap, Spearman rank correlation, and RBO, then writes
+their averages to one Excel workbook.  Paired comparison is the default; an
+opt-in partial report can describe a single available setting.
 """
 
 from __future__ import annotations
@@ -241,6 +242,39 @@ def _calculate_condition(
     return summary, per_query
 
 
+def _write_workbook(
+        output_path: str | os.PathLike[str],
+        summaries: list[dict[str, Any]],
+        per_query: list[dict[str, Any]],
+        metadata_rows: list[dict[str, Any]],
+) -> str:
+    output_path = str(output_path)
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    with pd.ExcelWriter(output_path) as writer:
+        pd.DataFrame(summaries).to_excel(writer, sheet_name="summary", index=False)
+        pd.DataFrame(per_query).to_excel(writer, sheet_name="per_query", index=False)
+        pd.DataFrame(metadata_rows).to_excel(writer, sheet_name="metadata", index=False)
+    return output_path
+
+
+def _compute_single_similarity(
+        run_path: str | os.PathLike[str],
+        condition: str,
+        output_path: str | os.PathLike[str],
+        rbo_p: float,
+) -> str:
+    dense_run, sparse_run, metadata = load_saved_runs(run_path)
+    summary, rows = _calculate_condition(condition, dense_run, sparse_run, rbo_p)
+    metadata_rows = [
+        {"item": f"{condition}_run_file", "value": str(run_path)},
+        {"item": "rbo_p", "value": rbo_p},
+        {"item": "top_k", "value": ",".join(map(str, TOP_KS))},
+    ]
+    for key, value in sorted(metadata.items()):
+        metadata_rows.append({"item": f"{condition}_{key}", "value": value})
+    return _write_workbook(output_path, [summary], rows, metadata_rows)
+
+
 def compute_similarity(
         manual_path: str | os.PathLike[str],
         no_manual_path: str | os.PathLike[str],
@@ -270,9 +304,6 @@ def compute_similarity(
         ):
             delta[column] = manual_value - no_manual_value
 
-    output_path = str(output_path)
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-
     metadata_rows = [
         {"item": "manual_run_file", "value": str(manual_path)},
         {"item": "no_manual_run_file", "value": str(no_manual_path)},
@@ -284,36 +315,43 @@ def compute_similarity(
     for key, value in sorted(no_manual_metadata.items()):
         metadata_rows.append({"item": f"no_manual_{key}", "value": value})
 
-    with pd.ExcelWriter(output_path) as writer:
-        pd.DataFrame([manual_summary, no_manual_summary, delta]).to_excel(
-            writer, sheet_name="summary", index=False
-        )
-        pd.DataFrame(manual_rows + no_manual_rows).to_excel(
-            writer, sheet_name="per_query", index=False
-        )
-        pd.DataFrame(metadata_rows).to_excel(
-            writer, sheet_name="metadata", index=False
-        )
-
-    return output_path
+    return _write_workbook(
+        output_path, [manual_summary, no_manual_summary, delta],
+        manual_rows + no_manual_rows, metadata_rows,
+    )
 
 
 def compute_from_directory(
         stats_directory: str | os.PathLike[str],
         output_path: str | os.PathLike[str] | None = None,
         rbo_p: float = DEFAULT_RBO_P,
+        allow_partial: bool = False,
 ) -> str | None:
+    """Write a paired report, or an opt-in single-condition report.
+
+    Return None if the required run files are unavailable.  When a second run
+    arrives, the paired report replaces the earlier single-condition workbook.
+    """
     stats_directory = str(stats_directory)
     manual_path = os.path.join(stats_directory, "test_runs_manual.pkl")
     no_manual_path = os.path.join(stats_directory, "test_runs_no_manual.pkl")
-    if not (os.path.isfile(manual_path) and os.path.isfile(no_manual_path)):
+    has_manual = os.path.isfile(manual_path)
+    has_no_manual = os.path.isfile(no_manual_path)
+    if not (has_manual and has_no_manual) and not (
+            allow_partial and (has_manual or has_no_manual)
+    ):
         return None
 
     if output_path is None:
         output_path = os.path.join(
             stats_directory, "dense_sparse_similarity_test.xlsx"
         )
-    return compute_similarity(manual_path, no_manual_path, output_path, rbo_p)
+    if has_manual and has_no_manual:
+        return compute_similarity(manual_path, no_manual_path, output_path, rbo_p)
+    condition, run_path = (
+        ("manual", manual_path) if has_manual else ("no_manual", no_manual_path)
+    )
+    return _compute_single_similarity(run_path, condition, output_path, rbo_p)
 
 
 def main() -> None:
@@ -331,6 +369,11 @@ def main() -> None:
         help="Optional output Excel path; defaults to the stats directory.",
     )
     parser.add_argument(
+        "--allow_partial",
+        action="store_true",
+        help="Allow a report with only one available sparse_manual setting.",
+    )
+    parser.add_argument(
         "--rbo_p",
         type=float,
         default=DEFAULT_RBO_P,
@@ -339,11 +382,12 @@ def main() -> None:
     args = parser.parse_args()
 
     output_path = compute_from_directory(
-        args.stats_directory, args.output, args.rbo_p
+        args.stats_directory, args.output, args.rbo_p, allow_partial=args.allow_partial
     )
     if output_path is None:
+        required = "At least one of" if args.allow_partial else "Both"
         raise FileNotFoundError(
-            "Both test_runs_manual.pkl and test_runs_no_manual.pkl are required."
+            f"{required} test_runs_manual.pkl and test_runs_no_manual.pkl are required."
         )
     print(f"Saved retrieval similarity statistics to: {output_path}")
 

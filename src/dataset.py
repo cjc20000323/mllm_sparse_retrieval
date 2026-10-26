@@ -1,6 +1,7 @@
 import csv
 import os
 import json
+import re
 
 import pandas as pd
 from torch.utils.data import Dataset
@@ -20,10 +21,95 @@ from tevatron.retriever.collator import TrainCollator
 from arguments import dataset_path_prefix
 
 
+# ``generate_llava70b_dataset_text.py`` mirrors the ``data/`` directory layout
+# consumed by the dataset classes below.  The generated tree is selected only
+# when both the CLI switch is enabled and the requested split is validation.
+_GENERATED_VALIDATION_ROOT_ENV = 'GENERATED_LLAVA70B_DATA_ROOT'
+_DEFAULT_GENERATED_VALIDATION_ROOT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'generated_llava70b_data',
+)
+_GENERATED_VALIDATION_DIRS = {
+    'coco': 'coco',
+    'flickr': 'flickr',
+    'fashion-iq': 'fashion-iq',
+    'CUHK-PEDES': 'CUHK-PEDES',
+    'ICFG-PEDES': 'ICFG-PEDES',
+    'RSTPReid': 'RSTPReid',
+    'webqa': 'WebQA',
+    'edis': 'EDIS',
+    'remuq': 'UMRB-ReMuQ',
+    'llava': 'UMRB-LLaVA',
+}
+_VALIDATION_SPLITS = {'val', 'valid', 'validation', 'dev'}
+_GENERATED_CROSS_MODAL_ID_PATTERN = re.compile(r'(\d+)$')
+
+
+def _is_validation_split(split):
+    return str(split).strip().lower() in _VALIDATION_SPLITS
+
+
+def _uses_generated_validation_data(data_name, split, enabled):
+    return bool(
+        enabled
+        and _is_validation_split(split)
+        and data_name in _GENERATED_VALIDATION_DIRS
+    )
+
+
+def _normalise_generated_cross_modal_id(value, enabled):
+    """Convert generated COCO/Flickr IDs to the numeric suffix used by metrics."""
+    value = str(value)
+    if not enabled or not value.startswith(('generated_', 'generated-')):
+        return value
+
+    match = _GENERATED_CROSS_MODAL_ID_PATTERN.search(value)
+    if match is None:
+        return value
+    return str(int(match.group(1)))
+
+
+def _get_dataset_path_for_split(data_name, split, original_path,
+                                use_generated_validation_data=False,
+                                generated_validation_data_root=None):
+    """Select generated data only for an explicitly enabled validation split.
+
+    With the switch disabled, the original path is returned unchanged.  Test,
+    train and other non-validation splits also always keep their original
+    paths, even when the switch is enabled.
+    """
+    if not _uses_generated_validation_data(
+            data_name, split, use_generated_validation_data):
+        return original_path
+
+    generated_root = (
+        generated_validation_data_root
+        or os.environ.get(_GENERATED_VALIDATION_ROOT_ENV)
+        or _DEFAULT_GENERATED_VALIDATION_ROOT
+    )
+    generated_root = os.path.abspath(os.path.expanduser(generated_root))
+    generated_path = os.path.join(
+        generated_root,
+        'data',
+        _GENERATED_VALIDATION_DIRS[data_name],
+    )
+    if not os.path.isdir(generated_path):
+        raise FileNotFoundError(
+            f"Generated validation data for '{data_name}' was not found at "
+            f"'{generated_path}'. Generate it first or set "
+            "--generated_validation_data_root (or "
+            f"{_GENERATED_VALIDATION_ROOT_ENV}) to the output root of "
+            "generate_llava70b_dataset_text.py."
+        )
+    return generated_path + os.sep
+
+
 @dataclass
 class CrossModalRetrievalDataset(Dataset):
 
-    def __init__(self, data_name, processor, split, mode, data_args=None):
+    def __init__(self, data_name, processor, split, mode, data_args=None,
+                 use_generated_validation_data=False,
+                 generated_validation_data_root=None):
         '''
 
         :param data_name: 指定数据集的名字，例如coco，flickr
@@ -42,6 +128,24 @@ class CrossModalRetrievalDataset(Dataset):
             self.data_path = flickr_file_path
         else:
             ValueError('Data name is not in the candidates list.')
+        self.data_path = _get_dataset_path_for_split(
+            self.data_name,
+            self.split,
+            self.data_path,
+            use_generated_validation_data,
+            generated_validation_data_root,
+        )
+        self.uses_generated_validation_data = _uses_generated_validation_data(
+            self.data_name,
+            self.split,
+            use_generated_validation_data,
+        )
+        self.dataset_source = (
+            'generated_validation'
+            if self.uses_generated_validation_data else 'original'
+        )
+        self.dataset_source_path = self.data_path
+        normalise_generated_ids = self.uses_generated_validation_data
         self.img_dict = {}  # 保存数据集中图像id到图像的映射字典
         self.img_id_list = []  # 保存数据集中图像的id（是否要使用字典来直接映射）
         self.text_dict = {}  # 保存数据集中文本id到文本的映射字典
@@ -63,7 +167,7 @@ class CrossModalRetrievalDataset(Dataset):
                 self.dataset_file = f'{self.data_path}' + f'{self.data_name}_{self.split}.csv'
         else:
             self.dataset_file = f'{self.data_path}' + f'{self.data_name}_{self.split}.csv'
-        print(self.dataset_file)
+        print(f'[{self.dataset_source}] {self.dataset_file}')
         with open(self.dataset_file, mode='r') as file:
             reader = csv.reader(file)
             # 遍历文件中的每一行
@@ -72,43 +176,51 @@ class CrossModalRetrievalDataset(Dataset):
                     continue
                 else:
                     if self.data_name == 'coco':
+                        img_id = _normalise_generated_cross_modal_id(
+                            row[0], normalise_generated_ids)
+                        text_id = _normalise_generated_cross_modal_id(
+                            row[4], normalise_generated_ids)
                         # 首先保存图像id和对应的图像文件名
-                        if row[0] not in self.img_id_list:
-                            self.img_id_list.append(row[0])
-                        if row[0] not in self.img_dict.keys():
-                            self.img_dict[row[0]] = row[2]
+                        if img_id not in self.img_id_list:
+                            self.img_id_list.append(img_id)
+                        if img_id not in self.img_dict.keys():
+                            self.img_dict[img_id] = row[2]
 
                         # 然后保存文本id和对应的文本
-                        self.text_id_list.append(row[4])
-                        self.text_dict[row[4]] = row[3]
+                        self.text_id_list.append(text_id)
+                        self.text_dict[text_id] = row[3]
 
                         # 保存图像id到文本id的映射以及到文件路径的映射
-                        if row[0] not in self.img2text.keys():
-                            self.img2text[row[0]] = [row[4]]
+                        if img_id not in self.img2text.keys():
+                            self.img2text[img_id] = [text_id]
                         else:
-                            self.img2text[row[0]].append(row[4])
-                        if row[0] not in self.img2filepath.keys():
-                            self.img2filepath[row[0]] = row[1]
+                            self.img2text[img_id].append(text_id)
+                        if img_id not in self.img2filepath.keys():
+                            self.img2filepath[img_id] = row[1]
                         # 文搜图是1对1的，所以这里应该不需要else，保存文本id到图像id的映射
-                        self.text2img[row[4]] = row[0]
+                        self.text2img[text_id] = img_id
                     else:  # 这里处理的是flickr数据集
                         # 首先保存图像id和对应的图像文件名
-                        if row[0] not in self.img_id_list:
-                            self.img_id_list.append(row[0])
-                        if row[0] not in self.img_dict.keys():
-                            self.img_dict[row[0]] = row[1]
+                        img_id = _normalise_generated_cross_modal_id(
+                            row[0], normalise_generated_ids)
+                        text_id = _normalise_generated_cross_modal_id(
+                            row[3], normalise_generated_ids)
+                        if img_id not in self.img_id_list:
+                            self.img_id_list.append(img_id)
+                        if img_id not in self.img_dict.keys():
+                            self.img_dict[img_id] = row[1]
 
                         # 然后保存文本id和对应的文本
-                        self.text_id_list.append(row[3])
-                        self.text_dict[row[3]] = row[2]
+                        self.text_id_list.append(text_id)
+                        self.text_dict[text_id] = row[2]
 
                         # 保存图像id到文本id的映射，flickr没有到图像路径的映射，所以去掉
-                        if row[0] not in self.img2text.keys():
-                            self.img2text[row[0]] = [row[3]]
+                        if img_id not in self.img2text.keys():
+                            self.img2text[img_id] = [text_id]
                         else:
-                            self.img2text[row[0]].append(row[3])
+                            self.img2text[img_id].append(text_id)
                         # 文搜图是1对1的，所以这里应该不需要else，保存文本id到图像id的映射
-                        self.text2img[row[3]] = row[0]
+                        self.text2img[text_id] = img_id
 
     def __len__(self):
         if self.mode == 'single':
@@ -118,6 +230,35 @@ class CrossModalRetrievalDataset(Dataset):
         else:
             ValueError('Mode is not either single or full.')
 
+    def _resolve_image_path(self, img_id):
+        """Prefer copied generated-validation images, then fall back.
+
+        The generated CSV keeps the source image identifiers and relative
+        names.  Image copying is optional in ``generate_llava70b_dataset_text``
+        so a generated validation tree may contain only rewritten text/CSV
+        files.  In that case the original dataset image is still valid.
+        """
+        img_name = self.img_dict[img_id]
+        if self.data_name == 'coco':
+            img_file_path = str(self.img2filepath[img_id]).strip('/\\')
+            relative_path = os.path.join(img_file_path, img_name)
+        else:
+            relative_path = os.path.join('flickr30k-images', img_name)
+
+        generated_image_path = os.path.join(self.data_path, relative_path)
+        if (
+                self.uses_generated_validation_data
+                and os.path.isfile(generated_image_path)
+        ):
+            return generated_image_path
+
+        return os.path.join(
+            dataset_path_prefix,
+            'data',
+            self.data_name,
+            relative_path,
+        )
+
     def __getitem__(self, idx):
         '''
         这个数据集是想做图文检索，所以必然取出的数据会有图，应该不需要再进行分类讨论
@@ -125,12 +266,7 @@ class CrossModalRetrievalDataset(Dataset):
         '''
         if self.mode == 'single':
             img_id = self.img_id_list[idx]
-            img_name = self.img_dict[img_id]
-            if self.data_name == 'coco':
-                img_file_path = self.img2filepath[img_id]
-                image_path = dataset_path_prefix + f'data/{self.data_name}/{img_file_path}/{img_name}'
-            else:
-                image_path = dataset_path_prefix + f'data/{self.data_name}/flickr30k-images/{img_name}'
+            image_path = self._resolve_image_path(img_id)
             text_id = self.img2text[img_id][0]  # 这个模式下，拿出第一个对应的文本即可
             text = self.text_dict[text_id]
             return text, image_path, text_id, img_id
@@ -138,12 +274,7 @@ class CrossModalRetrievalDataset(Dataset):
             text_id = self.text_id_list[idx]
             text = self.text_dict[text_id]
             img_id = self.text2img[text_id]
-            img_name = self.img_dict[img_id]
-            if self.data_name == 'coco':
-                img_file_path = self.img2filepath[img_id]
-                image_path = dataset_path_prefix + f'data/{self.data_name}/{img_file_path}/{img_name}'
-            else:
-                image_path = dataset_path_prefix + f'data/{self.data_name}/flickr30k-images/{img_name}'
+            image_path = self._resolve_image_path(img_id)
             return text, image_path, text_id, img_id
         else:
             ValueError('Mode is not either single or full.')
@@ -184,7 +315,9 @@ class CrossModalRetrievalDataset(Dataset):
 
 
 class ComposedTextImageRetrievalDataset(Dataset):
-    def __init__(self, data_name, processor, split, mode, data_args=None):
+    def __init__(self, data_name, processor, split, mode, data_args=None,
+                 use_generated_validation_data=False,
+                 generated_validation_data_root=None):
         '''
 
         :param data_name: 指定数据集的名字，例如coco，flickr
@@ -201,6 +334,13 @@ class ComposedTextImageRetrievalDataset(Dataset):
             self.data_path = fashion_iq_file_path
         else:
             ValueError('Data name is not in the candidates list.')
+        self.data_path = _get_dataset_path_for_split(
+            self.data_name,
+            self.split,
+            self.data_path,
+            use_generated_validation_data,
+            generated_validation_data_root,
+        )
         self.img_dict = {}  # 保存数据集中图像id到图像的映射字典
         self.img_id_list = []  # 保存数据集中图像的id（是否要使用字典来直接映射）,对于fashion-iq数据集，我们直接使用图像文件名做id
         self.text_dict = {}  # 保存数据集中文本id到文本的映射字典
@@ -326,7 +466,9 @@ class ComposedTextImageRetrievalDataset(Dataset):
 
 
 class TextPersonRetrievalDataset(Dataset):
-    def __init__(self, data_name, processor, split, mode, data_args=None):
+    def __init__(self, data_name, processor, split, mode, data_args=None,
+                 use_generated_validation_data=False,
+                 generated_validation_data_root=None):
         '''
 
         :param data_name: 指定数据集的名字，例如coco，flickr
@@ -347,6 +489,13 @@ class TextPersonRetrievalDataset(Dataset):
             self.data_path = rstpreid_file_path
         else:
             ValueError('Data name is not in the candidates list.')
+        self.data_path = _get_dataset_path_for_split(
+            self.data_name,
+            self.split,
+            self.data_path,
+            use_generated_validation_data,
+            generated_validation_data_root,
+        )
         self.img_dict = {}  # 保存数据集中图像id到图像的映射字典
         self.img_id_list = []  # 保存数据集中图像的id（是否要使用字典来直接映射）,对于行人检索数据集，可能需要手动构造下id
         self.text_dict = {}  # 保存数据集中文本id到文本的映射字典
@@ -473,7 +622,9 @@ class TextPersonRetrievalDataset(Dataset):
 
 
 class Text2ImagetextRetrievalDataset(Dataset):
-    def __init__(self, data_name, processor, split, mode, data_args=None):
+    def __init__(self, data_name, processor, split, mode, data_args=None,
+                 use_generated_validation_data=False,
+                 generated_validation_data_root=None):
         super(Text2ImagetextRetrievalDataset, self).__init__()
         self.data_name = data_name
         assert self.data_name in ['webqa', 'edis', 'llava']
@@ -492,6 +643,17 @@ class Text2ImagetextRetrievalDataset(Dataset):
             self.data_path = llava_file_path
         else:
             ValueError('Data name is not in the candidates list.')
+
+        # LLaVA is handled by Imagetext2TextRetrievalDataset.  Only the actual
+        # text -> image+text datasets use generated validation files here.
+        if self.data_name in ('webqa', 'edis'):
+            self.data_path = _get_dataset_path_for_split(
+                self.data_name,
+                self.split,
+                self.data_path,
+                use_generated_validation_data,
+                generated_validation_data_root,
+            )
 
         self.mode = mode
         if self.data_name == 'webqa':
@@ -573,7 +735,9 @@ class Text2ImagetextRetrievalDataset(Dataset):
 
 
 class Imagetext2TextRetrievalDataset(Dataset):
-    def __init__(self, data_name, processor, split, mode, data_args=None):
+    def __init__(self, data_name, processor, split, mode, data_args=None,
+                 use_generated_validation_data=False,
+                 generated_validation_data_root=None):
         super(Imagetext2TextRetrievalDataset, self).__init__()
         self.data_name = data_name
         assert self.data_name in ['remuq', 'llava']
@@ -589,6 +753,14 @@ class Imagetext2TextRetrievalDataset(Dataset):
             self.data_path = llava_file_path
         else:
             ValueError('Data name is not in the candidates list.')
+
+        self.data_path = _get_dataset_path_for_split(
+            self.data_name,
+            self.split,
+            self.data_path,
+            use_generated_validation_data,
+            generated_validation_data_root,
+        )
 
         self.mode = mode
         if self.data_name == 'remuq':

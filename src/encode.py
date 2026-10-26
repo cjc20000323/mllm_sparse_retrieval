@@ -849,6 +849,45 @@ def main():
     data_args: PromptRepsLLMDataArguments
     training_args: TrainingArguments
 
+    # This entry point encodes one split at a time.  Enabling the switch means
+    # that the requested encoding job is specifically for the generated
+    # validation set; keep the split name aligned with the output directories.
+    if data_args.use_generated_validation_data:
+        if data_args.dataset_split != 'val':
+            print(
+                f'--use_generated_validation_data overrides dataset_split '
+                f'{data_args.dataset_split!r} with \'val\'.'
+            )
+        data_args.dataset_split = 'val'
+
+    if data_args.use_few_shot_examples:
+        if not data_args.use_generated_validation_data:
+            raise ValueError(
+                '--use_few_shot_examples is only valid together with '
+                '--use_generated_validation_data.'
+            )
+        if data_args.few_shot_num <= 0:
+            raise ValueError('--few_shot_num must be a positive integer.')
+        data_args.few_shot_split = data_args.few_shot_split.lower()
+        if data_args.few_shot_split not in {'val', 'test'}:
+            raise ValueError('--few_shot_split must be val or test.')
+
+    if data_args.use_source_dataset_subset:
+        if not data_args.use_generated_validation_data:
+            raise ValueError(
+                '--use_source_dataset_subset is only valid together with '
+                '--use_generated_validation_data.'
+            )
+        if data_args.dataset_name not in {'coco', 'flickr'}:
+            raise ValueError(
+                '--use_source_dataset_subset currently supports only coco and flickr.'
+            )
+
+    generated_validation_kwargs = {
+        'use_generated_validation_data': data_args.use_generated_validation_data,
+        'generated_validation_data_root': data_args.generated_validation_data_root,
+    }
+
     validate_sparse_logits_multiply_view_count(model_args, data_args)
     validate_random_view_prompt(model_args, data_args, training_args)
 
@@ -1071,18 +1110,24 @@ def main():
 
     if training_args.task_type == 'cir':
         dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split,
-                                                    training_args.encode_type)
+                                                    training_args.encode_type,
+                                                    **generated_validation_kwargs)
     elif training_args.task_type == 'tbpr':
-        dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'single')
+        dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'single',
+                                             **generated_validation_kwargs)
     elif training_args.task_type == 't2it':
-        dataset = Text2ImagetextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'corpus')
+        dataset = Text2ImagetextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'corpus',
+                                                 **generated_validation_kwargs)
     elif training_args.task_type == 'it2t':
-        dataset = Imagetext2TextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'corpus')
+        dataset = Imagetext2TextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'corpus',
+                                                 **generated_validation_kwargs)
     else:
         if training_args.encode_type == 'text':
-            dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'full')
+            dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'full',
+                                                 **generated_validation_kwargs)
         else:
-            dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'single')
+            dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'single',
+                                                 **generated_validation_kwargs)
     sampler = Data.DistributedSampler(dataset, num_replicas=dist.get_world_size(), shuffle=True, rank=dist.get_rank())
     test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, pin_memory=True,
                                       batch_size=data_args.per_device_batch_size, shuffle=False)
@@ -3072,25 +3117,65 @@ def main():
     if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
         use_sparse_value_mean += f'_random_view_seed_{data_args.random_view_seed}'
 
+    # Keep generated validation representations separate from the original
+    # validation representations.  The marker is appended to the final
+    # experiment-directory component so the existing directory hierarchy and
+    # all non-generated paths remain unchanged.
+    generated_validation_suffix = ''
+    if data_args.use_generated_validation_data:
+        generated_validation_suffix = '_generated_val'
+        if data_args.use_llava_next_training_prompts:
+            generated_validation_suffix += '_use_llava_next_training_prompts'
+        if data_args.use_few_shot_examples:
+            generated_validation_suffix += (
+                f'_few_shot_{data_args.few_shot_split}_{data_args.few_shot_num}'
+            )
+        if data_args.use_source_dataset_subset:
+            generated_validation_suffix += '_source_subset'
+    original_sparse_type = data_args.sparse_type
+    lora_output_suffix = f'_lora{generated_validation_suffix}'
+
+    if generated_validation_suffix and dist.get_rank() == 0:
+        print(f'generated_validation_output_suffix={generated_validation_suffix}')
+
+    if generated_validation_suffix:
+        # Fusion paths end in sparse_type; prompt-generation paths end in
+        # prompt_generation_model.  All remaining branches end in the
+        # sparse-value-mean label.
+        uses_prompt_generation_leaf = (
+            data_args.prompt_generation
+            and not data_args.sparse_manual
+            and model_args.calculate_type == 'concat'
+            and training_args.task_type not in {'cir', 't2it', 'it2t'}
+        )
+        if original_sparse_type == 'fusion':
+            data_args.sparse_type = f'{original_sparse_type}{generated_validation_suffix}'
+        elif uses_prompt_generation_leaf:
+            data_args.prompt_generation_model = (
+                f'{data_args.prompt_generation_model}{generated_validation_suffix}'
+            )
+        else:
+            use_sparse_value_mean += generated_validation_suffix
+
     if model_args.lora:
         os.makedirs(
-            f'{data_args.dense_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_lora',
+            f'{data_args.dense_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}{lora_output_suffix}',
             exist_ok=True)
         os.makedirs(
-            f'{data_args.sparse_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_lora',
+            f'{data_args.sparse_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}{lora_output_suffix}',
             exist_ok=True)
 
         with open(os.path.join(
-                f'{data_args.dense_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_lora',
+                f'{data_args.dense_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}{lora_output_suffix}',
                 f'query.pkl') if data_args.encode_is_query else os.path.join(
-            f'{data_args.dense_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_lora',
+            f'{data_args.dense_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}{lora_output_suffix}',
             f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
             pickle.dump((encoded, lookup_indices), f)
 
         with open(os.path.join(
-                f'{data_args.sparse_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_lora',
+                f'{data_args.sparse_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}{lora_output_suffix}',
                 f'query.tsv') if data_args.encode_is_query else os.path.join(
-            f'{data_args.sparse_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_lora',
+            f'{data_args.sparse_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}{lora_output_suffix}',
             f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
             for data in jsonl_data:
                 if data_args.encode_is_query:
@@ -3122,7 +3207,7 @@ def main():
             f'{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_'
             f'{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'
         )
-        if data_args.sparse_type == 'fusion':
+        if original_sparse_type == 'fusion':
             path_suffix += f'_{data_args.sparse_type}'
 
         dense_dir = os.path.join(data_args.dense_output_dir, common_path, path_suffix)
@@ -3147,7 +3232,7 @@ def main():
                     f.write(json.dumps(data) + "\n")
 
     elif model_args.calculate_type == 'concat':
-        if data_args.sparse_type == 'fusion':
+        if original_sparse_type == 'fusion':
             if data_args.sparse_manual:
                 os.makedirs(
                     f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
@@ -3474,7 +3559,7 @@ def main():
                                     f.write(json.dumps(data) + "\n")
 
     else:
-        if data_args.sparse_type == 'fusion':
+        if original_sparse_type == 'fusion':
             if data_args.sparse_manual:
                 os.makedirs(
                     f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',

@@ -61,6 +61,55 @@ class ModelArguments(tevatron.retriever.arguments.ModelArguments):
 class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
     dense_output_dir: str = field(default='./dense_output/')
     sparse_output_dir: str = field(default='./sparse_output/')
+    use_generated_validation_data: bool = field(
+        default=False,
+        metadata={
+            "help": "Load the validation split produced by "
+                    "generate_llava70b_dataset_text.py. Test data is never replaced."
+        },
+    )
+    generated_validation_data_root: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Output root of generate_llava70b_dataset_text.py. Defaults to "
+                    "GENERATED_LLAVA70B_DATA_ROOT or <project>/generated_llava70b_data."
+        },
+    )
+    use_llava_next_training_prompts: bool = field(
+        default=False,
+        metadata={
+            "help": "Mark generated validation data created with the "
+                    "LLaVA-NeXT-style training prompts so its encoded "
+                    "representations use a distinct output suffix."
+        },
+    )
+    use_few_shot_examples: bool = field(
+        default=False,
+        metadata={
+            "help": "Mark generated validation data created with multimodal "
+                    "few-shot examples so encoded representations use a "
+                    "distinct output suffix."
+        },
+    )
+    few_shot_num: int = field(
+        default=2,
+        metadata={
+            "help": "Number of fixed examples used to generate each validation item."
+        },
+    )
+    few_shot_split: str = field(
+        default='test',
+        metadata={
+            "help": "Source split of the generation examples: val or test."
+        },
+    )
+    use_source_dataset_subset: bool = field(
+        default=False,
+        metadata={
+            "help": "Mark that the validation data is a source-dataset subset "
+                    "so encoded representations use a distinct output suffix."
+        },
+    )
     per_device_batch_size: int = field(default=4)
     encode_is_query: bool = field(default=False)
     num_expended_tokens: int = field(default=0, metadata={"help": "Number of expended tokens. Default is 0, "
@@ -125,6 +174,18 @@ class PromptRepsLLMSearchArguments:
         },
     )
     depth: int = field(default=1000)
+    val_depth: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "Validation retrieval depth. Falls back to --depth when omitted."
+        },
+    )
+    test_depth: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "Test retrieval depth. Falls back to --depth when omitted."
+        },
+    )
     save_dir: str = field(default=None, metadata={"help": "Where to save the run files"})
     quiet: bool = field(default=True, metadata={"help": "Whether to print the progress"})
     use_gpu: bool = field(default=False, metadata={"help": "Whether to use GPU"})
@@ -145,10 +206,18 @@ class PromptRepsLLMSearchArguments:
     use_candidate_sum: bool = field(default=False)
     rerank_num: int = field(default=20, metadata={"help": 'Number of candidates chosen for rerank'})
     rerank_type: str = field(default='pointwise', metadata={"help": 'How to rerank'})
-    rerank_batch_size: int = field(default=1, metadata={"help": 'batch size for LLM input when rerank'})
+    rerank_batch_size: int = field(default=1, metadata={"help": 'Candidates per reranking model forward per GPU; must be positive'})
     rerank_template: str = field(default='relevant')
     tuple_sum: int = field(default=20)
     modify_type: str = field(default='no')
+    use_rerank_prior_cache: bool = field(
+        default=False,
+        metadata={"help": "Precompute/load all text-only caption priors; requires modify_single and a supported text-candidate task"},
+    )
+    rerank_prior_cache_dir: Optional[str] = field(
+        default=None,
+        metadata={"help": "Shared prior cache directory; defaults to <project>/cache/rerank_prior"},
+    )
 
 
 @dataclass
@@ -167,6 +236,14 @@ class PromptGenerationArguments:
     # prompt_generation_model: str = field(default=None)
     case_type: str = field(default='caption')
     dspy_strength: str = field(default='light')
+    use_initial_dspy_aspects: bool = field(
+        default=False,
+        metadata={
+            "help": "Use the project's task-specific retrieval aspects as GEPA round 1; "
+                    "GEPA then reflects on retrieval failures, rewrites the Instruction, "
+                    "and the highest-scoring evaluated aspect set is retained."
+        },
+    )
     force_regenerate_dspy_aspects: bool = field(
         default=False,
         metadata={"help": "Ignore the locked DSPy aspects file and generate a new one."},

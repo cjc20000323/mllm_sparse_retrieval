@@ -22,6 +22,8 @@ DATASET="${DATASET:-flickr}"
 DATASET_SPLIT="${DATASET_SPLIT:-test}"
 TASK_TYPE="${TASK_TYPE:-ir}"
 ENCODE_TYPE="${ENCODE_TYPE:-text}"
+USE_GENERATED_VALIDATION_DATA="${USE_GENERATED_VALIDATION_DATA:-false}"
+GENERATED_VALIDATION_DATA_ROOT="${GENERATED_VALIDATION_DATA_ROOT:-./generated_llava70b_data}"
 
 # Representation/output settings.  Override these variables when the
 # representations need to be stored somewhere other than the defaults.
@@ -37,10 +39,13 @@ SPARSE_LENGTH="${SPARSE_LENGTH:-40}"
 NUM_EXPENDED_TOKENS="${NUM_EXPENDED_TOKENS:-0}"
 DATASET_SUFFIX="${DATASET_SUFFIX:-no}"
 
-# DSPy settings.
+# DSPy GEPA settings.  With USE_INITIAL_DSPY_ASPECTS=true, the project's
+# hand-written task views are GEPA round 1 and later rounds reflect on actual
+# validation retrieval failures before rewriting the Instruction.
 DEMONSTRATION_NUM="${DEMONSTRATION_NUM:-1}"
 DSPY_STRENGTH="${DSPY_STRENGTH:-light}"
 FORCE_REGENERATE_DSPY_ASPECTS="${FORCE_REGENERATE_DSPY_ASPECTS:-false}"
+USE_INITIAL_DSPY_ASPECTS="${USE_INITIAL_DSPY_ASPECTS:-true}"
 
 # Validation-dataset arguments are effective when
 # USE_VALIDATION_DATASET_RESOLVER=True is set in the Python script.  With that
@@ -56,15 +61,22 @@ if [[ -n "${VALIDATION_DATASET_NAME}" ]]; then
     VALIDATION_ARGS+=(--validation_dataset_name "${VALIDATION_DATASET_NAME}")
 fi
 
+GENERATED_VALIDATION_ARGS=()
+if [[ "${USE_GENERATED_VALIDATION_DATA}" == "true" ]]; then
+    GENERATED_VALIDATION_ARGS+=(--use_generated_validation_data)
+    GENERATED_VALIDATION_ARGS+=(--generated_validation_data_root "${GENERATED_VALIDATION_DATA_ROOT}")
+fi
+
 REGENERATE_ARGS=()
 if [[ "${FORCE_REGENERATE_DSPY_ASPECTS}" == "true" ]]; then
     REGENERATE_ARGS+=(--force_regenerate_dspy_aspects)
 fi
 
-# Warm-start behavior is controlled by USE_INITIAL_DSPY_ASPECTS and
-# INITIAL_DSPY_ASPECTS in src/dspy_prompt_schema_generation_encode_and_search.py.
-# Set USE_INITIAL_DSPY_ASPECTS=True there to evaluate the supplied initial
-# aspects before accepting a newly generated DSPy candidate.
+INITIAL_ASPECT_ARGS=()
+if [[ "${USE_INITIAL_DSPY_ASPECTS,,}" == "true" ]]; then
+    INITIAL_ASPECT_ARGS+=(--use_initial_dspy_aspects)
+fi
+
 deepspeed \
     --num_gpus="${GPUS}" \
     --num_nodes="${NUM_NODES}" \
@@ -97,4 +109,6 @@ deepspeed \
     --demonstration_num "${DEMONSTRATION_NUM}" \
     --dspy_strength "${DSPY_STRENGTH}" \
     "${VALIDATION_ARGS[@]}" \
-    "${REGENERATE_ARGS[@]}"
+    "${GENERATED_VALIDATION_ARGS[@]}" \
+    "${REGENERATE_ARGS[@]}" \
+    "${INITIAL_ASPECT_ARGS[@]}"

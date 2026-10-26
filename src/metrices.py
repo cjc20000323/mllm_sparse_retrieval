@@ -4,13 +4,17 @@ from tqdm import tqdm
 import pandas as pd
 
 
+def get_recall_k_settings(data_name):
+    """Return the shared retrieval cutoffs without requiring a process group."""
+    if data_name == 'fashion-iq':
+        return [1, 5, 10, 20, 30, 50, 100, 200, 300, 400]
+    return [1, 5, 10, 100, 200, 300, 400]
+
+
 class RecallMetrics:
 
     def __init__(self, dataset, dense_run, sparse_run, fusion_run, look_up, lookup_indices, search_args):
-        if dataset.data_name == 'fashion-iq':
-            self.recall_k_setting_list = [1, 5, 10, 20, 30, 50, 100, 200, 300, 400]
-        else:
-            self.recall_k_setting_list = [1, 5, 10, 100, 200, 300, 400]
+        self.recall_k_setting_list = get_recall_k_settings(dataset.data_name)
 
         self.fashion_iq_list = ['shirt', 'dress', 'toptee']
         self.fashion_iq_length = {'dress': 2017, 'shirt': 2038, 'toptee': 1961}

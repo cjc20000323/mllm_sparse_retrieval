@@ -1755,6 +1755,78 @@ class MLLMRetrievalModel(nn.Module):
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
 
 
+    @torch.inference_mode()
+    def _forward_dspy_outputs(self, model_inputs, logits_positions):
+        """Run a DSPy batch without retaining transformer-wide intermediates.
+
+        The previous implementation requested every layer's hidden states and
+        enabled the KV cache.  That is particularly expensive for LLaVA-NeXT:
+        the image-expanded sequence is long and the cache/hidden-state tuple is
+        kept alive until the caller has extracted the few EOL positions it
+        needs.  Hugging Face causal-LM wrappers support ``logits_to_keep``;
+        using it keeps the vocabulary projection limited to those positions.
+
+        A forward hook captures the final backbone hidden state while the
+        wrapper still performs the model-specific image-feature preparation.
+        This is important for LLaVA-NeXT, where calling ``encoder.model``
+        directly would skip the image-token merge.  The hook retains only one
+        hidden-state tensor (instead of all layer outputs), and callers clone
+        the selected embedding before releasing it.
+        """
+        backbone = getattr(self.encoder, 'model', None)
+        captured = {}
+        hook = None
+
+        if backbone is not None and hasattr(backbone, 'register_forward_hook'):
+            def capture_last_hidden_state(_module, _inputs, outputs):
+                hidden_states = getattr(outputs, 'last_hidden_state', None)
+                if hidden_states is None and isinstance(outputs, (tuple, list)):
+                    hidden_states = outputs[0]
+                if hidden_states is not None:
+                    captured['last_hidden_state'] = hidden_states
+
+            hook = backbone.register_forward_hook(capture_last_hidden_state)
+
+        forward_inputs = dict(model_inputs)
+        forward_inputs.update(
+            output_hidden_states=False,
+            return_dict=True,
+            use_cache=False,
+        )
+        if logits_positions.numel() > 0:
+            forward_inputs['logits_to_keep'] = logits_positions
+
+        try:
+            try:
+                outputs = self.encoder(**forward_inputs)
+            except TypeError as error:
+                # Older Transformers releases do not expose logits_to_keep.
+                # Keep the memory-safe hidden-state/cache settings and fall
+                # back to slicing the returned logits in the caller.
+                if 'logits_to_keep' not in str(error):
+                    raise
+                forward_inputs.pop('logits_to_keep', None)
+                outputs = self.encoder(**forward_inputs)
+        finally:
+            if hook is not None:
+                hook.remove()
+
+        hidden_states = captured.get('last_hidden_state')
+        if hidden_states is None:
+            # This is only for wrappers that do not expose a backbone output
+            # compatible with the hook.  It preserves the old behavior while
+            # still disabling the KV cache.
+            fallback_inputs = dict(model_inputs)
+            fallback_inputs.update(
+                output_hidden_states=True,
+                return_dict=True,
+                use_cache=False,
+            )
+            outputs = self.encoder(**fallback_inputs)
+            hidden_states = outputs.hidden_states[-1]
+
+        return outputs, hidden_states
+
     def encode_data_concat_dspy(self, dspy_input, dspy_generated_prompt_template, aspects_prompt_list, input_type, processor, device, model_args, data_args):
         if input_type == 'text':
             text_inputs = processor(text=[dspy_generated_prompt_template.replace('<sent>', text) for text in dspy_input],
@@ -1829,12 +1901,19 @@ class MLLMRetrievalModel(nn.Module):
             )
 
             text_inputs['attention_mask'] = causal_mask
-            output = self.encoder(**text_inputs, output_hidden_states=True, return_dict=True)
             end_col_list = (torch.tensor(end_col_list) - 1).to(device)
             batch_size = text_inputs['input_ids'].shape[0]
-            logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
-            logits = torch.log(1 + torch.relu(logits))
-            embs = output.hidden_states[-1][:, end_col_list[0], :]
+            output, hidden_states = self._forward_dspy_outputs(
+                text_inputs,
+                end_col_list[1:],
+            )
+            logits = output.logits
+            if logits.shape[1] != len(end_col_list[1:]):
+                logits = logits[:, end_col_list[1:], :]
+            logits = logits.contiguous().reshape(batch_size * len(end_col_list[1:]), -1)
+            logits = torch.log1p(torch.relu(logits))
+            embs = hidden_states[:, end_col_list[0], :].contiguous()
+            del hidden_states, output
             return logits, embs
         elif input_type == 'image':
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path or \
@@ -1903,13 +1982,20 @@ class MLLMRetrievalModel(nn.Module):
             )
 
             dspy_input['attention_mask'] = causal_mask
-            output = self.encoder(**dspy_input, output_hidden_states=True, return_dict=True, use_cache=True)
             # 这里对应原文的log+relu操作
             end_col_list = (torch.tensor(end_col_list) - 1).to(device)
             batch_size = dspy_input['input_ids'].shape[0]
-            logits = output.logits[:, end_col_list[1:], :].reshape(batch_size * len(end_col_list[1:]), -1)
-            logits = torch.log(1 + torch.relu(logits))
-            embs = output.hidden_states[-1][:, end_col_list[0], :]
+            output, hidden_states = self._forward_dspy_outputs(
+                dspy_input,
+                end_col_list[1:],
+            )
+            logits = output.logits
+            if logits.shape[1] != len(end_col_list[1:]):
+                logits = logits[:, end_col_list[1:], :]
+            logits = logits.contiguous().reshape(batch_size * len(end_col_list[1:]), -1)
+            logits = torch.log1p(torch.relu(logits))
+            embs = hidden_states[:, end_col_list[0], :].contiguous()
+            del hidden_states, output
             return logits, embs
         else:
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')

@@ -23,10 +23,42 @@ DATASET_SPLIT=test
 ALPHA="${ALPHA:-0.9}"
 BETA="${BETA:-0.1}"
 USE_FIXED_ALPHA="${USE_FIXED_ALPHA:-false}"
+USE_GENERATED_VALIDATION_DATA="${USE_GENERATED_VALIDATION_DATA:-false}"
+GENERATED_VALIDATION_DATA_ROOT="${GENERATED_VALIDATION_DATA_ROOT:-./generated_llava70b_data}"
+# Complete retrieval, then stop reranking once five >=5s rates after 20
+# warmup queries have CV <5%. Save seconds under --output_dir/time_estimate.json.
+# Example: ESTIMATE_TIME_ONLY=true bash scripts/rerank.sh
+ESTIMATE_TIME_ONLY="${ESTIMATE_TIME_ONLY:-false}"
+# Candidates per model forward, per GPU process; not the query retrieval batch.
+RERANK_BATCH_SIZE="${RERANK_BATCH_SIZE:-1}"
+# Preserve existing templates and scores; the cache only replaces repeated
+# text-only prior forwards. Requires MODIFY_TYPE=modify_single.
+MODIFY_TYPE="${MODIFY_TYPE:-no}"
+RERANK_TEMPLATE="${RERANK_TEMPLATE:-caption_generation}"
+USE_RERANK_PRIOR_CACHE="${USE_RERANK_PRIOR_CACHE:-false}"
+RERANK_PRIOR_CACHE_DIR="${RERANK_PRIOR_CACHE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/cache/rerank_prior}"
+PRIOR_CACHE_ARGS=()
+case "${USE_RERANK_PRIOR_CACHE,,}" in
+    true|1) PRIOR_CACHE_ARGS+=(--use_rerank_prior_cache --rerank_prior_cache_dir "${RERANK_PRIOR_CACHE_DIR}") ;;
+    false|0) ;;
+    *) echo "USE_RERANK_PRIOR_CACHE must be true/false or 1/0." >&2; exit 2 ;;
+esac
+TIME_ESTIMATE_ARGS=()
+case "${ESTIMATE_TIME_ONLY,,}" in
+    true|1) TIME_ESTIMATE_ARGS+=(--estimate_time_only) ;;
+    false|0) ;;
+    *) echo "ESTIMATE_TIME_ONLY must be true/false or 1/0." >&2; exit 2 ;;
+esac
 
 FUSION_ALPHA_ARGS=()
 if [[ "${USE_FIXED_ALPHA}" == "true" ]]; then
     FUSION_ALPHA_ARGS+=(--use_fixed_alpha)
+fi
+
+GENERATED_VALIDATION_ARGS=()
+if [[ "${USE_GENERATED_VALIDATION_DATA}" == "true" ]]; then
+    GENERATED_VALIDATION_ARGS+=(--use_generated_validation_data)
+    GENERATED_VALIDATION_ARGS+=(--generated_validation_data_root "${GENERATED_VALIDATION_DATA_ROOT}")
 fi
 
 
@@ -58,4 +90,9 @@ deepspeed --num_gpus=$GPUS --num_nodes=$NUM_NODES src/rerank.py \
     --prompt_type prompt_5 \
     --rerank_type pointwise \
     --rerank_num 5 \
-    --rerank_template caption_generation
+    --rerank_batch_size "${RERANK_BATCH_SIZE}" \
+    --rerank_template "${RERANK_TEMPLATE}" \
+    --modify_type "${MODIFY_TYPE}" \
+    "${PRIOR_CACHE_ARGS[@]}" \
+    "${TIME_ESTIMATE_ARGS[@]}" \
+    "${GENERATED_VALIDATION_ARGS[@]}"

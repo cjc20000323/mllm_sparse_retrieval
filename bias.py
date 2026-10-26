@@ -10,7 +10,9 @@ y = np.array([3.9724862575531006, 3.9724862575531006, 3.9724862575531006, 3.6767
 # 设置大字体
 plt.rcParams.update({'font.size': 12})
 
-fig, ax = plt.subplots(1, 2, figsize=(14, 6))
+fig, ax = plt.subplots(
+    1, 2, figsize=(16, 6), gridspec_kw={"width_ratios": [1.4, 1]}
+)
 colors = ["#f57c6e", "#f2b56f", "#fae69e", "#84c3b7", "#88d8db", "#71b7ed", "#b8aeeb", " #f2a7da"]
 
 ax[1].plot(x, -y, marker='o', color=colors[0], linestyle='-', linewidth=3, markersize=8)
@@ -31,15 +33,17 @@ import numpy as np
 
 data = {
     "Condition": ["t2i", "i2t"],
-    "RGP r@1": [73.9, 79.2],
-    "CGP r@1": [78.2, 75.0],
-    "modified CGP r@1": [78.2, 83.3]
+    "RGP r@1": [75.0, 79.2],
+    "CGP r@1": [83.2, 69.4],
+    "modified CGP r@1": [83.2, 78.1],
+    # FreeRet 分数按 [t2i, i2t] 填写；np.nan 表示暂缺，不显示柱高或数值。
+    "FreeRet r@1": [80.1, 68.4]
 }
 df = pd.DataFrame(data)
 
 # 图表设置
 n_groups = len(df)  # 条件的数量
-n_datasets = 3  # 数据集的数量
+n_datasets = len(df.columns) - 1  # 方法数量（包括暂未填写分数的 FreeRet）
 bar_width = 0.05  # 条形宽度
 index = np.arange(n_datasets) * (n_groups * bar_width + bar_width)  # 数据集索引，确保有间隙
 colors = ["#f57c6e", "#f2b56f", "#fae69e", "#84c3b7", "#88d8db", "#71b7ed", "#b8aeeb", " #f2a7da"]
@@ -50,6 +54,8 @@ for i, condition in enumerate(df["Condition"]):
     bars = ax[0].bar(offsets, df.iloc[i, 1:], bar_width, label=condition, color=colors[i],hatch='',edgecolor='black')
     for bar in bars:
         height = bar.get_height()
+        if not np.isfinite(height):
+            continue
         ax[0].annotate(f'{str(height)[:]}',
                     xy=(bar.get_x() + bar.get_width() / 2, height-0.8),
                     xytext=(0, 3),  # 3 points vertical offset
@@ -61,15 +67,22 @@ ax[0].set_ylabel('r@1', fontsize=25)
 # ax.set_ylim([0.7, 0.88])
 # ax.set_title('Hits@1 by Condition and Dataset')
 ax[0].set_xticks(index + n_groups * bar_width / 2)
-ax[0].set_xticklabels(['RGP', 'CGP', 'Modified CGP'],fontsize=25)
+ax[0].set_xticklabels(['RGP', 'CGP', 'Modified\nCGP', 'FreeRet'],fontsize=25)
+# 即使末组两项分数暂缺，也完整保留该组两根柱子的横向位置。
+plot_left = index[0]
+plot_right = index[-1] + n_groups * bar_width
+plot_margin = (plot_right - plot_left) * 0.05
+ax[0].set_xlim(plot_left - plot_margin, plot_right + plot_margin)
 ax[0].tick_params(axis='y', labelsize=20)
 # ax.legend( loc='upper center',ncol=3, fontsize=20, bbox_to_anchor=(0.5, 1.3),handlelength=8.5, handletextpad=1)
-ax[0].axhline(y=74.1, color="blue", linestyle='--', label='i2t hybrid')
-ax[0].text(-0.065, 74.1, f'{74.1}', color='black',
-         va='bottom', ha='left', fontsize=18)
-ax[0].axhline(y=64.4, color="green", linestyle='--', label='t2i hybrid')
-ax[0].text(-0.065, 64.4, f'{64.4}', color='black',
-         va='bottom', ha='left', fontsize=18)
+ax[0].axhline(y=70.6, color="blue", linestyle='--', label='i2t hybrid')
+ax[0].annotate(f'{70.6}', xy=(0, 70.6), xycoords=ax[0].get_yaxis_transform(),
+               xytext=(-8, 0), textcoords='offset points', color='black',
+               va='bottom', ha='right', fontsize=18, annotation_clip=False, clip_on=False)
+ax[0].axhline(y=62.9, color="green", linestyle='--', label='t2i hybrid')
+ax[0].annotate(f'{62.9}', xy=(0, 62.9), xycoords=ax[0].get_yaxis_transform(),
+               xytext=(-8, 0), textcoords='offset points', color='black',
+               va='bottom', ha='right', fontsize=18, annotation_clip=False, clip_on=False)
 ax[0].legend(['i2t hybrid', 't2i hybrid', 't2i', 'i2t'], ncol=1, fontsize=25)
 plt.tight_layout()
 plt.savefig('flickr_bias.pdf', format='pdf', bbox_inches='tight', pad_inches=0.05)

@@ -22,10 +22,20 @@ USE_MEAN=no_mean
 ALPHA="${ALPHA:-0.9}"
 BETA="${BETA:-0.1}"
 USE_FIXED_ALPHA="${USE_FIXED_ALPHA:-false}"
+USE_GENERATED_VALIDATION_DATA="${USE_GENERATED_VALIDATION_DATA:-false}"
+GENERATED_VALIDATION_DATA_ROOT="${GENERATED_VALIDATION_DATA_ROOT:-./generated_llava70b_data}"
 
 FUSION_ALPHA_ARGS=()
 if [[ "${USE_FIXED_ALPHA}" == "true" ]]; then
     FUSION_ALPHA_ARGS+=(--use_fixed_alpha)
+fi
+
+GENERATED_VALIDATION_ARGS=()
+VALIDATION_PATH_SUFFIX=""
+if [[ "${USE_GENERATED_VALIDATION_DATA}" == "true" ]]; then
+    GENERATED_VALIDATION_ARGS+=(--use_generated_validation_data)
+    GENERATED_VALIDATION_ARGS+=(--generated_validation_data_root "${GENERATED_VALIDATION_DATA_ROOT}")
+    VALIDATION_PATH_SUFFIX="_generated_val"
 fi
 
 
@@ -38,8 +48,8 @@ deepspeed --num_gpus=$GPUS --num_nodes=$NUM_NODES src/search.py \
     --fp16 \
     --passage_reps dense_output/${BASE_MODEL}/${DATASET}/${TARGET_TYPE}/${FILTER}/${CALCULATE_TYPE}/${PROMPT_TYPE}/test/${EXPENDED_TOKENS}_${MANUAL}_${MANUAL_LENGTH}_${SPARSE_VALUE_TYPE}_${CLUSTER}_${REPS_LOC}_${EOL_TYPE}_${SPARSE_LOWER_OR_UPPER}_${USE_MEAN} \
     --sparse_index sparse_output/${BASE_MODEL}/${DATASET}/${TARGET_TYPE}/${FILTER}/${CALCULATE_TYPE}/${PROMPT_TYPE}/test/${EXPENDED_TOKENS}_${MANUAL}_${MANUAL_LENGTH}_${SPARSE_VALUE_TYPE}_${CLUSTER}_${REPS_LOC}_${EOL_TYPE}_${SPARSE_LOWER_OR_UPPER}_${USE_MEAN} \
-    --val_passage_reps dense_output/${BASE_MODEL}/${DATASET}/${TARGET_TYPE}/${FILTER}/${CALCULATE_TYPE}/${PROMPT_TYPE}/val/${EXPENDED_TOKENS}_${MANUAL}_${MANUAL_LENGTH}_${SPARSE_VALUE_TYPE}_${CLUSTER}_${REPS_LOC}_${EOL_TYPE}_${SPARSE_LOWER_OR_UPPER}_${USE_MEAN} \
-    --val_sparse_index sparse_output/${BASE_MODEL}/${DATASET}/${TARGET_TYPE}/${FILTER}/${CALCULATE_TYPE}/${PROMPT_TYPE}/val/${EXPENDED_TOKENS}_${MANUAL}_${MANUAL_LENGTH}_${SPARSE_VALUE_TYPE}_${CLUSTER}_${REPS_LOC}_${EOL_TYPE}_${SPARSE_LOWER_OR_UPPER}_${USE_MEAN} \
+    --val_passage_reps dense_output/${BASE_MODEL}/${DATASET}/${TARGET_TYPE}/${FILTER}/${CALCULATE_TYPE}/${PROMPT_TYPE}/val/${EXPENDED_TOKENS}_${MANUAL}_${MANUAL_LENGTH}_${SPARSE_VALUE_TYPE}_${CLUSTER}_${REPS_LOC}_${EOL_TYPE}_${SPARSE_LOWER_OR_UPPER}_${USE_MEAN}${VALIDATION_PATH_SUFFIX} \
+    --val_sparse_index sparse_output/${BASE_MODEL}/${DATASET}/${TARGET_TYPE}/${FILTER}/${CALCULATE_TYPE}/${PROMPT_TYPE}/val/${EXPENDED_TOKENS}_${MANUAL}_${MANUAL_LENGTH}_${SPARSE_VALUE_TYPE}_${CLUSTER}_${REPS_LOC}_${EOL_TYPE}_${SPARSE_LOWER_OR_UPPER}_${USE_MEAN}${VALIDATION_PATH_SUFFIX} \
     --output_dir ./output/${BASE_MODEL}/${DATASET}/${TARGET_TYPE}/${FILTER}/${CALCULATE_TYPE}/${PROMPT_TYPE}/test/${EXPENDED_TOKENS}_${MANUAL}_${MANUAL_LENGTH}_${SPARSE_VALUE_TYPE}_${CLUSTER}_${REPS_LOC}_${EOL_TYPE}_${SPARSE_LOWER_OR_UPPER}_${USE_MEAN}/result \
     --depth 1000 \
     --remove_query \
@@ -56,4 +66,5 @@ deepspeed --num_gpus=$GPUS --num_nodes=$NUM_NODES src/search.py \
     --sparse_lower_or_upper lower \
     --sparse_length 40 \
     --calculate_type concat \
-    --prompt_type prompt_5
+    --prompt_type prompt_5 \
+    "${GENERATED_VALIDATION_ARGS[@]}"

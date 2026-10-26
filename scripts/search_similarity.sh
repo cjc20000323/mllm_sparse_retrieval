@@ -8,17 +8,15 @@ cd "$(dirname "$0")/.."
 # Usage:
 #   bash scripts/search_similarity.sh [both|no_manual|manual]
 #
-# The default runs both sparse_manual settings.  After both test searches
-# finish, search_similarity.py writes the paired Excel similarity report.
-
-RUN_MODE="${1:-both}"
-case "${RUN_MODE}" in
-  both|no_manual|manual) ;;
-  *)
-    echo "Usage: bash scripts/search_similarity.sh [both|no_manual|manual]" >&2
-    exit 1
-    ;;
-esac
+# Legacy prompteol/separate defaults to both settings (paired report).
+# disassembleeol_separate/concat defaults to no_manual (single report):
+#   EOL_TYPE=disassembleeol_separate CALCULATE_TYPE=concat \
+#     bash scripts/search_similarity.sh
+# Original-text sparse tokens use the same single-report default:
+#   EOL_TYPE=disassembleeol_separate_origin_text CALCULATE_TYPE=concat \
+#     SPARSE_TYPE=single EXPENDED_TOKENS=0 bash scripts/search_similarity.sh
+# Encode targets and build the sparse index with the same settings first;
+# this launcher does not create indices or reuse the old text sparse index.
 
 # The Python entry point reads this environment variable.  Set it to false
 # explicitly when only the original search behavior is wanted.
@@ -39,9 +37,26 @@ PROMPT_TYPE="${PROMPT_TYPE:-prompt_5}"
 VAL_SPLIT="${VAL_SPLIT:-val}"
 TEST_SPLIT="${TEST_SPLIT:-test}"
 
-# These values define the representation mode required by the comparison.
-CALCULATE_TYPE="separate"
-EOL_TYPE="prompteol"
+# These must match the already encoded target representations and index.
+CALCULATE_TYPE="${CALCULATE_TYPE:-separate}"
+EOL_TYPE="${EOL_TYPE:-prompteol}"
+case "${EOL_TYPE}/${CALCULATE_TYPE}" in
+  prompteol/separate) DEFAULT_RUN_MODE="both" ;;
+  disassembleeol_separate/concat) DEFAULT_RUN_MODE="no_manual" ;;
+  disassembleeol_separate_origin_text/concat) DEFAULT_RUN_MODE="no_manual" ;;
+  *)
+    echo "Unsupported EOL_TYPE/CALCULATE_TYPE=${EOL_TYPE}/${CALCULATE_TYPE}; use prompteol/separate, disassembleeol_separate/concat, or disassembleeol_separate_origin_text/concat." >&2
+    exit 1
+    ;;
+esac
+RUN_MODE="${1:-${DEFAULT_RUN_MODE}}"
+case "${RUN_MODE}" in
+  both|no_manual|manual) ;;
+  *)
+    echo "Usage: bash scripts/search_similarity.sh [both|no_manual|manual]" >&2
+    exit 1
+    ;;
+esac
 EXPENDED_TOKENS="${EXPENDED_TOKENS:-0}"
 MANUAL_LENGTH="${MANUAL_LENGTH:-128}"
 SPARSE_VALUE_TYPE="${SPARSE_VALUE_TYPE:-sum}"
@@ -106,7 +121,7 @@ run_search() {
   local test_sparse_dir="sparse_output/${COMMON_PATH}/${TEST_SPLIT}/${path_suffix}"
   local output_dir="output/${COMMON_PATH}/${TEST_SPLIT}/${path_suffix}/result"
 
-  echo "Running prompteol/separate search with sparse_manual=${manual_label}"
+  echo "Running ${EOL_TYPE}/${CALCULATE_TYPE} search with sparse_manual=${manual_label}"
   echo "  dense reps:  ${test_dense_dir}"
   echo "  sparse index: ${test_sparse_dir}"
   echo "  output:      ${output_dir}"
@@ -160,6 +175,8 @@ case "${RUN_MODE}" in
 esac
 
 echo "Search run(s) completed."
-if [[ "${RUN_MODE}" == "both" ]]; then
+if [[ "${CALCULATE_TYPE}" == "concat" ]]; then
+  echo "Similarity statistics (when enabled) include each available setting; a second setting adds the paired comparison."
+elif [[ "${RUN_MODE}" == "both" ]]; then
   echo "The Excel report is generated after both test runs are available."
 fi

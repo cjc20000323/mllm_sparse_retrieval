@@ -86,6 +86,28 @@ ENABLE_RETRIEVAL_SIMILARITY_STATS = os.environ.get(
     'ENABLE_RETRIEVAL_SIMILARITY_STATS', 'false'
 ).lower() in {'1', 'true', 'yes', 'y', 'on'}
 RETRIEVAL_SIMILARITY_STATS_DIR_NAME = 'retrieval_similarity_prompteol_separate'
+RETRIEVAL_SIMILARITY_CONFIGURATIONS = {
+    ('prompteol', 'separate'): (RETRIEVAL_SIMILARITY_STATS_DIR_NAME, False),
+    ('disassembleeol_separate', 'concat'): (
+        'retrieval_similarity_disassembleeol_separate_concat', True
+    ),
+    ('disassembleeol_separate_origin_text', 'concat'): (
+        'retrieval_similarity_disassembleeol_separate_origin_text_concat', True
+    ),
+}
+
+
+def _similarity_stats_configuration(model_args):
+    """Return the isolated report directory and single-condition policy."""
+    pair = (model_args.eol_type, model_args.calculate_type)
+    if pair not in RETRIEVAL_SIMILARITY_CONFIGURATIONS:
+        raise ValueError(
+            'ENABLE_RETRIEVAL_SIMILARITY_STATS=True only supports '
+            'prompteol + separate, disassembleeol_separate + concat, or '
+            'disassembleeol_separate_origin_text + concat; '
+            f'got {pair[0]} + {pair[1]}.'
+        )
+    return RETRIEVAL_SIMILARITY_CONFIGURATIONS[pair]
 
 
 def pickle_load(path):
@@ -166,15 +188,11 @@ def _save_test_runs_for_similarity(
         data_args,
         search_args,
 ):
-    """Save all test runs and trigger the paired manual/no_manual report."""
+    """Save globally gathered test runs and report available conditions."""
     if not ENABLE_RETRIEVAL_SIMILARITY_STATS:
         return
 
-    if model_args.eol_type != 'prompteol' or model_args.calculate_type != 'separate':
-        raise ValueError(
-            'ENABLE_RETRIEVAL_SIMILARITY_STATS=True only supports '
-            "eol_type='prompteol' with calculate_type='separate'."
-        )
+    stats_dir_name, allow_partial = _similarity_stats_configuration(model_args)
 
     dense_run = _gather_test_run_for_similarity(dense_run)
     sparse_run = _gather_test_run_for_similarity(sparse_run)
@@ -196,7 +214,7 @@ def _save_test_runs_for_similarity(
     )
     stats_directory = os.path.join(
         os.path.dirname(run_directory),
-        RETRIEVAL_SIMILARITY_STATS_DIR_NAME,
+        stats_dir_name,
         comparison_name,
     )
     os.makedirs(stats_directory, exist_ok=True)
@@ -222,7 +240,7 @@ def _save_test_runs_for_similarity(
 
     from compute_retrieval_similarity import compute_from_directory
 
-    excel_path = compute_from_directory(stats_directory)
+    excel_path = compute_from_directory(stats_directory, allow_partial=allow_partial)
     if excel_path is None:
         print(
             'Similarity report will be generated after both '
@@ -588,6 +606,9 @@ def main():
     data_args: PromptRepsLLMDataArguments
     search_args: PromptRepsLLMSearchArguments
     training_args: TrainingArguments
+
+    if ENABLE_RETRIEVAL_SIMILARITY_STATS:
+        _similarity_stats_configuration(model_args)
 
     fixed_alpha = float(search_args.alpha)
     if search_args.use_fixed_alpha and not 0.0 <= fixed_alpha <= 1.0:

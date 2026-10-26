@@ -1,12 +1,10 @@
 import glob
-import glob
 import os
 import pickle
 from contextlib import nullcontext
 from io import BytesIO
 from itertools import chain
 
-import faiss
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -22,9 +20,11 @@ from torchvision.transforms.functional import InterpolationMode
 
 from arguments import PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, ModelArguments
 from arguments import TrainingArguments
-from dataset import CrossModalRetrievalDataset, TextPersonRetrievalDataset, Text2ImagetextRetrievalDataset, \
-    Imagetext2TextRetrievalDataset
-from metrices import RecallMetrics
+from dense_encoding import DenseEncoderArguments
+from dense_search import DenseSearchArguments, run_dense_search
+from mmret_dense import is_mmret_model
+from unime_dense import is_unime_model
+from vlm2vec_dense import is_vlm2vec_model
 from template import gme_image_flickr_prompt, gme_text_flickr_prompt, gme_text_coco_prompt, gme_image_coco_prompt, \
     gme_tbpr_prompt, lamra_2_5_query_tbpr_prompt, lamra_2_query_tbpr_prompt, lamra_2_query_img_prompt, \
     lamra_2_query_text_prompt, lamra_2_5_query_img_prompt, lamra_2_5_query_text_prompt, vlm2vec_query_img_prompt, \
@@ -34,18 +34,6 @@ from template import gme_image_flickr_prompt, gme_text_flickr_prompt, gme_text_c
 torch.set_printoptions(threshold=10000)  # 数字根据你的张量尺寸调整
 import torch.utils.data as Data
 import torch.nn.functional as F
-from nltk.corpus import stopwords
-import string
-from encode_dense import blip_load_image
-from models.blip_itm import blip_itm
-from eva_clip import create_model_and_transforms, get_tokenizer
-from sentence_transformers import SentenceTransformer
-from peft import PeftModel
-
-# from cuml.cluster import KMeans
-
-stopwords = set(stopwords.words('english') + list(string.punctuation))
-
 import logging
 
 logger = logging.getLogger(__name__)
@@ -143,13 +131,39 @@ def sparse_search(sparse_retriever, batch_topics, batch_ids, search_args):
 
 def main():
     parser = HfArgumentParser(
-        (ModelArguments, PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, TrainingArguments))
+        (ModelArguments, PromptRepsLLMDataArguments, PromptRepsLLMSearchArguments, TrainingArguments,
+         DenseEncoderArguments, DenseSearchArguments))
 
-    model_args, data_args, search_args, training_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, search_args, training_args, dense_args, dense_search_args = parser.parse_args_into_dataclasses()
     model_args: ModelArguments
     data_args: PromptRepsLLMDataArguments
     search_args: PromptRepsLLMSearchArguments
     training_args: TrainingArguments
+
+    if is_vlm2vec_model(model_args.model_name_or_path, dense_args.dense_model_type):
+        run_dense_search(model_args, data_args, search_args, training_args, dense_args, dense_search_args, "vlm2vec")
+        return
+    if is_unime_model(model_args.model_name_or_path, dense_args.dense_model_type):
+        run_dense_search(model_args, data_args, search_args, training_args, dense_args, dense_search_args, "unime")
+        return
+    if is_mmret_model(model_args.model_name_or_path, dense_args.dense_model_type):
+        run_dense_search(model_args, data_args, search_args, training_args, dense_args, dense_search_args, "mmret")
+        return
+    if (dense_args.data_root is not None or dense_search_args.mmret_query_instruction is not None
+            or dense_search_args.vlm2vec_query_instruction is not None):
+        raise ValueError("--data_root and native query instructions require a native MMRet/UniME/VLM2Vec dense model.")
+
+    # Keep optional legacy backends out of native dense search.
+    global faiss
+    import faiss
+    from dataset import (CrossModalRetrievalDataset, TextPersonRetrievalDataset,
+                         Text2ImagetextRetrievalDataset, Imagetext2TextRetrievalDataset)
+    from metrices import RecallMetrics
+    from encode_dense import blip_load_image
+    from models.blip_itm import blip_itm
+    from eva_clip import create_model_and_transforms, get_tokenizer
+    from sentence_transformers import SentenceTransformer
+    from peft import PeftModel
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

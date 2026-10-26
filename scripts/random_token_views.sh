@@ -63,6 +63,14 @@ PRECISION="${PRECISION:-fp16}"
 USE_FAISS_GPU="${USE_FAISS_GPU:-1}"
 REMOVE_QUERY="${REMOVE_QUERY:-1}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
+USE_GENERATED_VALIDATION_DATA="${USE_GENERATED_VALIDATION_DATA:-false}"
+GENERATED_VALIDATION_DATA_ROOT="${GENERATED_VALIDATION_DATA_ROOT:-./generated_llava70b_data}"
+
+GENERATED_VALIDATION_ARGS=()
+if [[ "${USE_GENERATED_VALIDATION_DATA}" == "true" ]]; then
+  GENERATED_VALIDATION_ARGS+=(--use_generated_validation_data)
+  GENERATED_VALIDATION_ARGS+=(--generated_validation_data_root "${GENERATED_VALIDATION_DATA_ROOT}")
+fi
 
 case "${MODEL_PATH}" in
   *llava-hf-llama3-llava-next-8b-hf*|*llava-hf-llava-v1.6-mistral-7b-hf*) ;;
@@ -142,6 +150,10 @@ SEARCH_OUTPUT_DIR="output/${COMMON_PATH}/${TEST_SPLIT}/${PATH_SUFFIX}/result"
 
 run_encode() {
   local split="$1"
+  local generated_validation_args=()
+  if [[ "${USE_GENERATED_VALIDATION_DATA}" == "true" && "${split}" == "${VAL_SPLIT}" ]]; then
+    generated_validation_args=("${GENERATED_VALIDATION_ARGS[@]}")
+  fi
 
   echo "Encoding ${TASK_TYPE} ${DATASET}/${split} with ${MODEL_OUTPUT_NAME}, seed=${RANDOM_VIEW_SEED}"
   deepspeed \
@@ -168,7 +180,8 @@ run_encode() {
     --calculate_type "${CALCULATE_TYPE}" \
     --prompt_type "${PROMPT_TYPE}" \
     --random_view_seed "${RANDOM_VIEW_SEED}" \
-    "${MEAN_ARGS[@]}"
+    "${MEAN_ARGS[@]}" \
+    "${generated_validation_args[@]}"
 }
 
 run_index() {
@@ -222,7 +235,8 @@ run_search() {
     --random_view_seed "${RANDOM_VIEW_SEED}" \
     "${MEAN_ARGS[@]}" \
     "${FAISS_ARGS[@]}" \
-    "${REMOVE_QUERY_ARGS[@]}"
+    "${REMOVE_QUERY_ARGS[@]}" \
+    "${GENERATED_VALIDATION_ARGS[@]}"
 }
 
 if [[ "${STAGE}" == "all" || "${STAGE}" == "encode" ]]; then

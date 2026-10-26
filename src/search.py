@@ -632,6 +632,10 @@ def main():
 
     # The test dataset always stays data_args.dataset_name.  When requested,
     # only the validation dataset is taken from the fixed cross-dataset map.
+    generated_validation_kwargs = {
+        'use_generated_validation_data': data_args.use_generated_validation_data,
+        'generated_validation_data_root': data_args.generated_validation_data_root,
+    }
     val_dataset_name = data_args.dataset_name
     fixed_val_dataset = None
     if search_args.use_fixed_validation_dataset:
@@ -639,8 +643,12 @@ def main():
             fixed_val_dataset = 'flickr'
         elif training_args.task_type == 'tbpr':
             fixed_val_dataset = 'RSTPReid'
-        elif training_args.task_type in ('it2t', 't2it'):
+        elif training_args.task_type == 'it2t':
             fixed_val_dataset = 'llava'
+        elif training_args.task_type == 't2it':
+            fixed_val_dataset = (
+                'webqa' if data_args.use_generated_validation_data else 'llava'
+            )
 
         if fixed_val_dataset is not None:
             val_dataset_name = fixed_val_dataset
@@ -653,10 +661,14 @@ def main():
     if training_args.task_type == 'cir':
         dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'val', search_args.query_type)
         val_dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, 'val',
-                                                        search_args.query_type)
+                                                        search_args.query_type,
+                                                        **generated_validation_kwargs)
     elif training_args.task_type == 'tbpr':
         dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
-        if search_args.use_fixed_validation_dataset:
+        if data_args.use_generated_validation_data:
+            val_dataset = TextPersonRetrievalDataset(val_dataset_name, processor, 'val', 'full',
+                                                      **generated_validation_kwargs)
+        elif search_args.use_fixed_validation_dataset:
             val_dataset = TextPersonRetrievalDataset(val_dataset_name, processor, 'val', 'full')
         elif data_args.dataset_name != 'ICFG-PEDES':
             val_dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, 'val', 'full')
@@ -665,18 +677,23 @@ def main():
     elif training_args.task_type == 't2it':
         dataset = Text2ImagetextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split,
                                                      'query')
-        val_dataset = Text2ImagetextRetrievalDataset(val_dataset_name, processor, data_args.dataset_split,
-                                                 'query')
+        val_split = 'val' if data_args.use_generated_validation_data else data_args.dataset_split
+        val_dataset = Text2ImagetextRetrievalDataset(val_dataset_name, processor, val_split, 'query',
+                                                      **generated_validation_kwargs)
     elif training_args.task_type == 'it2t':
         dataset = Imagetext2TextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'query')
-        val_dataset = Imagetext2TextRetrievalDataset(val_dataset_name, processor, data_args.dataset_split, 'query')
+        val_split = 'val' if data_args.use_generated_validation_data else data_args.dataset_split
+        val_dataset = Imagetext2TextRetrievalDataset(val_dataset_name, processor, val_split, 'query',
+                                                     **generated_validation_kwargs)
     else:
         if search_args.query_type == 'text':
             dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'full')
-            val_dataset = CrossModalRetrievalDataset(val_dataset_name, processor, 'val', 'full')
+            val_dataset = CrossModalRetrievalDataset(val_dataset_name, processor, 'val', 'full',
+                                                     **generated_validation_kwargs)
         else:
             dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, 'test', 'single')
-            val_dataset = CrossModalRetrievalDataset(val_dataset_name, processor, 'val', 'single')
+            val_dataset = CrossModalRetrievalDataset(val_dataset_name, processor, 'val', 'single',
+                                                     **generated_validation_kwargs)
 
     val_sampler = Data.DistributedSampler(val_dataset, num_replicas=world_size, shuffle=True, rank=rank)
     val_dataloader = Data.DataLoader(dataset=val_dataset, sampler=val_sampler, batch_size=data_args.per_device_batch_size,

@@ -8,29 +8,46 @@ Pipeline
 --------
 1. Stage 1 is a coarse candidate generator.  It can be one of:
 
-   * ``clip`` or ``blip``: direct HuggingFace image/text feature retrieval;
+   * ``clip`` or ``blip``: direct image/text feature retrieval;
    * ``sparse_manual``: online query encoding with
      ``prompteol + separate + sparse_manual`` against a persisted Lucene
      corpus index;
    * ``sparse_concat``: online query encoding with
      ``disassembleeol_separate + concat`` against a persisted Lucene corpus
-     index.
+     index. Queries are sharded across all workers; each worker retains its
+     own CPU query representations for Stage 2.
 
    A precomputed TREC/JSON run can also be supplied for any stage.  This is
    useful when a baseline model is maintained by a separate script.
 
 2. Stage 2 is always the current-program configuration
    ``disassembleeol_separate + concat``.  Just like ``search.py``, it encodes
-   queries online, loads dense ``corpus*.pkl`` shards and a sparse Lucene
+   queries online (or reuses Stage-1 ``sparse_concat`` query representations),
+   loads dense ``corpus*.pkl`` shards and a sparse Lucene
    ``index/``, normalizes both scores in the same per-query min-max fashion as
    ``hybrid.py``, and fuses them inside the Stage-1 candidate pool.
 
-3. Stage 3 calls the existing ``Reranker.rerank`` pointwise ranker on the
-   Stage-2 candidate list.
+3. Stage 3 calls the existing pointwise reranker on the Stage-2 candidate
+   list.  Caption-generation templates use ``caption_generation_rerank``;
+   other templates use ``rerank``.
 
 ``encode.py`` is only expected to persist corpus-side artifacts.  No
 ``query.pkl`` or ``query.tsv`` is required.  Every intermediate run is still
 saved for inspection or resume.
+
+Dataset adapters follow the existing retrieval tasks: COCO/Flickr use ``ir``,
+CUHK-PEDES/ICFG-PEDES/RSTPReid use ``tbpr`` (text -> person images), WebQA
+uses ``t2it`` (text -> image+text), and ReMuQ/LLaVA use ``it2t`` (image+text
+-> text). The launcher selects these task/query/corpus settings from DATASET.
+
+Each completed stage also reports query-level Recall@K using the same cutoffs
+as ``metrices.RecallMetrics``.  ``recall_metrics.json`` and
+``recall_metrics.xlsx`` are updated after every stage, including precomputed
+runs, so completed measurements survive a later-stage failure.
+
+Core-compute timings exclude model/index loading, evaluation and output I/O.
+``timing_metrics.json`` / ``timing_metrics.xlsx`` distinguish their sum from
+the end-to-end wall time (which includes those costs).
 """
 
 from __future__ import annotations
@@ -38,15 +55,27 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import os
 import pickle
 import subprocess
 import sys
-from contextlib import nullcontext
+import time
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
+from datetime import timedelta
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Iterable, Mapping, Optional, Sequence
+
+from tqdm import tqdm
+
+try:
+    from rerank_prior_cache import validate_prior_cache_options
+except ModuleNotFoundError as exc:
+    if exc.name != "rerank_prior_cache":
+        raise
+    from src.rerank_prior_cache import validate_prior_cache_options
 
 
 Run = dict[str, dict[str, float]]
@@ -54,6 +83,34 @@ Run = dict[str, dict[str, float]]
 STAGE1_METHODS = ("clip", "blip", "sparse_manual", "sparse_concat")
 STAGE2_EOL_TYPE = "disassembleeol_separate"
 STAGE2_CALCULATE_TYPE = "concat"
+
+DATASET_TASK_TYPES = {
+    "coco": "ir", "flickr": "ir", "fashion-iq": "cir",
+    "CUHK-PEDES": "tbpr", "ICFG-PEDES": "tbpr", "RSTPReid": "tbpr",
+    "webqa": "t2it", "edis": "t2it", "remuq": "it2t", "llava": "it2t",
+}
+
+
+def _progress(
+    iterable: Any = None,
+    *,
+    desc: str,
+    unit: str,
+    total: Optional[int] = None,
+    leave: bool = True,
+    disable: Optional[bool] = None,
+):
+    """Create consistently formatted CLI progress bars for the pipeline."""
+
+    return tqdm(
+        iterable,
+        desc=desc,
+        unit=unit,
+        total=total,
+        leave=leave,
+        dynamic_ncols=True,
+        disable=(int(os.environ.get("RANK", "0")) != 0 if disable is None else disable),
+    )
 
 
 @dataclass
@@ -63,6 +120,483 @@ class EncodedQueries:
     query_ids: list[str]
     dense_representations: Any
     sparse_topics: dict[str, str]
+
+
+@dataclass(frozen=True)
+class DistributedContext:
+    """Process identity for single-process or NCCL data-parallel execution."""
+
+    rank: int = 0
+    local_rank: int = 0
+    world_size: int = 1
+
+    @property
+    def is_distributed(self) -> bool:
+        return self.world_size > 1
+
+    @property
+    def is_main(self) -> bool:
+        return self.rank == 0
+
+
+def _format_duration(seconds: Optional[float]) -> str:
+    if seconds is None:
+        return "N/A"
+    milliseconds = round(max(seconds, 0.0) * 1000)
+    hours, remaining = divmod(milliseconds, 3600000)
+    minutes, remaining = divmod(remaining, 60000)
+    return f"{hours:02d}:{minutes:02d}:{remaining / 1000:06.3f}"
+
+
+def _model_cuda_devices(model: Any = None, device: Any = None) -> tuple[str, ...]:
+    """Find only devices actually used, without initializing CUDA on CPU runs."""
+    values = [device]
+    device_map = getattr(model, "hf_device_map", None)
+    if isinstance(device_map, Mapping):
+        values.extend(device_map.values())
+    parameters = getattr(model, "parameters", None)
+    if callable(parameters):
+        values.extend(parameter.device for parameter in parameters())
+    devices = set()
+    for value in values:
+        if isinstance(value, int):
+            devices.add(f"cuda:{value}")
+        elif value is not None and str(value).startswith("cuda"):
+            normalized = str(value)
+            if normalized == "cuda":
+                import torch
+                normalized = f"cuda:{torch.cuda.current_device()}"
+            devices.add(normalized)
+    return tuple(sorted(devices))
+
+
+def _synchronize_cuda_devices(devices: Sequence[str]) -> None:
+    if devices:
+        import torch
+        for device in devices:
+            torch.cuda.synchronize(device)
+
+
+class StageTimer:
+    """Accumulate non-overlapping compute spans; never time stage setup/I/O."""
+
+    def __init__(self, source: str = "computed") -> None:
+        self.source = source
+        self.components: dict[str, float] = {}
+        self.auxiliary: dict[str, float] = {}
+        self._devices: dict[tuple[int, str], tuple[str, ...]] = {}
+
+    @contextmanager
+    def measure(
+        self, component: str, *, model: Any = None, device: Any = None,
+        core: bool = True,
+    ):
+        key = (id(model), str(device))
+        if key not in self._devices:
+            self._devices[key] = _model_cuda_devices(model, device)
+        devices = self._devices[key]
+        _synchronize_cuda_devices(devices)
+        started = time.perf_counter()
+        try:
+            yield
+        except BaseException:
+            # Failed CUDA work cannot be synchronized/timed reliably. The
+            # pipeline records this stage as failed without claiming a total.
+            raise
+        else:
+            _synchronize_cuda_devices(devices)
+            elapsed = time.perf_counter() - started
+            destination = self.components if core else self.auxiliary
+            destination[component] = destination.get(component, 0.0) + elapsed
+
+    def snapshot(self, rank: int) -> dict[str, Any]:
+        seconds: Optional[float] = sum(self.components.values())
+        if self.source == "external_command":
+            seconds = None
+        elif self.source == "precomputed":
+            seconds = 0.0
+        report = {
+            "rank": rank,
+            "source": self.source,
+            "compute_seconds": seconds,
+            "components_seconds": dict(self.components),
+            "auxiliary_seconds": dict(self.auxiliary),
+        }
+        if hasattr(self, "prior_cache"):
+            report["prior_cache"] = self.prior_cache
+        return report
+
+
+def _compute_scope(timer: Optional[StageTimer], component: str, **kwargs: Any):
+    return timer.measure(component, **kwargs) if timer is not None else nullcontext()
+
+
+def _merge_stage_timings(samples: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """Use the slowest rank's entire compute path, not summed GPU times."""
+    measurable = all(sample["compute_seconds"] is not None for sample in samples)
+    critical = max(samples, key=lambda sample: sample["compute_seconds"] or 0.0)
+    report = {
+        "source": samples[0]["source"],
+        "compute_seconds": critical["compute_seconds"] if measurable else None,
+        "critical_rank": critical["rank"] if measurable else None,
+        "components_seconds": dict(critical["components_seconds"]) if measurable else {},
+        "per_rank_compute_seconds": {str(sample["rank"]): sample["compute_seconds"] for sample in samples},
+        "auxiliary_seconds": {
+            name: max(sample["auxiliary_seconds"].get(name, 0.0) for sample in samples)
+            for name in {name for sample in samples for name in sample["auxiliary_seconds"]}
+        },
+    }
+    if "prior_cache" in critical:
+        report["prior_cache"] = critical["prior_cache"]
+    return report
+
+
+def _collect_stage_timing(timer: StageTimer, context: DistributedContext) -> Optional[dict[str, Any]]:
+    sample = timer.snapshot(context.rank)
+    if not context.is_distributed:
+        return _merge_stage_timings([sample])
+    import torch.distributed as dist
+
+    gathered: Optional[list[Any]] = [None] * context.world_size if context.is_main else None
+    dist.gather_object(sample, gathered, dst=0)
+    if not context.is_main:
+        return None
+    assert gathered is not None
+    return _merge_stage_timings(gathered)
+
+
+class TimingReporter:
+    """Incremental rank-0 reports; failure finalization uses no collectives."""
+
+    def __init__(self, args: Any, output_dir: Path, started: float) -> None:
+        self.args = args
+        self.output_dir = output_dir
+        self.started = started
+        self.status = "running"
+        self.stages: dict[str, dict[str, Any]] = {
+            stage: {"stage": stage, "status": "not_started", "compute_seconds": None,
+                    "components_seconds": {}, "auxiliary_seconds": {}}
+            for stage in ("stage1", "stage2", "stage3")
+        }
+
+    def record(self, stage: str, measurement: dict[str, Any]) -> None:
+        self.stages[stage] = {"stage": stage, "status": "completed", **measurement}
+        self._save(time.perf_counter() - self.started)
+        seconds = measurement["compute_seconds"]
+        display = f"{seconds:.3f}s ({_format_duration(seconds)})" if seconds is not None else "N/A"
+        tqdm.write(f"[timing][{stage}] core_compute={display}, source={measurement['source']}")
+
+    def finish(self, *, completed: bool, failed_stage: Optional[str] = None) -> None:
+        wall_seconds = time.perf_counter() - self.started
+        self.status = "completed" if completed else "failed"
+        if failed_stage is not None:
+            self.stages[failed_stage]["status"] = "failed"
+            self.stages[failed_stage]["compute_seconds"] = None
+        payload = self._save(wall_seconds)
+        totals = payload["totals"]
+        seconds = totals["compute_seconds"]
+        display = (
+            f"{seconds:.3f}s ({_format_duration(seconds)})" if seconds is not None
+            else f"N/A (incomplete; measured completed stages={totals['measured_compute_seconds']:.3f}s)"
+        )
+        tqdm.write(f"[timing][total] core_compute={display}")
+        tqdm.write(f"[timing][total] end_to_end={wall_seconds:.3f}s ({_format_duration(wall_seconds)}), status={self.status}")
+
+    def _save(self, wall_seconds: float) -> dict[str, Any]:
+        records = list(self.stages.values())
+        complete = self.status == "completed" and all(
+            row["status"] == "completed" and row["compute_seconds"] is not None
+            for row in records
+        )
+        measured = sum(row["compute_seconds"] or 0.0 for row in records if row["status"] == "completed")
+        payload = {
+            **{name: getattr(self.args, name, None) for name in ("dataset_name", "dataset_split", "task_type", "query_type")},
+            "status": self.status,
+            "unit": "seconds",
+            "compute_scope": "encoding/batch preprocessing, retrieval, sorting, fusion and reranking; excludes model/index/dataset setup, evaluation, output I/O and cleanup",
+            "distributed_reduction": "max rank-local accumulated compute time per stage; components are from that same critical rank",
+            "wall_scope": "after argument validation through result/recall/metadata output; excludes imports, final timing report output and distributed teardown",
+            "stages": records,
+            "totals": {
+                "compute_complete": complete,
+                "compute_seconds": measured if complete else None,
+                "measured_compute_seconds": measured,
+                "wall_seconds": wall_seconds,
+            },
+        }
+        temporary = self.output_dir / "timing_metrics.tmp.json"
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+        temporary.replace(self.output_dir / "timing_metrics.json")
+
+        table = []
+        for row in records:
+            table.append({
+                "record_type": "stage", "stage": row["stage"],
+                "source": row.get("source"), "status": row["status"],
+                "seconds": row["compute_seconds"], "duration": _format_duration(row["compute_seconds"]),
+                "critical_rank": row.get("critical_rank"),
+            })
+            for component, seconds in row["components_seconds"].items():
+                table.append({"record_type": "component", "stage": row["stage"],
+                              "component": component, "seconds": seconds, "duration": _format_duration(seconds)})
+            for component, seconds in row["auxiliary_seconds"].items():
+                table.append({"record_type": "auxiliary_wall", "stage": row["stage"],
+                              "component": component, "seconds": seconds, "duration": _format_duration(seconds)})
+        for scope, seconds in (("core_compute_total", payload["totals"]["compute_seconds"]), ("end_to_end_total", wall_seconds)):
+            table.append({"record_type": "total", "component": scope, "status": self.status,
+                          "seconds": seconds, "duration": _format_duration(seconds)})
+        pandas, engine = RecallReporter._output_dependencies()
+        excel_temp = self.output_dir / "timing_metrics.tmp.xlsx"
+        pandas.DataFrame(table).to_excel(excel_temp, index=False, engine=engine)
+        excel_temp.replace(self.output_dir / "timing_metrics.xlsx")
+        return payload
+
+
+def _record_stage_timing(
+    stage: str, timer: StageTimer, context: DistributedContext,
+    reporter: Optional[TimingReporter],
+) -> None:
+    measurement = _collect_stage_timing(timer, context)
+    if context.is_main:
+        assert reporter is not None and measurement is not None
+        reporter.record(stage, measurement)
+
+
+def _initialise_distributed(local_rank_arg: int = -1) -> DistributedContext:
+    """Initialise one NCCL process per GPU when launched by DeepSpeed/torchrun."""
+
+    import torch
+    import torch.distributed as dist
+
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    local_rank = int(
+        os.environ.get(
+            "LOCAL_RANK",
+            str(local_rank_arg if local_rank_arg >= 0 else 0),
+        )
+    )
+    if world_size <= 1:
+        return DistributedContext()
+    if not torch.cuda.is_available():
+        raise RuntimeError("多进程三阶段流水线需要 CUDA 和 NCCL。")
+
+    torch.cuda.set_device(local_rank)
+    if not dist.is_initialized():
+        dist.init_process_group("nccl", timeout=timedelta(seconds=3600))
+    return DistributedContext(
+        rank=dist.get_rank(),
+        local_rank=local_rank,
+        world_size=dist.get_world_size(),
+    )
+
+
+def _shutdown_distributed(context: DistributedContext, *, synchronize: bool) -> None:
+    if not context.is_distributed:
+        return
+    import torch.distributed as dist
+
+    if not dist.is_initialized():
+        return
+    if synchronize:
+        dist.barrier()
+    dist.destroy_process_group()
+
+
+def _partition_run(run: Run, world_size: int) -> list[Run]:
+    """Split query entries deterministically without padding or duplication."""
+
+    if world_size <= 0:
+        raise ValueError(f"world_size 必须为正整数，当前为 {world_size}。")
+    shards: list[Run] = [{} for _ in range(world_size)]
+    for index, (query_id, scores) in enumerate(run.items()):
+        shards[index % world_size][query_id] = scores
+    return shards
+
+
+def _merge_run_shards(shards: Sequence[Run]) -> Run:
+    merged: Run = {}
+    for shard in shards:
+        duplicate_ids = set(merged).intersection(shard)
+        if duplicate_ids:
+            duplicate = sorted(duplicate_ids)[0]
+            raise ValueError(f"分布式结果包含重复 query ID: {duplicate}")
+        merged.update(shard)
+    return merged
+
+
+def _validate_query_coverage(expected: Run, actual: Run, stage: str) -> None:
+    expected_ids = set(expected)
+    actual_ids = set(actual)
+    if expected_ids == actual_ids:
+        return
+    missing = sorted(expected_ids - actual_ids)
+    unexpected = sorted(actual_ids - expected_ids)
+    details = []
+    if missing:
+        details.append(f"missing={missing[0]}")
+    if unexpected:
+        details.append(f"unexpected={unexpected[0]}")
+    raise ValueError(f"{stage} query 汇总不完整: {', '.join(details)}")
+
+
+def _scatter_run(run: Run, context: DistributedContext) -> Run:
+    if not context.is_distributed:
+        return run
+    import torch.distributed as dist
+
+    received: list[Any] = [None]
+    scatter_list = _partition_run(run, context.world_size) if context.is_main else None
+    dist.scatter_object_list(received, scatter_list, src=0)
+    shard = received[0]
+    if not isinstance(shard, dict):
+        raise TypeError(f"收到无效的 run 分片: {type(shard).__name__}")
+    return shard
+
+
+def _stage1_query_shard(
+    args: argparse.Namespace, context: DistributedContext,
+) -> tuple[list[str], list[str], list[int]]:
+    """Partition query IDs before any rank allocates a query encoder."""
+    global_ids: list[str] = []
+    packets = None
+    if context.is_main:
+        try:
+            dataset = build_dataset(args)
+            global_ids = [_normalise_id(query_id) for query_id in _dataset_query_ids(args, dataset)]
+            del dataset
+            if not global_ids:
+                raise ValueError("Stage 1 has no queries to encode.")
+            if any(not query_id for query_id in global_ids) or len(global_ids) != len(set(global_ids)):
+                raise ValueError("Stage-1 query IDs are empty or duplicated after normalization.")
+            shards = [global_ids[rank::context.world_size] for rank in range(context.world_size)]
+            counts = [len(shard) for shard in shards]
+            packets = [{"ids": shard, "counts": counts, "error": None} for shard in shards]
+        except Exception as exc:
+            # All ranks receive metadata failures through the normal scatter;
+            # no rank loads weights while peers wait for a successful packet.
+            packets = [{"error": f"{type(exc).__name__}: {exc}"} for _ in range(context.world_size)]
+    if context.is_distributed:
+        import torch.distributed as dist
+
+        received: list[Any] = [None]
+        dist.scatter_object_list(received, packets, src=0)
+        packet = received[0]
+    else:
+        packet = packets[0]
+    if packet["error"] is not None:
+        raise ValueError(f"Cannot partition Stage-1 queries: {packet['error']}")
+    return packet["ids"], global_ids, packet["counts"]
+
+
+def _validate_encoded_queries(
+    encoded: EncodedQueries, expected_ids: Optional[Sequence[str]] = None,
+) -> None:
+    """Reject incomplete/misaligned CPU representations before reuse."""
+    import numpy as np
+
+    if not isinstance(encoded, EncodedQueries):
+        raise TypeError("Expected EncodedQueries for Stage-1 query reuse.")
+    ids = encoded.query_ids
+    if any(not isinstance(query_id, str) or query_id != _normalise_id(query_id) for query_id in ids):
+        raise ValueError("Encoded query IDs must be normalized strings.")
+    if len(ids) != len(set(ids)):
+        raise ValueError("Encoded queries contain duplicate query IDs.")
+    dense = encoded.dense_representations
+    if not isinstance(dense, np.ndarray) or dense.ndim != 2 or dense.shape[0] != len(ids):
+        raise ValueError("Encoded dense query rows do not match the query IDs.")
+    if (ids and dense.shape[1] == 0) or dense.dtype.kind != "f" or not np.isfinite(dense).all():
+        raise ValueError("Encoded dense query vectors must be finite floating-point CPU arrays.")
+    if set(encoded.sparse_topics) != set(ids) or any(
+        not isinstance(topic, str) for topic in encoded.sparse_topics.values()
+    ):
+        raise ValueError("Encoded sparse topics do not match the query IDs.")
+    if expected_ids is not None and ids != [_normalise_id(query_id) for query_id in expected_ids]:
+        raise ValueError("Encoded query IDs/order do not match the Stage-2 query shard.")
+
+
+def _select_encoded_queries(encoded: EncodedQueries, query_ids: Sequence[str]) -> EncodedQueries:
+    """Slice both representations together, including reordered/empty shards."""
+    import numpy as np
+
+    _validate_encoded_queries(encoded)
+    requested = [_normalise_id(query_id) for query_id in query_ids]
+    if len(requested) != len(set(requested)):
+        raise ValueError("Requested encoded query shard contains duplicate query IDs.")
+    positions = {query_id: index for index, query_id in enumerate(encoded.query_ids)}
+    missing = [query_id for query_id in requested if query_id not in positions]
+    if missing:
+        raise ValueError(f"Stage-1 encoding is missing query ID: {missing[0]}")
+    return EncodedQueries(
+        requested,
+        np.ascontiguousarray(encoded.dense_representations[[positions[query_id] for query_id in requested]]),
+        {query_id: encoded.sparse_topics[query_id] for query_id in requested},
+    )
+
+
+def _scatter_encoded_queries(
+    encoded: Optional[EncodedQueries], run: Run, local_run: Run, context: DistributedContext,
+) -> EncodedQueries:
+    """Send only each rank's CPU vectors/topics, using the run's partition order.
+
+    Validation failures are sent in the same collective, so no worker silently
+    falls back to model loading/encoding or waits for a successful root packet.
+    """
+    packets = None
+    if context.is_main:
+        try:
+            _validate_encoded_queries(encoded)
+            if set(encoded.query_ids) != set(run):
+                raise ValueError("Stage-1 run and query encoding coverage differ.")
+            packets = [
+                {"encoded": _select_encoded_queries(encoded, list(shard)), "error": None}
+                for shard in _partition_run(run, context.world_size)
+            ]
+        except (TypeError, ValueError) as exc:
+            packets = [{"error": f"{type(exc).__name__}: {exc}"} for _ in range(context.world_size)]
+    if context.is_distributed:
+        import torch.distributed as dist
+
+        received: list[Any] = [None]
+        dist.scatter_object_list(received, packets, src=0)
+        packet = received[0]
+    else:
+        packet = packets[0]
+    if packet["error"] is not None:
+        raise ValueError(f"Cannot reuse Stage-1 query encodings: {packet['error']}")
+    shard = packet["encoded"]
+    _validate_encoded_queries(shard, list(local_run))
+    return shard
+
+
+def _gather_run(local_run: Run, context: DistributedContext) -> Run:
+    if not context.is_distributed:
+        return local_run
+    import torch.distributed as dist
+
+    gathered: Optional[list[Any]] = (
+        [None for _ in range(context.world_size)] if context.is_main else None
+    )
+    dist.gather_object(local_run, gathered, dst=0)
+    if not context.is_main:
+        return {}
+    assert gathered is not None
+    if any(not isinstance(shard, dict) for shard in gathered):
+        raise TypeError("分布式 run 汇总收到非字典分片。")
+    return _merge_run_shards(gathered)
+
+
+def _device_map_for_process(
+    configured: str,
+    context: DistributedContext,
+) -> Any:
+    normalized = configured.lower()
+    if normalized == "none":
+        return "none"
+    if context.is_distributed and normalized == "auto":
+        return {"": context.local_rank}
+    return configured
 
 
 def _normalise_id(value: Any) -> str:
@@ -224,6 +758,8 @@ def fuse_restricted_runs(
     sparse_run: Run,
     alpha: float,
     candidate_depth: int,
+    progress_desc: str = "[stage2] fuse runs",
+    timing: Optional[StageTimer] = None,
 ) -> Run:
     """Fuse Stage-2 runs only over the candidate pool from Stage 1."""
 
@@ -231,17 +767,23 @@ def fuse_restricted_runs(
         raise ValueError(f"hybrid alpha 必须位于 [0, 1]，当前为 {alpha}。")
 
     result: Run = {}
-    for query_id, stage1_scores in candidate_run.items():
-        candidate_ids = _top_ids(stage1_scores, candidate_depth)
-        dense_scores = _minmax(dense_run.get(query_id, {}))
-        sparse_scores = _minmax(sparse_run.get(query_id, {}))
-        fused: dict[str, float] = {}
-        for doc_id in candidate_ids:
-            fused[doc_id] = (
-                alpha * dense_scores.get(doc_id, 0.0)
-                + (1.0 - alpha) * sparse_scores.get(doc_id, 0.0)
-            )
-        result[query_id] = dict(sorted(fused.items(), key=lambda item: item[1], reverse=True))
+    with _compute_scope(timing, "fusion"):
+        for query_id, stage1_scores in _progress(
+            candidate_run.items(),
+            desc=progress_desc,
+            unit="query",
+            total=len(candidate_run),
+        ):
+            candidate_ids = _top_ids(stage1_scores, candidate_depth)
+            dense_scores = _minmax(dense_run.get(query_id, {}))
+            sparse_scores = _minmax(sparse_run.get(query_id, {}))
+            fused: dict[str, float] = {}
+            for doc_id in candidate_ids:
+                fused[doc_id] = (
+                    alpha * dense_scores.get(doc_id, 0.0)
+                    + (1.0 - alpha) * sparse_scores.get(doc_id, 0.0)
+                )
+            result[query_id] = dict(sorted(fused.items(), key=lambda item: item[1], reverse=True))
     return result
 
 
@@ -308,6 +850,8 @@ def retrieve_dense_from_corpus(
     depth: int,
     candidate_filter: Optional[Mapping[str, set[str]]] = None,
     normalize: bool = True,
+    progress_desc: str = "[stage2] dense retrieval",
+    timing: Optional[StageTimer] = None,
 ) -> Run:
     import numpy as np
 
@@ -321,37 +865,45 @@ def retrieve_dense_from_corpus(
             f"query/corpus 表征维度不一致: {query_reps.shape[1]} != {corpus_reps.shape[1]}"
         )
     if normalize:
-        query_reps = _l2_normalize(query_reps)
         corpus_reps = _l2_normalize(corpus_reps)
 
-    query_to_row = {query_id: index for index, query_id in enumerate(query_lookup)}
     corpus_to_row: dict[str, int] = {}
     for index, corpus_id in enumerate(corpus_lookup):
         corpus_to_row.setdefault(corpus_id, index)
 
+    requested_qids = list(qids)
     result: Run = {}
-    for query_id in qids:
-        query_id = _normalise_id(query_id)
-        row_index = query_to_row.get(query_id)
-        if row_index is None:
-            continue
-        allowed = candidate_filter.get(query_id) if candidate_filter is not None else None
-        if allowed is None:
-            indices = np.arange(len(corpus_lookup), dtype=np.int64)
-        else:
-            indices = np.asarray(
-                [corpus_to_row[doc_id] for doc_id in allowed if doc_id in corpus_to_row],
-                dtype=np.int64,
-            )
-        if len(indices) == 0:
-            result[query_id] = {}
-            continue
-        scores = corpus_reps[indices] @ query_reps[row_index]
-        order = np.argsort(-scores, kind="stable")[:depth]
-        result[query_id] = {
-            corpus_lookup[int(indices[position])]: float(scores[position])
-            for position in order
-        }
+    with _compute_scope(timing, "dense_search"):
+        if normalize:
+            query_reps = _l2_normalize(query_reps)
+        query_to_row = {query_id: index for index, query_id in enumerate(query_lookup)}
+        for query_id in _progress(
+            requested_qids,
+            desc=progress_desc,
+            unit="query",
+            total=len(requested_qids),
+        ):
+            query_id = _normalise_id(query_id)
+            row_index = query_to_row.get(query_id)
+            if row_index is None:
+                continue
+            allowed = candidate_filter.get(query_id) if candidate_filter is not None else None
+            if allowed is None:
+                indices = np.arange(len(corpus_lookup), dtype=np.int64)
+            else:
+                indices = np.asarray(
+                    [corpus_to_row[doc_id] for doc_id in allowed if doc_id in corpus_to_row],
+                    dtype=np.int64,
+                )
+            if len(indices) == 0:
+                result[query_id] = {}
+                continue
+            scores = corpus_reps[indices] @ query_reps[row_index]
+            order = np.argsort(-scores, kind="stable")[:depth]
+            result[query_id] = {
+                corpus_lookup[int(indices[position])]: float(scores[position])
+                for position in order
+            }
     return result
 
 
@@ -361,21 +913,47 @@ def _resolve_lucene_index(path: Path) -> Path:
     return path
 
 
+def _topic_token_frequencies(topic: str) -> dict[str, int]:
+    """Match Pyserini's local ``TokFreqQueryEncoder`` without importing it."""
+
+    frequencies: dict[str, int] = {}
+    for token in topic.strip().split():
+        frequencies[token] = frequencies.get(token, 0) + 1
+    return frequencies
+
+
+def _positive_idf_terms(
+    index_reader: Any,
+    *,
+    progress_desc: str,
+) -> set[str]:
+    """Return terms accepted by ``LuceneImpactSearcher(min_idf=0)``."""
+
+    stats = index_reader.stats()
+    document_count = int(stats["documents"])
+    unique_terms = stats.get("unique_terms")
+    term_total = int(unique_terms) if unique_terms is not None else None
+    allowed_terms: set[str] = set()
+    for term in _progress(
+        index_reader.terms(),
+        desc=progress_desc,
+        unit="term",
+        total=term_total,
+    ):
+        if 0 < int(term.df) < document_count:
+            allowed_terms.add(str(term.term))
+    return allowed_terms
+
+
 def retrieve_sparse_topics_from_lucene(
     index_path: Path,
     topics_by_id: Mapping[str, str],
     qids: Iterable[str],
     depth: int,
     threads: int,
+    progress_prefix: str = "[sparse]",
+    timing: Optional[StageTimer] = None,
 ) -> Run:
-    try:
-        from pyserini.analysis import JWhiteSpaceAnalyzer
-        from pyserini.search.lucene import LuceneImpactSearcher
-    except ImportError as exc:
-        raise RuntimeError(
-            "稀疏阶段需要 pyserini。请使用当前项目用于 sparse search 的环境运行。"
-        ) from exc
-
     requested_ids = [
         _normalise_id(qid)
         for qid in qids
@@ -386,32 +964,82 @@ def retrieve_sparse_topics_from_lucene(
     if not selected_ids:
         return result
 
-    index = _resolve_lucene_index(index_path)
-    searcher = LuceneImpactSearcher(str(index), None)
-    analyzer = JWhiteSpaceAnalyzer()
-    searcher.set_analyzer(analyzer)
+    # Import only Pyserini's local Lucene/JVM bindings. Importing
+    # LuceneImpactSearcher also imports pyserini.encode, whose optional OpenAI
+    # encoder can require credentials even though these topics are fully local.
     try:
-        topics = [topics_by_id[query_id] for query_id in selected_ids]
-        raw_results = searcher.batch_search(
-            topics,
-            selected_ids,
-            depth,
-            threads=max(int(threads), 1),
+        from pyserini.index.lucene import LuceneIndexReader
+        from pyserini.pyclass import JArrayList, JHashMap, JInt, autoclass
+    except ImportError as exc:
+        raise RuntimeError(
+            "稀疏阶段需要 pyserini。请使用当前项目用于 sparse search 的环境运行。"
+        ) from exc
+
+    index = _resolve_lucene_index(index_path)
+    index_reader = LuceneIndexReader(str(index))
+    try:
+        allowed_terms = _positive_idf_terms(
+            index_reader,
+            progress_desc=f"{progress_prefix} scan vocabulary",
         )
-        for query_id in selected_ids:
-            hits = raw_results.get(query_id, [])
-            result[query_id] = {
-                _normalise_id(hit.docid): float(hit.score)
-                for hit in hits
+    finally:
+        reader_close: Any = getattr(index_reader, "close", None)
+        if callable(reader_close):
+            reader_close()
+
+    simple_impact_searcher = autoclass("io.anserini.search.SimpleImpactSearcher")
+    searcher = simple_impact_searcher(str(index))
+    try:
+        with _compute_scope(timing, "sparse_search"):
+            query_list = JArrayList()
+            qid_list = JArrayList()
+            for query_id in _progress(
+                selected_ids,
+                desc=f"{progress_prefix} prepare sparse queries",
+                unit="query",
+                total=len(selected_ids),
+            ):
+                java_query = JHashMap()
+                for token, weight in _topic_token_frequencies(
+                    topics_by_id[query_id]
+                ).items():
+                    if token in allowed_terms:
+                        java_query.put(token, JInt(weight))
+                query_list.add(java_query)
+                qid_list.add(query_id)
+
+            with _progress(
+                desc=f"{progress_prefix} Lucene search",
+                unit="batch",
+                total=1,
+            ) as search_progress:
+                java_results = searcher.batch_search(
+                    query_list,
+                    qid_list,
+                    int(depth),
+                    max(int(threads), 1),
+                )
+                search_progress.update(1)
+            raw_results = {
+                _normalise_id(entry.getKey()): entry.getValue()
+                for entry in java_results.entrySet().toArray()
             }
+            for query_id in _progress(
+                selected_ids,
+                desc=f"{progress_prefix} collect sparse hits",
+                unit="query",
+                total=len(selected_ids),
+            ):
+                hits = raw_results.get(query_id, [])
+                result[query_id] = {
+                    _normalise_id(hit.docid): float(hit.score)
+                    for hit in hits
+                }
         return result
     finally:
         close_fn: Any = getattr(searcher, "close", None)
         if callable(close_fn):
             close_fn()
-        analyzer_close: Any = getattr(analyzer, "close", None)
-        if callable(analyzer_close):
-            analyzer_close()
 
 
 def _retrieval_dtype(name: str):
@@ -424,7 +1052,10 @@ def _retrieval_dtype(name: str):
     return torch.float16
 
 
-def _load_retrieval_runtime(args: argparse.Namespace) -> Any:
+def _load_retrieval_runtime(
+    args: argparse.Namespace,
+    distributed_context: Optional[DistributedContext] = None,
+) -> Any:
     """Load the online query encoder in the same way as search.py/rerank.py."""
 
     import torch
@@ -449,15 +1080,20 @@ def _load_retrieval_runtime(args: argparse.Namespace) -> Any:
     if not model_path:
         raise ValueError("在线大模型查询编码需要 --retrieval-model-name-or-path。")
 
+    context = distributed_context or DistributedContext()
     dtype = _retrieval_dtype(args.retrieval_dtype)
-    device = torch.device(
-        args.retrieval_device
-        if args.retrieval_device != "auto"
-        else ("cuda" if torch.cuda.is_available() else "cpu")
-    )
+    if context.is_distributed and args.retrieval_device in {"auto", "cuda"}:
+        device = torch.device("cuda", context.local_rank)
+    else:
+        device = torch.device(
+            args.retrieval_device
+            if args.retrieval_device != "auto"
+            else ("cuda" if torch.cuda.is_available() else "cpu")
+        )
     load_kwargs: dict[str, Any] = {"torch_dtype": dtype, "low_cpu_mem_usage": True}
-    if args.retrieval_device_map.lower() != "none":
-        load_kwargs["device_map"] = args.retrieval_device_map
+    device_map = _device_map_for_process(args.retrieval_device_map, context)
+    if device_map != "none":
+        load_kwargs["device_map"] = device_map
 
     def load(model_class: Any):
         try:
@@ -582,6 +1218,16 @@ def _retrieval_namespaces(
     return model_args, data_args
 
 
+def _dataset_query_ids(args: argparse.Namespace, dataset: Any) -> Sequence[Any]:
+    if args.task_type in {"t2it", "it2t"}:
+        return dataset.query_id_list
+    if args.task_type == "cir":
+        return dataset.composed_id_list
+    if args.task_type == "tbpr" or args.query_type == "text":
+        return dataset.text_id_list
+    return dataset.img_id_list
+
+
 def _query_records(args: argparse.Namespace, dataset: Any) -> list[dict[str, Any]]:
     """Return the query side only; corpus representations come from encode.py."""
 
@@ -640,6 +1286,25 @@ def _query_records(args: argparse.Namespace, dataset: Any) -> list[dict[str, Any
             }
         )
     return records
+
+
+def _select_query_records(
+    records: Sequence[dict[str, Any]],
+    requested_query_ids: Optional[Sequence[str]],
+) -> list[dict[str, Any]]:
+    if requested_query_ids is None:
+        return list(records)
+    requested = [_normalise_id(query_id) for query_id in requested_query_ids]
+    if len(requested) != len(set(requested)):
+        raise ValueError("query 分片中包含重复 ID。")
+    records_by_id = {
+        _normalise_id(record["id"]): record
+        for record in records
+    }
+    missing = [query_id for query_id in requested if query_id not in records_by_id]
+    if missing:
+        raise KeyError(f"数据集中找不到分片 query ID: {missing[0]}")
+    return [records_by_id[query_id] for query_id in requested]
 
 
 def _plain_text(value: Any) -> str:
@@ -1006,10 +1671,18 @@ def encode_queries_online(
     eol_type: str,
     calculate_type: str,
     sparse_manual: bool,
+    progress_prefix: str,
+    requested_query_ids: Optional[Sequence[str]] = None,
+    timing: Optional[StageTimer] = None,
 ) -> EncodedQueries:
     import numpy as np
     import torch
 
+    requested_ids_key = (
+        None
+        if requested_query_ids is None
+        else tuple(_normalise_id(query_id) for query_id in requested_query_ids)
+    )
     cache_key = (
         args.dataset_name,
         args.dataset_split,
@@ -1026,13 +1699,17 @@ def encode_queries_online(
         args.sparse_lower_or_upper,
         args.sparse_value_mean,
         args.num_expended_tokens,
+        requested_ids_key,
     )
     cached = runtime.query_cache.get(cache_key)
     if cached is not None:
         return cached
 
     dataset = build_dataset(args, runtime.processor)
-    records = _query_records(args, dataset)
+    records = _select_query_records(
+        _query_records(args, dataset),
+        requested_query_ids,
+    )
     model_args, data_args = _retrieval_namespaces(
         args,
         eol_type=eol_type,
@@ -1042,30 +1719,37 @@ def encode_queries_online(
     query_ids: list[str] = []
     dense_parts = []
     topics: dict[str, str] = {}
-    for start in range(0, len(records), args.retrieval_batch_size):
-        batch = records[start:start + args.retrieval_batch_size]
-        data_args.per_device_batch_size = len(batch)
-        amp = (
-            torch.autocast(device_type="cuda", dtype=runtime.dtype)
-            if runtime.device.type == "cuda" and runtime.dtype != torch.float32
-            else nullcontext()
-        )
-        with torch.inference_mode(), amp:
-            logits, dense_representations = _encode_query_batch(
-                runtime, args, batch, model_args, data_args
+    batch_starts = range(0, len(records), args.retrieval_batch_size)
+    with _compute_scope(timing, "query_encoding", model=getattr(runtime, "encoder", None), device=runtime.device):
+        for start in _progress(
+            batch_starts,
+            desc=f"{progress_prefix} encode queries",
+            unit="batch",
+            total=len(batch_starts),
+        ):
+            batch = records[start:start + args.retrieval_batch_size]
+            data_args.per_device_batch_size = len(batch)
+            amp = (
+                torch.autocast(device_type="cuda", dtype=runtime.dtype)
+                if runtime.device.type == "cuda" and runtime.dtype != torch.float32
+                else nullcontext()
             )
-        query_ids.extend(_normalise_id(record["id"]) for record in batch)
-        dense_parts.append(_dense_batch_to_numpy(dense_representations, len(batch)))
-        topics.update(
-            _batch_sparse_topics(runtime, batch, logits, model_args, data_args, args)
+            with torch.inference_mode(), amp:
+                logits, dense_representations = _encode_query_batch(
+                    runtime, args, batch, model_args, data_args
+                )
+            query_ids.extend(_normalise_id(record["id"]) for record in batch)
+            dense_parts.append(_dense_batch_to_numpy(dense_representations, len(batch)))
+            topics.update(
+                _batch_sparse_topics(runtime, batch, logits, model_args, data_args, args)
+            )
+        if not dense_parts:
+            raise ValueError("当前数据集没有可编码的查询。")
+        encoded = EncodedQueries(
+            query_ids=query_ids,
+            dense_representations=np.concatenate(dense_parts, axis=0),
+            sparse_topics=topics,
         )
-    if not dense_parts:
-        raise ValueError("当前数据集没有可编码的查询。")
-    encoded = EncodedQueries(
-        query_ids=query_ids,
-        dense_representations=np.concatenate(dense_parts, axis=0),
-        sparse_topics=topics,
-    )
     runtime.query_cache[cache_key] = encoded
     return encoded
 
@@ -1110,13 +1794,17 @@ def build_dataset(args: argparse.Namespace, processor: Any = None) -> Any:
             args.dataset_name, processor, split, "full"
         )
     if task_type == "t2it":
-        return dataset_module.Text2ImagetextRetrievalDataset(
+        dataset = dataset_module.Text2ImagetextRetrievalDataset(
             args.dataset_name, processor, split, "query"
         )
+        _resolve_multimodal_image_paths(dataset, task_type)
+        return dataset
     if task_type == "it2t":
-        return dataset_module.Imagetext2TextRetrievalDataset(
+        dataset = dataset_module.Imagetext2TextRetrievalDataset(
             args.dataset_name, processor, split, "query"
         )
+        _resolve_multimodal_image_paths(dataset, task_type)
+        return dataset
     mode = "full" if args.query_type == "text" else "single"
     if task_type not in {"ir", "tbpr"}:
         raise ValueError(f"不支持的 task_type: {task_type}")
@@ -1129,20 +1817,298 @@ def build_dataset(args: argparse.Namespace, processor: Any = None) -> Any:
     )
 
 
+@dataclass(frozen=True)
+class RecallEvaluation:
+    """CPU-only relevance data, shared by every stage on the main process."""
+
+    k_values: list[int]
+    targets: dict[str, set[str]]
+    query_categories: dict[str, str]
+    candidate_identities: Optional[dict[str, str]]
+    dataset_query_count: int
+
+
+def _target_ids(value: Any) -> set[str]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Iterable):
+        value = [value]
+    return {normalized for item in value if (normalized := _normalise_id(item))}
+
+
+def _build_recall_evaluation(
+    args: argparse.Namespace,
+    query_ids: Iterable[str],
+) -> RecallEvaluation:
+    # Also supports importing this entry point through importlib in CPU tests.
+    src_dir = str(Path(__file__).resolve().parent)
+    if src_dir not in sys.path:
+        sys.path.insert(0, src_dir)
+    from metrices import get_recall_k_settings
+
+    dataset = build_dataset(args)
+    raw_query_ids = _dataset_query_ids(args, dataset)
+    query_keys = {_normalise_id(query_id): query_id for query_id in raw_query_ids}
+    selected_ids = list(dict.fromkeys(_normalise_id(qid) for qid in query_ids))
+    if not selected_ids:
+        raise ValueError("无法计算召回率：第一阶段没有查询。")
+
+    targets: dict[str, set[str]] = {}
+    categories: dict[str, str] = {}
+    for query_id in selected_ids:
+        if query_id not in query_keys:
+            raise ValueError(
+                f"无法评估 query={query_id}: 在 {args.dataset_name}/"
+                f"{args.dataset_split} 中找不到该查询的真实标签。"
+            )
+        raw_query_id = query_keys[query_id]
+        try:
+            if args.task_type == "ir":
+                target = dataset.get_target(raw_query_id, args.query_type)
+            elif args.task_type == "tbpr":
+                target = dataset.get_target_from_text(raw_query_id)
+            else:
+                target = dataset.get_target(raw_query_id)
+            targets[query_id] = _target_ids(target)
+            if not targets[query_id]:
+                raise ValueError("目标为空")
+            if args.dataset_name == "fashion-iq":
+                categories[query_id] = dataset.get_dress_type(target)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"无法评估 query={query_id}: 真实标签缺失或无效。") from exc
+
+    identities = None
+    if args.task_type == "tbpr":
+        identities = {
+            _normalise_id(image_id): _normalise_id(dataset.get_target_from_image(image_id))
+            for image_id in dataset.img_id_list
+        }
+        if any(not identity for identity in identities.values()):
+            raise ValueError("行人检索图像缺少 person ID，无法计算召回率。")
+    # Retain only labels, not the dataset's text/image corpus or processor.
+    return RecallEvaluation(
+        k_values=get_recall_k_settings(args.dataset_name),
+        targets=targets,
+        query_categories=categories,
+        candidate_identities=identities,
+        dataset_query_count=len(query_keys),
+    )
+
+
+def evaluate_recall(
+    run: Run,
+    evaluation: RecallEvaluation,
+    *,
+    stage: str,
+    variant: str,
+) -> list[dict[str, Any]]:
+    """Count queries with any relevant top-K hit, including empty/missing runs."""
+
+    unexpected = set(run) - set(evaluation.targets)
+    if unexpected:
+        raise ValueError(f"{stage}/{variant} 包含未纳入评估的 query: {sorted(unexpected)[0]}")
+    groups: dict[str, list[str]] = {"all": list(evaluation.targets)}
+    for query_id, category in evaluation.query_categories.items():
+        groups.setdefault(category, []).append(query_id)
+
+    first_hit_ranks: dict[str, Optional[int]] = {}
+    for query_id, targets in evaluation.targets.items():
+        first_hit_ranks[query_id] = None
+        for rank, candidate_id in enumerate(
+            _top_ids(run.get(query_id, {}), max(evaluation.k_values)), start=1
+        ):
+            target_id = candidate_id
+            if evaluation.candidate_identities is not None:
+                try:
+                    target_id = evaluation.candidate_identities[candidate_id]
+                except KeyError as exc:
+                    raise ValueError(
+                        f"{stage}/{variant}: 候选图像 {candidate_id} 缺少行人身份标签。"
+                    ) from exc
+            if target_id in targets:
+                first_hit_ranks[query_id] = rank
+                break
+
+    rows: list[dict[str, Any]] = []
+    for category, query_ids in groups.items():
+        counts = [len(run.get(query_id, {})) for query_id in query_ids]
+        hits = {
+            str(k): sum(
+                first_hit_ranks[query_id] is not None and first_hit_ranks[query_id] <= k
+                for query_id in query_ids
+            )
+            for k in evaluation.k_values
+        }
+        rows.append({
+            "stage": stage,
+            "variant": variant,
+            "category": category,
+            "query_count": len(query_ids),
+            "min_candidates": min(counts),
+            "max_candidates": max(counts),
+            "hits": hits,
+            "recall": {k: count / len(query_ids) for k, count in hits.items()},
+        })
+    return rows
+
+
+class RecallReporter:
+    """Print and incrementally persist all completed stages on rank 0 only."""
+
+    def __init__(
+        self,
+        args: argparse.Namespace,
+        query_ids: Iterable[str],
+        output_dir: Path,
+    ) -> None:
+        self.args = args
+        self.output_dir = output_dir
+        self.evaluation = _build_recall_evaluation(args, query_ids)
+        self.rows: list[dict[str, Any]] = []
+        self._pandas, self._excel_engine = self._output_dependencies()
+        query_count = len(self.evaluation.targets)
+        tqdm.write(
+            f"[recall] evaluation queries={query_count}/"
+            f"{self.evaluation.dataset_query_count} (stage1 query set); "
+            "R@K uses all available candidates when K exceeds the returned count."
+        )
+
+    @staticmethod
+    def _output_dependencies() -> tuple[Any, str]:
+        import pandas as pd
+        try:
+            import openpyxl  # noqa: F401
+        except ImportError as exc:
+            raise RuntimeError(
+                "召回率 Excel 输出需要 openpyxl，请在当前运行环境中安装 openpyxl。"
+            ) from exc
+        return pd, "openpyxl"
+
+    def record(self, stage: str, runs: Mapping[str, Run]) -> None:
+        new_rows = []
+        for variant, run in runs.items():
+            new_rows.extend(evaluate_recall(
+                run, self.evaluation, stage=stage, variant=variant,
+            ))
+        self.rows.extend(new_rows)
+        self._save()
+        for row in new_rows:
+            metrics = " ".join(
+                f"R@{k}={row['recall'][str(k)]:.2%}"
+                for k in self.evaluation.k_values
+            )
+            tqdm.write(
+                f"[{stage}][{row['variant']}][{row['category']}] "
+                f"queries={row['query_count']} "
+                f"candidates={row['min_candidates']}..{row['max_candidates']} | {metrics}"
+            )
+
+    def _save(self) -> None:
+        payload = {
+            "dataset_name": self.args.dataset_name,
+            "dataset_split": self.args.dataset_split,
+            "task_type": self.args.task_type,
+            "query_type": self.args.query_type,
+            "recall_k_values": self.evaluation.k_values,
+            "recall_scale": "0-1",
+            "recall_definition": "fraction of queries with any relevant target in top K",
+            "evaluation_query_source": "stage1_run",
+            "query_count": len(self.evaluation.targets),
+            "dataset_query_count": self.evaluation.dataset_query_count,
+            "candidate_policy": "use all available candidates when fewer than K are returned",
+            "results": self.rows,
+        }
+        json_path = self.output_dir / "recall_metrics.json"
+        json_temp = self.output_dir / "recall_metrics.tmp.json"
+        with json_temp.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+        json_temp.replace(json_path)
+
+        table = [{
+            **{key: row[key] for key in (
+                "stage", "variant", "category", "query_count",
+                "min_candidates", "max_candidates",
+            )},
+            **{f"R@{k}": row["recall"][str(k)] for k in self.evaluation.k_values},
+        } for row in self.rows]
+        excel_temp = self.output_dir / "recall_metrics.tmp.xlsx"
+        self._pandas.DataFrame(table).to_excel(
+            excel_temp, index=False, engine=self._excel_engine,
+        )
+        excel_temp.replace(self.output_dir / "recall_metrics.xlsx")
+
+
+def _resolve_multimodal_image_paths(dataset: Any, task_type: str) -> None:
+    """Resolve path-only Parquet images without decoding or copying byte payloads."""
+
+    records = dataset.id2query if task_type == "it2t" else dataset.id2candidate
+    base = Path(dataset.data_path)
+    for record in records.values():
+        source = record["image"]
+        if isinstance(source, Mapping):
+            if source.get("bytes"):
+                continue
+            path = source.get("path")
+            if not path:
+                continue  # The decoder supplies a clear error for invalid images.
+            source = dict(source)
+            # An empty byte payload must not shadow a usable path in Reranker.
+            source["bytes"] = None
+            path = Path(path).expanduser()
+            source["path"] = str(path if path.is_absolute() else base / path)
+            record["image"] = source
+        elif isinstance(source, (str, Path)):
+            path = Path(source).expanduser()
+            record["image"] = str(path if path.is_absolute() else base / path)
+
+
 def _image_from_value(value: Any):
     from PIL import Image
 
     if isinstance(value, Image.Image):
         return value.convert("RGB")
     if isinstance(value, Mapping):
-        if "bytes" in value:
-            return Image.open(BytesIO(bytes(value["bytes"]))).convert("RGB")
-        for key in ("data", "contents", "content"):
-            if key in value and value[key] is not None:
-                return Image.open(BytesIO(bytes(value[key]))).convert("RGB")
-    if isinstance(value, (bytes, bytearray, memoryview)):
-        return Image.open(BytesIO(bytes(value))).convert("RGB")
-    return Image.open(Path(value)).convert("RGB")
+        for key in ("bytes", "data", "contents", "content"):
+            payload = value.get(key)
+            if payload is not None and len(payload):
+                value = BytesIO(bytes(payload))
+                break
+        else:
+            if not value.get("path"):
+                raise ValueError("Parquet 图像必须提供非空 bytes 或有效 path。")
+            value = Path(value["path"])
+    elif isinstance(value, (bytes, bytearray, memoryview)):
+        value = BytesIO(bytes(value))
+    elif isinstance(value, (str, Path)):
+        value = Path(value)
+    else:
+        raise ValueError(f"不支持的图像输入: {type(value).__name__}；需要 bytes、path 或 PIL 图像。")
+    with Image.open(value) as image:
+        return image.convert("RGB").copy()
+
+
+def _blip_preprocess_image(raw_image: Any, image_size: int, device: Any):
+    """Match the image preprocessing used by ``encode_dense.py`` for BLIP."""
+
+    from PIL import Image
+    from torchvision import transforms
+    from torchvision.transforms import InterpolationMode
+
+    if not isinstance(raw_image, Image.Image):
+        raw_image = _image_from_value(raw_image)
+    raw_image = raw_image.convert("RGB")
+    transform = transforms.Compose(
+        [
+            transforms.Resize(
+                (image_size, image_size),
+                interpolation=InterpolationMode.BICUBIC,
+            ),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                (0.48145466, 0.4578275, 0.40821073),
+                (0.26862954, 0.26130258, 0.27577711),
+            ),
+        ]
+    )
+    return transform(raw_image).unsqueeze(0).to(device)
 
 
 def _standard_image_path(dataset: Any, image_id: str, data_root: Path) -> Path:
@@ -1220,25 +2186,55 @@ def _direct_stage1_items(args: argparse.Namespace, dataset: Any) -> tuple[list[t
     return query_items, corpus_items
 
 
-def _load_feature_model(method: str, model_path: str, device_name: str):
+def _load_feature_model(
+    method: str,
+    model_path: str,
+    device_name: str,
+    dtype_name: str = "float32",
+):
     import torch
-    from transformers import AutoProcessor
 
     device = torch.device(device_name if device_name != "auto" else ("cuda" if torch.cuda.is_available() else "cpu"))
+    dtype = _retrieval_dtype(dtype_name)
+    use_device_map = False
     if method == "clip":
-        from transformers import CLIPModel
+        from transformers import CLIPModel, CLIPProcessor
 
-        model = CLIPModel.from_pretrained(model_path)
-        processor = AutoProcessor.from_pretrained(model_path)
-    else:
+        # Match encode_dense.py.  Its non-DDP CUDA path loads CLIP with
+        # device_map="cuda" and the selected torch dtype.
+        load_kwargs = {"torch_dtype": dtype}
+        use_device_map = device.type == "cuda" and device_name in {"auto", "cuda"}
+        if use_device_map:
+            load_kwargs["device_map"] = "cuda"
+        model = CLIPModel.from_pretrained(model_path, **load_kwargs)
+        processor = CLIPProcessor.from_pretrained(model_path)
+    elif method == "blip":
+        src_dir = Path(__file__).resolve().parent
+        if str(src_dir) not in sys.path:
+            sys.path.insert(0, str(src_dir))
         try:
-            from transformers import BlipModel
-
-            model = BlipModel.from_pretrained(model_path)
+            from models.blip_itm import blip_itm
         except ImportError as exc:
-            raise RuntimeError("当前 transformers 版本没有 BlipModel，无法执行 BLIP 第一阶段。") from exc
-        processor = AutoProcessor.from_pretrained(model_path)
-    model = model.to(device).eval()
+            raise RuntimeError(
+                "无法导入项目内的 models.blip_itm，无法执行与 encode_dense.py 一致的 BLIP 第一阶段。"
+            ) from exc
+
+        checkpoint_path = Path(model_path).expanduser() / "model_large.pth"
+        if not checkpoint_path.is_file():
+            raise FileNotFoundError(
+                "BLIP 模型目录中未找到 model_large.pth："
+                f"{checkpoint_path}。three_stage_retrieval_pipeline 与 encode_dense.py "
+                "要求 --stage1-model-name-or-path 指向包含该文件的目录。"
+            )
+        model = blip_itm(pretrained=str(checkpoint_path), vit="large")
+        processor = None
+    else:
+        raise ValueError(f"不支持的第一阶段特征模型：{method}")
+    # A model loaded with device_map="cuda" is already dispatched and must
+    # not be moved again.  BLIP and explicitly selected devices use .to().
+    if not use_device_map:
+        model = model.to(device)
+    model = model.eval()
     return model, processor, device
 
 
@@ -1270,31 +2266,186 @@ def _extract_feature(output: Any, modality: str):
     return feature
 
 
+def _clip_text_max_length(model: Any, processor: Any) -> int:
+    text_config = getattr(getattr(model, "config", None), "text_config", None)
+    model_max_length = getattr(text_config, "max_position_embeddings", None)
+    if isinstance(model_max_length, int) and model_max_length > 0:
+        return model_max_length
+
+    tokenizer = getattr(processor, "tokenizer", None)
+    tokenizer_max_length = getattr(tokenizer, "model_max_length", None)
+    if (
+        isinstance(tokenizer_max_length, int)
+        and 0 < tokenizer_max_length < 1_000_000
+    ):
+        return tokenizer_max_length
+    return 77
+
+
 def _encode_feature_batch(model: Any, processor: Any, items: Sequence[Any], modality: str, device: Any):
     import torch
 
+    if processor is None:
+        if modality == "image":
+            with torch.inference_mode():
+                raw_images = [
+                    _blip_preprocess_image(item, 384, device)
+                    for item in items
+                ]
+                images = torch.cat(raw_images, dim=0)
+                image_feat = model.visual_encoder(images)
+                return model.vision_proj(image_feat[:, 0, :])
+        if modality == "text":
+            with torch.inference_mode():
+                text_input = model.tokenizer(
+                    list(items),
+                    padding="max_length",
+                    truncation=True,
+                    max_length=35,
+                    return_tensors="pt",
+                ).to(device)
+                text_output = model.text_encoder(
+                    text_input.input_ids,
+                    attention_mask=text_input.attention_mask,
+                    mode="text",
+                )
+                return model.text_proj(text_output.last_hidden_state[:, 0, :])
+        raise ValueError(f"不支持的 BLIP 特征模态：{modality}")
+
     if modality == "image":
-        inputs = processor(images=list(items), return_tensors="pt")
+        inputs = processor(
+            images=list(items),
+            return_tensors="pt",
+            padding=True,
+        )
         feature_method = getattr(model, "get_image_features", None)
         if feature_method is None:
             raise RuntimeError("当前 CLIP/BLIP 模型没有 get_image_features，无法执行直接特征检索。")
     else:
-        inputs = processor(text=list(items), return_tensors="pt", padding=True, truncation=True)
+        inputs = processor(
+            text=list(items),
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=_clip_text_max_length(model, processor),
+        )
         feature_method = getattr(model, "get_text_features", None)
         if feature_method is None:
             raise RuntimeError("当前 CLIP/BLIP 模型没有 get_text_features，无法执行直接特征检索。")
-    inputs = {key: value.to(device) for key, value in inputs.items() if hasattr(value, "to")}
+    inputs = {
+        key: value.to(device) if hasattr(value, "to") else value
+        for key, value in inputs.items()
+    }
     with torch.inference_mode():
-        output = feature_method(**inputs)
-    return _extract_feature(output, modality)
+        if modality == "image":
+            output = feature_method(inputs["pixel_values"])
+        else:
+            output = feature_method(
+                inputs["input_ids"],
+                inputs["attention_mask"],
+            )
+    return _extract_feature(output, modality).detach().float().cpu()
 
 
-def retrieve_stage1_feature_model(args: argparse.Namespace, method: str) -> Run:
+def _encode_blip_t2it_batch(
+    model: Any,
+    images: Sequence[Any],
+    texts: Sequence[str],
+    device: Any,
+):
+    """Encode t2it corpus items exactly as the BLIP branch in encode_dense.py."""
+
+    import torch
+    import torch.nn.functional as F
+
+    with torch.inference_mode():
+        image_inputs = [
+            _blip_preprocess_image(image, 384, device)
+            for image in images
+        ]
+        image_inputs = torch.cat(image_inputs, dim=0)
+        image_feat = model.visual_encoder(image_inputs)
+        image_reps = model.vision_proj(image_feat[:, 0, :])
+
+        text_input = model.tokenizer(
+            list(texts),
+            padding="max_length",
+            truncation=True,
+            max_length=35,
+            return_tensors="pt",
+        ).to(device)
+        text_output = model.text_encoder(
+            text_input.input_ids,
+            attention_mask=text_input.attention_mask,
+            mode="text",
+        )
+        text_reps = model.text_proj(text_output.last_hidden_state[:, 0, :])
+
+        image_reps = F.normalize(image_reps, dim=-1)
+        text_reps = F.normalize(text_reps, dim=-1)
+        return image_reps + text_reps
+
+
+def _encode_clip_t2it_batch(
+    model: Any,
+    processor: Any,
+    images: Sequence[Any],
+    texts: Sequence[str],
+    device: Any,
+):
+    """Encode a CLIP t2it candidate as normalized image + text features."""
+
+    import torch
+    import torch.nn.functional as F
+
+    image_inputs = processor(
+        images=list(images),
+        return_tensors="pt",
+        padding=True,
+    )
+    image_inputs = {
+        key: value.to(device) if hasattr(value, "to") else value
+        for key, value in image_inputs.items()
+    }
+
+    text_inputs = processor(
+        text=list(texts),
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=_clip_text_max_length(model, processor),
+    )
+    text_inputs = {
+        key: value.to(device) if hasattr(value, "to") else value
+        for key, value in text_inputs.items()
+    }
+
+    with torch.inference_mode():
+        image_features = model.get_image_features(image_inputs["pixel_values"])
+        text_features = model.get_text_features(
+            text_inputs["input_ids"],
+            text_inputs["attention_mask"],
+        )
+
+    return (
+        F.normalize(image_features, dim=-1)
+        + F.normalize(text_features, dim=-1)
+    ).detach().float().cpu()
+
+
+def retrieve_stage1_feature_model(
+    args: argparse.Namespace, method: str, timing: Optional[StageTimer] = None,
+) -> Run:
     import numpy as np
 
     dataset = build_dataset(args)
     query_items, corpus_items = _direct_stage1_items(args, dataset)
-    model, processor, device = _load_feature_model(method, args.stage1_model_name_or_path, args.stage1_device)
+    model, processor, device = _load_feature_model(
+        method,
+        args.stage1_model_name_or_path,
+        args.stage1_device,
+        args.stage1_dtype,
+    )
 
     # The item type is unambiguous for our dataset adapters: text is str and
     # image is a PIL image.  Keep this explicit for readability and safety.
@@ -1309,38 +2460,84 @@ def retrieve_stage1_feature_model(args: argparse.Namespace, method: str) -> Run:
 
     query_features = []
     query_ids = []
-    for start in range(0, len(query_items), args.stage1_batch_size):
-        batch = query_items[start:start + args.stage1_batch_size]
-        query_ids.extend(query_id for query_id, _ in batch)
-        query_features.append(
-            _encode_feature_batch(model, processor, [value for _, value in batch], query_modality, device)
-            .detach()
-            .cpu()
-        )
+    query_batch_starts = range(0, len(query_items), args.stage1_batch_size)
+    with _compute_scope(timing, "query_encoding", model=model, device=device):
+        for start in _progress(
+            query_batch_starts,
+            desc="[stage1] encode queries",
+            unit="batch",
+            total=len(query_batch_starts),
+        ):
+            batch = query_items[start:start + args.stage1_batch_size]
+            query_ids.extend(query_id for query_id, _ in batch)
+            query_features.append(
+                _encode_feature_batch(model, processor, [value for _, value in batch], query_modality, device)
+                .detach()
+                .cpu()
+            )
     corpus_features = []
     corpus_ids = []
-    for start in range(0, len(corpus_items), args.stage1_batch_size):
-        batch = corpus_items[start:start + args.stage1_batch_size]
-        corpus_ids.extend(doc_id for doc_id, _ in batch)
-        corpus_features.append(
-            _encode_feature_batch(model, processor, [value for _, value in batch], corpus_modality, device)
-            .detach()
-            .cpu()
-        )
+    corpus_batch_starts = range(0, len(corpus_items), args.stage1_batch_size)
+    with _compute_scope(timing, "corpus_encoding", model=model, device=device):
+        for start in _progress(
+            corpus_batch_starts,
+            desc="[stage1] encode corpus",
+            unit="batch",
+            total=len(corpus_batch_starts),
+        ):
+            batch = corpus_items[start:start + args.stage1_batch_size]
+            corpus_ids.extend(doc_id for doc_id, _ in batch)
+            if method == "blip" and args.task_type == "t2it":
+                corpus_features.append(
+                    _encode_blip_t2it_batch(
+                        model,
+                        [value for _, value in batch],
+                        [dataset.id2candidate[doc_id]["text"] for doc_id, _ in batch],
+                        device,
+                    )
+                    .detach()
+                    .cpu()
+                )
+            elif method == "clip" and args.task_type == "t2it":
+                corpus_features.append(
+                    _encode_clip_t2it_batch(
+                        model,
+                        processor,
+                        [value for _, value in batch],
+                        [dataset.id2candidate[doc_id]["text"] for doc_id, _ in batch],
+                        device,
+                    )
+                    .detach()
+                    .cpu()
+                )
+            else:
+                corpus_features.append(
+                    _encode_feature_batch(model, processor, [value for _, value in batch], corpus_modality, device)
+                    .detach()
+                    .cpu()
+                )
 
-    query_matrix = _l2_normalize(torch_cat(query_features))
-    corpus_matrix = _l2_normalize(torch_cat(corpus_features))
-    if query_matrix.shape[1] != corpus_matrix.shape[1]:
-        raise ValueError(
-            f"第一阶段模型的图像/文本特征维度不一致: {query_matrix.shape[1]} != {corpus_matrix.shape[1]}"
-        )
+    with _compute_scope(timing, "feature_search"):
+        query_matrix = _l2_normalize(torch_cat(query_features))
+        corpus_matrix = _l2_normalize(torch_cat(corpus_features))
+        if query_matrix.shape[1] != corpus_matrix.shape[1]:
+            raise ValueError(
+                f"第一阶段模型的图像/文本特征维度不一致: {query_matrix.shape[1]} != {corpus_matrix.shape[1]}"
+            )
 
-    scores = query_matrix @ corpus_matrix.T
-    result: Run = {}
-    top_depth = min(args.stage1_depth, len(corpus_ids))
-    for row, query_id in enumerate(query_ids):
-        order = np.argsort(-scores[row].numpy(), kind="stable")[:top_depth]
-        result[query_id] = {corpus_ids[int(index)]: float(scores[row, int(index)]) for index in order}
+        scores = query_matrix @ corpus_matrix.T
+        result: Run = {}
+        top_depth = min(args.stage1_depth, len(corpus_ids))
+        for row, query_id in enumerate(
+            _progress(
+                query_ids,
+                desc="[stage1] rank queries",
+                unit="query",
+                total=len(query_ids),
+            )
+        ):
+            order = np.argsort(-scores[row].numpy(), kind="stable")[:top_depth]
+            result[query_id] = {corpus_ids[int(index)]: float(scores[row, int(index)]) for index in order}
     del model, processor, query_matrix, corpus_matrix, scores
     gc.collect()
     return result
@@ -1372,11 +2569,58 @@ def _run_external_command(command: str, args: argparse.Namespace, output_run: Pa
     subprocess.run(formatted, shell=True, check=True, cwd=str(Path(__file__).resolve().parents[1]))
 
 
-def run_stage1(args: argparse.Namespace, retrieval_runtime: Any = None) -> Run:
+def _run_sparse_concat_stage1(
+    args: argparse.Namespace, context: DistributedContext, timing: StageTimer,
+) -> tuple[Run, EncodedQueries, Run, list[int]]:
+    """Encode/search each query once and retain its representations locally."""
+    import numpy as np
+
+    with timing.measure("query_partition", core=False):
+        query_ids, global_ids, counts = _stage1_query_shard(args, context)
+    prefix = f"[stage1][rank {context.rank}/{context.world_size}]" if context.is_distributed else "[stage1]"
+    tqdm.write(f"{prefix} method=sparse_concat; local_queries={len(query_ids)}; per_rank_queries={counts}")
+    runtime = None
+    encoded = EncodedQueries([], np.empty((0, 0), dtype="float32"), {})
+    timing.components.setdefault("query_encoding", 0.0)
+    timing.components.setdefault("sparse_search", 0.0)
+    try:
+        if query_ids:
+            tqdm.write(f"{prefix} loading local query encoder")
+            runtime = _load_retrieval_runtime(args, context)
+            encoded = encode_queries_online(
+                args, runtime, eol_type=STAGE2_EOL_TYPE,
+                calculate_type=STAGE2_CALCULATE_TYPE, sparse_manual=False,
+                progress_prefix=prefix, requested_query_ids=query_ids, timing=timing,
+            )
+        _validate_encoded_queries(encoded, query_ids)
+        local_run = run_stage1(
+            args, runtime, timing=timing, encoded_queries=encoded, progress_prefix=prefix,
+        )
+        _validate_query_coverage({query_id: {} for query_id in query_ids}, local_run, "Stage 1 local")
+        local_run = {query_id: local_run[query_id] for query_id in query_ids}
+    finally:
+        # Retain only the local CPU EncodedQueries. Clearing the runtime cache
+        # must not clear this object, which is handed directly to Stage 2.
+        _release_retrieval_runtime(runtime)
+    stage1_run = _gather_run(local_run, context)
+    if context.is_main:
+        _validate_query_coverage({query_id: {} for query_id in global_ids}, stage1_run, "Stage 1")
+        stage1_run = {query_id: stage1_run[query_id] for query_id in global_ids}
+    return local_run, encoded, stage1_run, counts
+
+
+def run_stage1(
+    args: argparse.Namespace, retrieval_runtime: Any = None,
+    timing: Optional[StageTimer] = None,
+    *, encoded_queries: Optional[EncodedQueries] = None, progress_prefix: str = "[stage1]",
+) -> Run:
     if args.stage1_run:
         run_path = Path(args.stage1_run)
+        if timing is not None:
+            timing.source = "external_command" if args.stage1_command else "precomputed"
         if args.stage1_command:
-            _run_external_command(args.stage1_command, args, run_path)
+            with _compute_scope(timing, "external_command_wall", core=False):
+                _run_external_command(args.stage1_command, args, run_path)
         return read_run(run_path)
 
     if args.stage1_command:
@@ -1385,18 +2629,25 @@ def run_stage1(args: argparse.Namespace, retrieval_runtime: Any = None) -> Run:
     if args.stage1_method in {"clip", "blip"}:
         if not args.stage1_model_name_or_path:
             raise ValueError("CLIP/BLIP 第一阶段需要 --stage1-model-name-or-path。")
-        return retrieve_stage1_feature_model(args, args.stage1_method)
+        return retrieve_stage1_feature_model(args, args.stage1_method, timing=timing)
 
     if args.stage1_sparse_index:
-        if retrieval_runtime is None:
+        if encoded_queries is not None and args.stage1_method != "sparse_concat":
+            raise ValueError("Preencoded Stage-1 queries require sparse_concat.")
+        if retrieval_runtime is None and encoded_queries is None:
             raise ValueError("第一阶段稀疏检索需要在线查询编码模型。")
-        if args.stage1_method == "sparse_manual":
+        if encoded_queries is not None:
+            _validate_encoded_queries(encoded_queries)
+            encoded = encoded_queries
+        elif args.stage1_method == "sparse_manual":
             encoded = encode_queries_online(
                 args,
                 retrieval_runtime,
                 eol_type="prompteol",
                 calculate_type="separate",
                 sparse_manual=True,
+                progress_prefix=progress_prefix,
+                timing=timing,
             )
         else:
             encoded = encode_queries_online(
@@ -1405,13 +2656,19 @@ def run_stage1(args: argparse.Namespace, retrieval_runtime: Any = None) -> Run:
                 eol_type=STAGE2_EOL_TYPE,
                 calculate_type=STAGE2_CALCULATE_TYPE,
                 sparse_manual=False,
+                progress_prefix=progress_prefix,
+                timing=timing,
             )
+        if not encoded.query_ids:
+            return {}
         return retrieve_sparse_topics_from_lucene(
             Path(args.stage1_sparse_index),
             encoded.sparse_topics,
             qids=encoded.query_ids,
             depth=args.stage1_depth,
             threads=args.sparse_threads,
+            progress_prefix=progress_prefix,
+            timing=timing,
         )
     raise ValueError(
         f"{args.stage1_method} 第一阶段需要 --stage1-run，或提供 --stage1-sparse-index。"
@@ -1422,7 +2679,19 @@ def run_stage2(
     args: argparse.Namespace,
     stage1_run: Run,
     retrieval_runtime: Any = None,
+    timing: Optional[StageTimer] = None,
+    *, encoded_queries: Optional[EncodedQueries] = None,
 ) -> tuple[Run, Run, Run]:
+    if timing is not None and args.stage2_run:
+        timing.source = "precomputed"
+    if encoded_queries is not None and not args.stage2_run:
+        if args.stage1_method != "sparse_concat":
+            raise ValueError("Stage-2 query reuse requires sparse_concat Stage 1.")
+        _validate_encoded_queries(encoded_queries, list(stage1_run))
+        if timing is not None:
+            timing.components.setdefault("query_encoding", 0.0)
+    if not stage1_run:
+        return {}, {}, {}
     qids = list(stage1_run)
     candidate_filter = {
         query_id: set(_top_ids(scores, args.stage1_depth))
@@ -1432,7 +2701,12 @@ def run_stage2(
     if args.stage2_run:
         hybrid_run = read_run(Path(args.stage2_run))
         restricted: Run = {}
-        for query_id, candidate_ids in candidate_filter.items():
+        for query_id, candidate_ids in _progress(
+            candidate_filter.items(),
+            desc="[stage2] restrict precomputed run",
+            unit="query",
+            total=len(candidate_filter),
+        ):
             scores = hybrid_run.get(query_id, {})
             restricted[query_id] = {
                 doc_id: scores[doc_id]
@@ -1451,15 +2725,18 @@ def run_stage2(
             "第二阶段必须提供当前 disassembleeol_separate+concat 的 dense/sparse artifacts；"
             f"缺少: {', '.join(missing)}"
         )
-    if retrieval_runtime is None:
+    if retrieval_runtime is None and encoded_queries is None:
         raise ValueError("第二阶段需要在线查询编码模型。")
 
-    encoded = encode_queries_online(
+    encoded = encoded_queries if encoded_queries is not None else encode_queries_online(
         args,
         retrieval_runtime,
         eol_type=STAGE2_EOL_TYPE,
         calculate_type=STAGE2_CALCULATE_TYPE,
         sparse_manual=False,
+        progress_prefix="[stage2]",
+        requested_query_ids=qids,
+        timing=timing,
     )
 
     dense_run = retrieve_dense_from_corpus(
@@ -1470,6 +2747,8 @@ def run_stage2(
         depth=args.stage2_depth,
         candidate_filter=candidate_filter,
         normalize=not args.no_dense_normalize,
+        progress_desc="[stage2] dense retrieval",
+        timing=timing,
     )
     sparse_run = retrieve_sparse_topics_from_lucene(
         Path(args.stage2_sparse_index),
@@ -1477,6 +2756,8 @@ def run_stage2(
         qids,
         depth=max(args.stage2_depth, args.stage1_depth),
         threads=args.sparse_threads,
+        progress_prefix="[stage2]",
+        timing=timing,
     )
     hybrid_run = fuse_restricted_runs(
         stage1_run,
@@ -1484,6 +2765,8 @@ def run_stage2(
         sparse_run,
         alpha=args.hybrid_alpha,
         candidate_depth=args.stage1_depth,
+        progress_desc="[stage2] fuse runs",
+        timing=timing,
     )
     return dense_run, sparse_run, hybrid_run
 
@@ -1498,7 +2781,12 @@ def _ranker_dtype(name: str):
     return torch.float16
 
 
-def _load_ranker_model(args: argparse.Namespace):
+def _load_ranker_model(
+    args: argparse.Namespace,
+    distributed_context: Optional[DistributedContext] = None,
+):
+    import torch
+
     from transformers import (
         AutoModel,
         AutoProcessor,
@@ -1510,11 +2798,13 @@ def _load_ranker_model(args: argparse.Namespace):
         Qwen2_5_VLProcessor,
     )
 
+    context = distributed_context or DistributedContext()
     model_path = args.ranker_model_name_or_path
     dtype = _ranker_dtype(args.ranker_dtype)
     load_kwargs: dict[str, Any] = {"torch_dtype": dtype, "low_cpu_mem_usage": True}
-    if args.ranker_device_map.lower() != "none":
-        load_kwargs["device_map"] = args.ranker_device_map
+    device_map = _device_map_for_process(args.ranker_device_map, context)
+    if device_map != "none":
+        load_kwargs["device_map"] = device_map
 
     def load(model_class: Any):
         try:
@@ -1543,6 +2833,8 @@ def _load_ranker_model(args: argparse.Namespace):
         model = load(LlavaNextForConditionalGeneration)
         processor = LlavaNextProcessor.from_pretrained(model_path)
 
+    if context.is_distributed and device_map == "none":
+        model = model.to(torch.device("cuda", context.local_rank))
     if args.rerank_reps_loc == "after_pad" and hasattr(processor, "tokenizer"):
         processor.tokenizer.padding_side = "left"
         processor.tokenizer.padding = True
@@ -1562,18 +2854,123 @@ def _ranker_dataset_maps(dataset: Any, args: argparse.Namespace) -> tuple[Any, A
     return dataset.text_dict, img_filepath_map, dataset.img_dict
 
 
-def run_stage3(args: argparse.Namespace, hybrid_run: Run) -> Run:
+def _native_ranker_run(args: argparse.Namespace, dataset: Any, run: Run) -> Any:
+    """Translate persisted string IDs back to native dataset keys for Reranker."""
+
+    if args.task_type not in {"tbpr", "t2it", "it2t"} or not run:
+        return run
+
+    def lookup(ids: Iterable[Any], label: str) -> dict[str, Any]:
+        result = {}
+        for native_id in ids:
+            key = _normalise_id(native_id)
+            if not key or key in result:
+                raise ValueError(f"Stage 3 {args.dataset_name}: {label} ID 缺失或存在歧义: {native_id!r}")
+            result[key] = native_id
+        return result
+
+    query_keys = lookup(_dataset_query_ids(args, dataset), "query")
+    candidate_keys = lookup(
+        dataset.img_id_list if args.task_type == "tbpr" else dataset.candidate_id_list,
+        "candidate",
+    )
+
+    def native_id(keys: Mapping[str, Any], value: Any, label: str) -> Any:
+        key = _normalise_id(value)
+        if key not in keys:
+            raise ValueError(
+                f"Stage 3 {args.dataset_name}: 找不到 {label} ID {value!r}；"
+                "请检查数据集、split 和候选索引是否匹配。"
+            )
+        return keys[key]
+
+    return {
+        native_id(query_keys, query_id, "query"): {
+            native_id(candidate_keys, candidate_id, "candidate"): score
+            for candidate_id, score in scores.items()
+        }
+        for query_id, scores in run.items()
+    }
+
+
+def _dispatch_stage3_rerank(
+    ranker: Any,
+    hybrid_run: Run,
+    args: argparse.Namespace,
+    data_args: Any,
+    training_args: Any,
+    model_args: Any,
+    *, progress_observer: Any = None,
+) -> Any:
+    common_kwargs = {
+        "rerank_batch_size": args.rerank_batch_size,
+        "rerank_prompt_type": args.rerank_template,
+    }
+    if progress_observer is not None:
+        common_kwargs["progress_observer"] = progress_observer
+    if "caption_generation" in args.rerank_template:
+        search_args = SimpleNamespace(
+            modify_type=args.modify_type,
+            use_rerank_prior_cache=getattr(args, "use_rerank_prior_cache", False),
+            rerank_prior_cache_dir=getattr(args, "rerank_prior_cache_dir", None),
+        )
+        if search_args.use_rerank_prior_cache:
+            common_kwargs["prior_cache_prepared"] = True
+        return ranker.caption_generation_rerank(
+            hybrid_run,
+            args.rerank_type,
+            args.rerank_num,
+            data_args,
+            training_args,
+            model_args,
+            search_args,
+            **common_kwargs,
+        )
+    return ranker.rerank(
+        hybrid_run,
+        args.rerank_type,
+        args.rerank_num,
+        data_args,
+        training_args,
+        model_args,
+        **common_kwargs,
+    )
+
+
+def run_stage3(
+    args: argparse.Namespace,
+    hybrid_run: Run,
+    distributed_context: Optional[DistributedContext] = None,
+    timing: Optional[StageTimer] = None,
+    *, progress_observer: Any = None,
+) -> Run:
     import torch
 
     if args.ranker_run:
+        if timing is not None:
+            timing.source = "precomputed"
+        if getattr(args, "use_rerank_prior_cache", False) and (
+            distributed_context is None or distributed_context.is_main
+        ):
+            tqdm.write("[prior-cache] skipped: Stage 3 uses a precomputed ranker run.")
         return read_run(Path(args.ranker_run))
     if not args.ranker_model_name_or_path:
         raise ValueError("第三阶段需要 --ranker-model-name-or-path，或提供 --ranker-run。")
     if args.rerank_type != "pointwise":
         raise ValueError("当前新流水线使用现有 Reranker 的 pointwise 实现，请设置 --rerank-type pointwise。")
 
-    model, processor = _load_ranker_model(args)
-    dataset = build_dataset(args, processor)
+    if not hybrid_run and progress_observer is not None:
+        # An empty profiling worker still joins control rounds, but needs no model.
+        for _ in progress_observer.iterate((), total_items=0, item_count=lambda item: 1):
+            pass
+        return {}
+
+    # Check native IDs before allocating GPU weights. Keep original dataset keys
+    # (also used by prior-cache candidate_key), rather than copying string maps.
+    dataset = build_dataset(args)
+    native_run = _native_ranker_run(args, dataset, hybrid_run)
+    model, processor = _load_ranker_model(args, distributed_context)
+    dataset.processor = processor
     text_map, img_filepath_map, img_path_map = _ranker_dataset_maps(dataset, args)
 
     src_dir = Path(__file__).resolve().parent
@@ -1595,31 +2992,38 @@ def run_stage3(args: argparse.Namespace, hybrid_run: Run) -> Run:
         dataset,
     )
     model_args = SimpleNamespace(model_name_or_path=args.ranker_model_name_or_path)
-    data_args = SimpleNamespace(reps_loc=args.rerank_reps_loc)
+    data_args = SimpleNamespace(reps_loc=args.rerank_reps_loc, dataset_split=args.dataset_split)
     training_args = SimpleNamespace(
         fp16=args.ranker_dtype == "float16",
         task_type=args.task_type,
     )
 
-    # The existing Reranker only needs rank information for progress logging in
-    # pointwise mode.  Keep this new pipeline single-process without changing
-    # the existing module on disk.
-    original_get_rank = reranker_module.dist.get_rank
-    reranker_module.dist.get_rank = lambda: 0
     reranked: Any = {}
     try:
-        reranked = ranker.rerank(
-            hybrid_run,
-            args.rerank_type,
-            args.rerank_num,
-            data_args,
-            training_args,
-            model_args,
-            rerank_batch_size=args.rerank_batch_size,
-            rerank_prompt_type=args.rerank_template,
-        )
+        if getattr(args, "use_rerank_prior_cache", False):
+            search_args = SimpleNamespace(
+                modify_type=args.modify_type, use_rerank_prior_cache=True,
+                rerank_prior_cache_dir=args.rerank_prior_cache_dir,
+            )
+            with timing.measure("prior_cache_prepare", model=model, core=False) if timing is not None else nullcontext():
+                prior_report = ranker.prepare_caption_prior_cache(
+                    data_args, training_args, model_args, search_args,
+                    args.rerank_batch_size, args.rerank_template, args.rerank_type,
+                )
+            if timing is not None:
+                timing.prior_cache = prior_report
+        with _compute_scope(timing if hybrid_run else None, "reranking", model=model):
+            observer_kwargs = {"progress_observer": progress_observer} if progress_observer is not None else {}
+            reranked = _dispatch_stage3_rerank(
+                ranker,
+                native_run,
+                args,
+                data_args,
+                training_args,
+                model_args,
+                **observer_kwargs,
+            )
     finally:
-        reranker_module.dist.get_rank = original_get_rank
         reranker_module.path_prefix = original_path_prefix
         del ranker, model, processor, dataset
         gc.collect()
@@ -1635,11 +3039,25 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run Stage-1 coarse retrieval -> Stage-2 hybrid retrieval -> Stage-3 ranker."
     )
-    parser.add_argument("--dataset-name", required=True)
+    parser.add_argument(
+        "--dataset-name", required=True,
+        help="Dataset key: coco, flickr, CUHK-PEDES, ICFG-PEDES, RSTPReid, webqa, remuq or llava.",
+    )
     parser.add_argument("--dataset-split", default="test")
     parser.add_argument("--task-type", choices=("ir", "tbpr", "t2it", "it2t", "cir"), default="ir")
-    parser.add_argument("--query-type", choices=("text", "image", "composed"), default="text")
+    parser.add_argument(
+        "--query-type", choices=("text", "image", "composed"), default="text",
+        help="TBPR/WebQA use text; ReMuQ/LLaVA use image (or composed), always including query text.",
+    )
     parser.add_argument("--data-root", default="/root/autodl-tmp")
+    parser.add_argument(
+        "--local_rank",
+        "--local-rank",
+        dest="local_rank",
+        type=int,
+        default=-1,
+        help=argparse.SUPPRESS,
+    )
 
     parser.add_argument(
         "--stage1-method",
@@ -1654,8 +3072,20 @@ def _parser() -> argparse.ArgumentParser:
         help="Optional command that writes --stage1-run. Supports "
              "{output_run}, {dataset_name}, {dataset_split}, {data_root}.",
     )
-    parser.add_argument("--stage1-model-name-or-path", help="HuggingFace CLIP/BLIP checkpoint for direct Stage 1.")
+    parser.add_argument(
+        "--stage1-model-name-or-path",
+        help="CLIP checkpoint or BLIP directory containing model_large.pth for direct Stage 1.",
+    )
     parser.add_argument("--stage1-device", default="auto", help="Stage-1 device, e.g. auto, cuda, cuda:0, cpu.")
+    parser.add_argument(
+        "--stage1-dtype",
+        choices=("float16", "bfloat16", "float32"),
+        default="float32",
+        help=(
+            "CLIP loading dtype, corresponding to encode_dense.py's "
+            "--fp16/--bf16 settings. BLIP remains float32 like encode_dense.py."
+        ),
+    )
     parser.add_argument("--stage1-batch-size", type=int, default=32)
     parser.add_argument(
         "--stage1-sparse-index",
@@ -1704,7 +3134,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--sparse-logits-multiply-view-count", action="store_true")
     parser.add_argument("--is-filtered", action="store_true")
     parser.add_argument("--print-sparse", action="store_true")
-    parser.add_argument("--tbpr-type", default="origin_type")
+    parser.add_argument("--tbpr-type", default="origin_type", help="TBPR views: origin_type or type; must match the candidate index.")
     parser.add_argument("--cir-type", default="type")
 
     parser.add_argument("--ranker-run", help="Optional precomputed Stage-3 run; skips model loading.")
@@ -1715,6 +3145,16 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--rerank-num", type=int, default=20)
     parser.add_argument("--rerank-batch-size", type=int, default=1)
     parser.add_argument("--rerank-template", default="relevant")
+    parser.add_argument("--use-rerank-prior-cache", "--use_rerank_prior_cache", action="store_true")
+    parser.add_argument("--rerank-prior-cache-dir", "--rerank_prior_cache_dir", default=None)
+    parser.add_argument(
+        "--modify_type",
+        "--modify-type",
+        dest="modify_type",
+        choices=("no", "modify_single"),
+        default="no",
+        help="Caption-generation rerank score modification, matching rerank.py.",
+    )
     parser.add_argument("--rerank-reps-loc", choices=("before_pad", "after_pad"), default="after_pad")
 
     parser.add_argument("--output-dir", default="./three_stage_results")
@@ -1723,6 +3163,23 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _validate_args(args: argparse.Namespace) -> None:
+    expected_task = DATASET_TASK_TYPES.get(args.dataset_name)
+    if expected_task is not None and args.task_type != expected_task:
+        raise ValueError(
+            f"{args.dataset_name} 需要 --task-type {expected_task}，实际为 {args.task_type}。"
+        )
+    query_types = {
+        "ir": {"image", "text"}, "tbpr": {"text"}, "t2it": {"text"},
+        "it2t": {"image", "composed"}, "cir": {"composed"},
+    }
+    if args.query_type not in query_types[args.task_type]:
+        allowed = "/".join(sorted(query_types[args.task_type]))
+        raise ValueError(f"{args.task_type} 请设置 --query-type {allowed}。")
+    if args.task_type == "tbpr" and args.tbpr_type not in {"origin_type", "type"}:
+        raise ValueError("TBPR 请设置 --tbpr-type origin_type 或 type，并与候选编码设置一致。")
+    if getattr(args, "use_rerank_prior_cache", False) and not args.ranker_run:
+        validate_prior_cache_options(True, args.modify_type, args.rerank_template,
+                                     args.task_type, args.query_type, args.rerank_type)
     positive = {
         "stage1_depth": args.stage1_depth,
         "stage2_depth": args.stage2_depth,
@@ -1749,14 +3206,20 @@ def _validate_args(args: argparse.Namespace) -> None:
         )
     if args.task_type == "cir" and args.query_type != "composed":
         raise ValueError("CIR 请设置 --query-type composed。")
-    if args.stage1_method in {"sparse_manual", "sparse_concat"}:
+    if args.modify_type != "no" and "caption_generation" not in args.rerank_template:
+        raise ValueError(
+            "--modify_type=modify_single 仅适用于 caption_generation rerank template。"
+        )
+    is_main_process = int(os.environ.get("RANK", "0")) == 0
+    if is_main_process and args.stage1_method in {"sparse_manual", "sparse_concat"}:
         expected = (
             "prompteol + separate + sparse_manual"
             if args.stage1_method == "sparse_manual"
             else "disassembleeol_separate + concat"
         )
         print(f"Stage 1 sparse mode: {expected}")
-    print(f"Stage 2 fixed mode: {STAGE2_EOL_TYPE} + {STAGE2_CALCULATE_TYPE}")
+    if is_main_process:
+        print(f"Stage 2 fixed mode: {STAGE2_EOL_TYPE} + {STAGE2_CALCULATE_TYPE}")
     if args.output_dir and Path(args.output_dir).exists() and not args.overwrite:
         raise FileExistsError(
             f"输出目录已存在: {args.output_dir}。请更换目录或添加 --overwrite。"
@@ -1768,96 +3231,270 @@ def main() -> None:
     args = parser.parse_args()
     try:
         _validate_args(args)
+    except (ValueError, FileExistsError) as exc:
+        parser.error(str(exc))
+
+    wall_started = time.perf_counter()
+    distributed_context = _initialise_distributed(
+        getattr(args, "local_rank", -1)
+    )
+    pipeline_progress = (
+        _progress(
+            desc="[pipeline] stages",
+            unit="stage",
+            total=3,
+        )
+        if distributed_context.is_main
+        else None
+    )
+    completed = False
+    timing_reporter = None
+    active_stage = None
+    stage1_timer = StageTimer(
+        "external_command" if getattr(args, "stage1_command", None)
+        else "precomputed" if getattr(args, "stage1_run", None) else "computed"
+    )
+    stage2_timer = StageTimer("precomputed" if getattr(args, "stage2_run", None) else "computed")
+    stage3_timer = StageTimer("precomputed" if getattr(args, "ranker_run", None) else "computed")
+    try:
         output_dir = Path(args.output_dir).expanduser().resolve()
-        output_dir.mkdir(parents=True, exist_ok=True)
+        if distributed_context.is_main:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            timing_reporter = TimingReporter(args, output_dir, wall_started)
 
         retrieval_runtime = None
+        local_encoded = None
+        parallel_stage1 = args.stage1_method == "sparse_concat" and not args.stage1_run
+        stage1_rank_counts: list[int] = []
+        reuse_stage1_queries = (
+            parallel_stage1 and not args.stage2_run
+        )
+        recall_reporter = None
+        stage1_run: Run = {}
         try:
-            if (
-                args.stage1_method in {"sparse_manual", "sparse_concat"}
-                and not args.stage1_run
-            ):
-                print("[query encoder] loading retrieval VLM")
-                retrieval_runtime = _load_retrieval_runtime(args)
+            active_stage = "stage1"
+            if parallel_stage1:
+                local_stage1_run, local_encoded, stage1_run, stage1_rank_counts = _run_sparse_concat_stage1(
+                    args, distributed_context, stage1_timer,
+                )
+                if not reuse_stage1_queries:
+                    local_encoded = None
+            else:
+                if distributed_context.is_main:
+                    if args.stage1_method == "sparse_manual" and not args.stage1_run:
+                        tqdm.write("[query encoder] loading retrieval VLM for stage 1")
+                        retrieval_runtime = _load_retrieval_runtime(args, distributed_context)
+                    tqdm.write(f"[stage1] method={args.stage1_method}")
+                    stage1_run = run_stage1(args, retrieval_runtime, timing=stage1_timer)
+                local_stage1_run = _scatter_run(stage1_run, distributed_context)
+            if distributed_context.is_main:
+                write_trec_run(
+                    stage1_run,
+                    output_dir / "stage1_run.trec",
+                    args.stage1_method,
+                )
+                write_json_run(stage1_run, output_dir / "stage1_run.json")
+                recall_reporter = RecallReporter(args, stage1_run, output_dir)
+                recall_reporter.record("stage1", {args.stage1_method: stage1_run})
+            _record_stage_timing("stage1", stage1_timer, distributed_context, timing_reporter)
+            active_stage = None
+            if pipeline_progress is not None:
+                pipeline_progress.update(1)
 
-            print(f"[stage1] method={args.stage1_method}")
-            stage1_run = run_stage1(args, retrieval_runtime)
-            write_trec_run(stage1_run, output_dir / "stage1_run.trec", args.stage1_method)
-            write_json_run(stage1_run, output_dir / "stage1_run.json")
+            active_stage = "stage2"
+            if reuse_stage1_queries:
+                if distributed_context.is_main:
+                    tqdm.write(
+                        f"[stage2] reused Stage-1 query encodings: {len(stage1_run)} queries; "
+                        "rank-local reuse, no vector transfer or query model loading/encoding"
+                    )
+            if not args.stage2_run and local_encoded is None and retrieval_runtime is None and local_stage1_run:
+                if distributed_context.is_main:
+                    tqdm.write("[query encoder] loading retrieval VLM for stage 2")
+                retrieval_runtime = _load_retrieval_runtime(
+                    args,
+                    distributed_context,
+                )
 
-            if not args.stage2_run and retrieval_runtime is None:
-                print("[query encoder] loading retrieval VLM")
-                retrieval_runtime = _load_retrieval_runtime(args)
-
-            print("[stage2] restricted hybrid retrieval")
-            dense_run, sparse_run, stage2_run = run_stage2(
-                args, stage1_run, retrieval_runtime
+            if distributed_context.is_main:
+                tqdm.write("[stage2] distributed restricted hybrid retrieval")
+            local_dense_run, local_sparse_run, local_stage2_run = run_stage2(
+                args,
+                local_stage1_run,
+                retrieval_runtime,
+                timing=stage2_timer,
+                encoded_queries=local_encoded,
             )
-            if dense_run:
-                write_trec_run(dense_run, output_dir / "stage2_dense_run.trec", "stage2_dense")
-            if sparse_run:
-                write_trec_run(sparse_run, output_dir / "stage2_sparse_run.trec", "stage2_sparse")
-            write_trec_run(stage2_run, output_dir / "stage2_hybrid_run.trec", "stage2_hybrid")
-            write_json_run(stage2_run, output_dir / "stage2_hybrid_run.json")
+            dense_run = _gather_run(local_dense_run, distributed_context)
+            sparse_run = _gather_run(local_sparse_run, distributed_context)
+            stage2_run = _gather_run(local_stage2_run, distributed_context)
+            if distributed_context.is_main:
+                _validate_query_coverage(stage1_run, stage2_run, "Stage 2")
+                if dense_run:
+                    write_trec_run(
+                        dense_run,
+                        output_dir / "stage2_dense_run.trec",
+                        "stage2_dense",
+                    )
+                if sparse_run:
+                    write_trec_run(
+                        sparse_run,
+                        output_dir / "stage2_sparse_run.trec",
+                        "stage2_sparse",
+                    )
+                write_trec_run(
+                    stage2_run,
+                    output_dir / "stage2_hybrid_run.trec",
+                    "stage2_hybrid",
+                )
+                write_json_run(stage2_run, output_dir / "stage2_hybrid_run.json")
+                stage2_metrics_runs = {}
+                if dense_run:
+                    stage2_metrics_runs["dense"] = dense_run
+                if sparse_run:
+                    stage2_metrics_runs["sparse"] = sparse_run
+                stage2_metrics_runs["hybrid"] = stage2_run
+                assert recall_reporter is not None
+                recall_reporter.record("stage2", stage2_metrics_runs)
+            if pipeline_progress is not None:
+                pipeline_progress.update(1)
         finally:
+            local_encoded = None
             _release_retrieval_runtime(retrieval_runtime)
 
-        print("[stage3] ranker reranking")
-        stage3_run = run_stage3(args, stage2_run)
-        write_trec_run(stage3_run, output_dir / "stage3_ranker_run.trec", "stage3_ranker")
-        write_json_run(stage3_run, output_dir / "stage3_ranker_run.json")
+        _record_stage_timing("stage2", stage2_timer, distributed_context, timing_reporter)
+        active_stage = "stage3"
+        if distributed_context.is_main:
+            tqdm.write("[stage3] distributed ranker reranking")
+        if args.ranker_run and distributed_context.is_distributed:
+            precomputed_stage3 = (
+                read_run(Path(args.ranker_run))
+                if distributed_context.is_main
+                else {}
+            )
+            local_stage3_run = _scatter_run(
+                precomputed_stage3,
+                distributed_context,
+            )
+        else:
+            local_stage3_run = run_stage3(
+                args,
+                local_stage2_run,
+                distributed_context,
+                timing=stage3_timer,
+            )
+        stage3_run = _gather_run(local_stage3_run, distributed_context)
+        if distributed_context.is_main:
+            _validate_query_coverage(stage1_run, stage3_run, "Stage 3")
+            write_trec_run(
+                stage3_run,
+                output_dir / "stage3_ranker_run.trec",
+                "stage3_ranker",
+            )
+            write_json_run(stage3_run, output_dir / "stage3_ranker_run.json")
+            assert recall_reporter is not None
+            recall_reporter.record("stage3", {"ranker": stage3_run})
+        _record_stage_timing("stage3", stage3_timer, distributed_context, timing_reporter)
+        active_stage = None
+        if pipeline_progress is not None:
+            pipeline_progress.update(1)
 
-        metadata = {
-            "dataset_name": args.dataset_name,
-            "dataset_split": args.dataset_split,
-            "task_type": args.task_type,
-            "query_type": args.query_type,
-            "stage1": {
-                "method": args.stage1_method,
-                "query_encoding": "online" if args.stage1_method.startswith("sparse") and not args.stage1_run else "precomputed_or_direct",
-                "retrieval_model_name_or_path": args.retrieval_model_name_or_path,
-                "sparse_index": args.stage1_sparse_index,
-                "eol_type": "prompteol" if args.stage1_method == "sparse_manual" else (
-                    STAGE2_EOL_TYPE if args.stage1_method == "sparse_concat" else None
-                ),
-                "calculate_type": "separate" if args.stage1_method == "sparse_manual" else (
-                    STAGE2_CALCULATE_TYPE if args.stage1_method == "sparse_concat" else None
-                ),
-                "sparse_manual": args.stage1_method == "sparse_manual",
-                "query_count": len(stage1_run),
-            },
-            "stage2": {
-                "query_encoding": "online" if not args.stage2_run else "precomputed_run",
-                "retrieval_model_name_or_path": args.retrieval_model_name_or_path,
-                "dense_corpus_index": args.stage2_dense_index,
-                "sparse_corpus_index": args.stage2_sparse_index,
-                "eol_type": STAGE2_EOL_TYPE,
-                "calculate_type": STAGE2_CALCULATE_TYPE,
-                "alpha": args.hybrid_alpha,
-                "candidate_depth": args.stage1_depth,
-                "query_count": len(stage2_run),
-            },
-            "stage3": {
-                "ranker_model_name_or_path": args.ranker_model_name_or_path,
-                "rerank_type": args.rerank_type,
-                "rerank_num": args.rerank_num,
-                "rerank_template": args.rerank_template,
-                "query_count": len(stage3_run),
-            },
-            "files": [
-                "stage1_run.trec",
-                "stage1_run.json",
-                "stage2_hybrid_run.trec",
-                "stage2_hybrid_run.json",
-                "stage3_ranker_run.trec",
-                "stage3_ranker_run.json",
-            ],
-        }
-        with (output_dir / "pipeline_metadata.json").open("w", encoding="utf-8") as handle:
-            json.dump(metadata, handle, ensure_ascii=False, indent=2)
-        print(f"Pipeline completed. Results: {output_dir}")
-    except Exception as exc:
-        parser.error(str(exc))
+        if distributed_context.is_main:
+            metadata = {
+                "dataset_name": args.dataset_name,
+                "dataset_split": args.dataset_split,
+                "task_type": args.task_type,
+                "query_type": args.query_type,
+                "timing": {
+                    "unit": "seconds",
+                    "stage_scope": "core_compute_excluding_setup_evaluation_output",
+                    "distributed_reduction": "max_rank_accumulated_compute_per_stage",
+                    "files": ["timing_metrics.json", "timing_metrics.xlsx"],
+                },
+                "recall": {
+                    "k_values": recall_reporter.evaluation.k_values,
+                    "scale": "0-1",
+                    "evaluation_query_source": "stage1_run",
+                    "query_count": len(recall_reporter.evaluation.targets),
+                    "dataset_query_count": recall_reporter.evaluation.dataset_query_count,
+                },
+                "distributed": {
+                    "world_size": distributed_context.world_size,
+                    "stage1_query_sharded": parallel_stage1 and distributed_context.is_distributed,
+                    "stage2_query_sharded": distributed_context.is_distributed,
+                    "stage3_query_sharded": distributed_context.is_distributed,
+                },
+                "stage1": {
+                    "method": args.stage1_method,
+                    "per_rank_query_counts": {str(rank): count for rank, count in enumerate(stage1_rank_counts)},
+                    "query_encoding": "online" if args.stage1_method.startswith("sparse") and not args.stage1_run else "precomputed_or_direct",
+                    "retrieval_model_name_or_path": args.retrieval_model_name_or_path,
+                    "sparse_index": args.stage1_sparse_index,
+                    "eol_type": "prompteol" if args.stage1_method == "sparse_manual" else (
+                        STAGE2_EOL_TYPE if args.stage1_method == "sparse_concat" else None
+                    ),
+                    "calculate_type": "separate" if args.stage1_method == "sparse_manual" else (
+                        STAGE2_CALCULATE_TYPE if args.stage1_method == "sparse_concat" else None
+                    ),
+                    "sparse_manual": args.stage1_method == "sparse_manual",
+                    "query_count": len(stage1_run),
+                },
+                "stage2": {
+                    "query_encoding": (
+                        "reused_stage1" if reuse_stage1_queries else
+                        "online" if not args.stage2_run else "precomputed_run"
+                    ),
+                    "reused_query_count": len(stage1_run) if reuse_stage1_queries else 0,
+                    "retrieval_model_name_or_path": args.retrieval_model_name_or_path,
+                    "dense_corpus_index": args.stage2_dense_index,
+                    "sparse_corpus_index": args.stage2_sparse_index,
+                    "eol_type": STAGE2_EOL_TYPE,
+                    "calculate_type": STAGE2_CALCULATE_TYPE,
+                    "alpha": args.hybrid_alpha,
+                    "candidate_depth": args.stage1_depth,
+                    "query_count": len(stage2_run),
+                },
+                "stage3": {
+                    "ranker_model_name_or_path": args.ranker_model_name_or_path,
+                    "rerank_type": args.rerank_type,
+                    "rerank_num": args.rerank_num,
+                    "rerank_template": args.rerank_template,
+                    "modify_type": args.modify_type,
+                    "query_count": len(stage3_run),
+                },
+                "files": [
+                    "stage1_run.trec",
+                    "stage1_run.json",
+                    "stage2_hybrid_run.trec",
+                    "stage2_hybrid_run.json",
+                    "stage3_ranker_run.trec",
+                    "stage3_ranker_run.json",
+                    "recall_metrics.json",
+                    "recall_metrics.xlsx",
+                    "timing_metrics.json",
+                    "timing_metrics.xlsx",
+                ],
+            }
+            with (output_dir / "pipeline_metadata.json").open("w", encoding="utf-8") as handle:
+                json.dump(metadata, handle, ensure_ascii=False, indent=2)
+            assert timing_reporter is not None
+            timing_reporter.finish(completed=True)
+            tqdm.write(f"Pipeline completed. Results: {output_dir}")
+        completed = True
+    except BaseException:
+        if timing_reporter is not None:
+            try:
+                timing_reporter.finish(completed=False, failed_stage=active_stage)
+            except Exception as timing_error:
+                # In particular, do not mask a retrieval error with an Excel
+                # dependency/I/O error. JSON is always attempted first.
+                tqdm.write(f"[timing] Could not finalize timing report: {timing_error}")
+        # Preserve the original traceback, including interrupted runs.
+        raise
+    finally:
+        if pipeline_progress is not None:
+            pipeline_progress.close()
+        _shutdown_distributed(distributed_context, synchronize=completed)
 
 
 if __name__ == "__main__":
