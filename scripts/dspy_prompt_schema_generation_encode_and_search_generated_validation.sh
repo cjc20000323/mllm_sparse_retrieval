@@ -71,6 +71,18 @@ DEMONSTRATION_NUM="${DEMONSTRATION_NUM:-1}"
 DSPY_STRENGTH="${DSPY_STRENGTH:-light}"
 FORCE_REGENERATE_DSPY_ASPECTS="${FORCE_REGENERATE_DSPY_ASPECTS:-true}"
 USE_INITIAL_DSPY_ASPECTS="${USE_INITIAL_DSPY_ASPECTS:-true}"
+# Restrict optimization to a JSON aspect pool when DSPY_ASPECT_MODE=pool.
+DSPY_ASPECT_MODE="${DSPY_ASPECT_MODE:-free}"
+DSPY_ASPECT_POOL_FILE="${DSPY_ASPECT_POOL_FILE:-}"
+ASPECT_SELECTION_ARGS=(--dspy_aspect_mode "${DSPY_ASPECT_MODE}")
+if [[ -n "${DSPY_ASPECT_POOL_FILE}" ]]; then
+    ASPECT_SELECTION_ARGS+=(--dspy_aspect_pool_file "${DSPY_ASPECT_POOL_FILE}")
+fi
+case "${DSPY_ASPECT_MODE}" in
+    free) ;;
+    pool) [[ -f "${DSPY_ASPECT_POOL_FILE}" ]] || { echo "pool mode requires an existing DSPY_ASPECT_POOL_FILE." >&2; exit 2; } ;;
+    *) echo "DSPY_ASPECT_MODE must be free or pool." >&2; exit 2 ;;
+esac
 
 # These arguments become effective when USE_VALIDATION_DATASET_RESOLVER=True is
 # enabled in the Python program.
@@ -137,4 +149,5 @@ deepspeed \
     --generated_validation_data_root "${GENERATED_VALIDATION_DATA_ROOT}" \
     "${VALIDATION_ARGS[@]}" \
     "${REGENERATE_ARGS[@]}" \
-    "${INITIAL_ASPECT_ARGS[@]}"
+    "${INITIAL_ASPECT_ARGS[@]}" \
+    "${ASPECT_SELECTION_ARGS[@]}"

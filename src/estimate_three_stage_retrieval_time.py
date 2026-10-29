@@ -131,6 +131,8 @@ def parser() -> argparse.ArgumentParser:
 
 
 def validate_args(args) -> None:
+    if getattr(args, "select_hybrid_alpha", False):
+        raise ValueError("Time estimation supports fixed alpha only; use three_stage_retrieval_pipeline.py for --select-hybrid-alpha.")
     if args.dataset_name not in DATASETS:
         raise ValueError(f"Estimation supports exactly these eight datasets: {', '.join(DATASETS)}")
     if args.stage1_method != "sparse_concat" or any(

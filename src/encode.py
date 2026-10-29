@@ -845,6 +845,14 @@ def main():
     parser = HfArgumentParser((ModelArguments, PromptRepsLLMDataArguments, TrainingArguments))
 
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    from qwen_vl_prompts import is_native_qwen_checkpoint
+    if is_native_qwen_checkpoint(model_args.model_name_or_path):
+        from qwen_vl_pipeline import run_encode
+        try:
+            return run_encode(model_args, data_args, training_args)
+        finally:
+            if dist.is_initialized():
+                dist.destroy_process_group()
     model_args: ModelArguments
     data_args: PromptRepsLLMDataArguments
     training_args: TrainingArguments

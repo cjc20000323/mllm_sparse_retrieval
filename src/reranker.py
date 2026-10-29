@@ -376,9 +376,17 @@ class Reranker:
         output = self.model(**inputs, use_cache=False, output_hidden_states=False, return_dict=True)
         logits = last_valid_logits(output.logits, inputs['attention_mask']).float()
         yes, no = ('A', 'B') if prompt_type == 'freeret' else ('Yes', 'No')
+        from qwen_vl_prompts import is_native_qwen_model
+        if is_native_qwen_model(self.model):
+            encoded = [self.processor.tokenizer.encode(answer, add_special_tokens=False) for answer in (yes, no)]
+            if any(len(ids) != 1 for ids in encoded):
+                raise ValueError('Qwen pointwise scoring requires single-token Yes/No or A/B answers')
+            answer_ids = [ids[0] for ids in encoded]
+        else:
+            answer_ids = [self.vocab_dict[yes], self.vocab_dict[no]]
         if log_likelihood:
             logits = logits.log_softmax(dim=-1)
-        scores = logits[:, [self.vocab_dict[yes], self.vocab_dict[no]]].softmax(dim=-1)[:, 0]
+        scores = logits[:, answer_ids].softmax(dim=-1)[:, 0]
         return scores.detach().cpu().tolist()
 
     def _caption_scores(self, requests, *, text_only=False):
@@ -439,6 +447,16 @@ class Reranker:
 
     def rerank(self, fusion_run, rerank_type, rerank_num, data_args, training_args, model_args, rerank_batch_size=1,
                rerank_prompt_type='relevant', log_likelihood=False, progress_observer=None):
+        from qwen_vl_prompts import is_native_qwen_model, rerank_template
+        if is_native_qwen_model(getattr(self, 'model', None)) or any(name in model_args.model_name_or_path for name in ('Qwen2-VL-', 'Qwen2.5-VL-', 'Qwen3-VL-')):
+            if rerank_type != 'pointwise':
+                raise ValueError('Qwen listwise reranking has no implemented scoring definition')
+            template = rerank_template(self.processor, training_args.task_type, self.query_type, rerank_prompt_type)
+            with torch.no_grad():
+                return self._batch_rerank(fusion_run, training_args.task_type, template,
+                                          rerank_batch_size, rerank_prompt_type, data_args,
+                                          rerank_num=rerank_num, log_likelihood=log_likelihood,
+                                          progress_observer=progress_observer)
         with torch.no_grad(), torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             rerank_fusion_run = {}
             if training_args.task_type == 'cir':
@@ -896,6 +914,10 @@ class Reranker:
             return rerank_fusion_run
 
     def _caption_template(self, training_args, model_args, rerank_prompt_type):
+        from qwen_vl_prompts import is_native_qwen_model, rerank_template
+        if is_native_qwen_model(getattr(self, 'model', None)) or any(name in model_args.model_name_or_path for name in ('Qwen2-VL-', 'Qwen2.5-VL-', 'Qwen3-VL-')):
+            return rerank_template(self.processor, training_args.task_type, self.query_type,
+                                   rerank_prompt_type, caption=True)
         if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
             if training_args.task_type == 'tbpr':
                 if rerank_prompt_type == 'caption_generation':
@@ -1065,6 +1087,9 @@ class Reranker:
     def caption_generation_rerank(self, fusion_run, rerank_type, rerank_num, data_args, training_args, model_args,
                                   search_args, rerank_batch_size=1, rerank_prompt_type='caption_generation',
                                   progress_observer=None, prior_cache_prepared=False):
+        from qwen_vl_prompts import is_native_qwen_model
+        if (is_native_qwen_model(getattr(self, 'model', None)) or any(name in model_args.model_name_or_path for name in ('Qwen2-VL-', 'Qwen2.5-VL-', 'Qwen3-VL-'))) and rerank_type != 'pointwise':
+            raise ValueError('Qwen listwise reranking has no implemented scoring definition')
         template = self._caption_template(training_args, model_args, rerank_prompt_type)
         prior_scores = None
         if getattr(search_args, 'use_rerank_prior_cache', False):

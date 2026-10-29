@@ -14,6 +14,10 @@
 # Prior caching is supported only for ReMuQ/LLaVA with MODIFY_TYPE=modify_single
 # and a caption_generation template. It is disabled by default.
 
+# SELECT_HYBRID_ALPHA=true scans 0.1..0.9. Supply both VAL_PASSAGE_REPS and
+# VAL_SPARSE_INDEX to select on validation; omit both to select on the target split.
+# VALIDATION_DATASET_NAME defaults to DATASET; VALIDATION_SPLIT defaults to val.
+# The selected weight alone is used for Stage 3; all weights are reported in CSV.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -63,7 +67,7 @@ is_true() {
 EXTRA_ARGS=()
 while (($# > 0)); do
     case "${1%%=*}" in
-        --dataset-name|--dataset-split|--task-type|--query-type|--data-root|--output-dir|--stage1-sparse-index|--stage2-dense-index|--stage2-sparse-index|--modify_type|--modify-type|--rerank-template|--rerank-type|--rerank-prior-cache-dir|--rerank_prior_cache_dir)
+        --dataset-name|--dataset-split|--task-type|--query-type|--data-root|--output-dir|--stage1-sparse-index|--stage2-dense-index|--stage2-sparse-index|--modify_type|--modify-type|--rerank-template|--rerank-type|--rerank-prior-cache-dir|--rerank_prior_cache_dir|--val-passage-reps|--val-sparse-index|--validation-dataset-name|--validation-split|--val-stage1-sparse-index|--val-stage1-run)
             CLI_OPTION="${1%%=*}"
             if [[ "$1" == *=* ]]; then
                 CLI_VALUE="${1#*=}"
@@ -85,6 +89,12 @@ while (($# > 0)); do
                 --stage1-sparse-index) STAGE1_SPARSE_INDEX="${CLI_VALUE}" ;;
                 --stage2-dense-index) STAGE2_DENSE_INDEX="${CLI_VALUE}" ;;
                 --stage2-sparse-index) STAGE2_SPARSE_INDEX="${CLI_VALUE}" ;;
+                --val-passage-reps) VAL_PASSAGE_REPS="${CLI_VALUE}" ;;
+                --val-sparse-index) VAL_SPARSE_INDEX="${CLI_VALUE}" ;;
+                --validation-dataset-name) VALIDATION_DATASET_NAME="${CLI_VALUE}" ;;
+                --validation-split) VALIDATION_SPLIT="${CLI_VALUE}" ;;
+                --val-stage1-sparse-index) VAL_STAGE1_SPARSE_INDEX="${CLI_VALUE}" ;;
+                --val-stage1-run) VAL_STAGE1_RUN="${CLI_VALUE}" ;;
                 --modify_type|--modify-type) MODIFY_TYPE="${CLI_VALUE}" ;;
                 --rerank-template) RERANK_TEMPLATE="${CLI_VALUE}" ;;
                 --rerank-type) RERANK_TYPE="${CLI_VALUE}" ;;
@@ -94,6 +104,11 @@ while (($# > 0)); do
         --use-rerank-prior-cache|--use_rerank_prior_cache)
             [[ "$1" != *=* ]] || die "${1%%=*} is a flag and does not take a value."
             USE_RERANK_PRIOR_CACHE="true"
+            shift
+            ;;
+        --select-hybrid-alpha)
+            [[ "$1" != *=* ]] || die "--select-hybrid-alpha is a flag and does not take a value."
+            SELECT_HYBRID_ALPHA=true
             shift
             ;;
         --)
@@ -155,6 +170,19 @@ RANKER_MODEL_PATH="${RANKER_MODEL_PATH:-${RETRIEVAL_MODEL_PATH}}"
 STAGE1_DEPTH="${STAGE1_DEPTH:-1000}"
 STAGE2_DEPTH="${STAGE2_DEPTH:-1000}"
 HYBRID_ALPHA="${HYBRID_ALPHA:-0.5}"
+SELECT_HYBRID_ALPHA="${SELECT_HYBRID_ALPHA:-false}"
+ALPHA_SELECTION_ARGS=()
+ALPHA_OUTPUT_SUFFIX=""
+if is_true "${SELECT_HYBRID_ALPHA}"; then
+    ALPHA_SELECTION_ARGS+=(--select-hybrid-alpha)
+    ALPHA_OUTPUT_SUFFIX=/alpha_select
+fi
+if [[ -n "${VAL_PASSAGE_REPS:-}" ]]; then ALPHA_SELECTION_ARGS+=(--val-passage-reps "${VAL_PASSAGE_REPS}"); fi
+if [[ -n "${VAL_SPARSE_INDEX:-}" ]]; then ALPHA_SELECTION_ARGS+=(--val-sparse-index "${VAL_SPARSE_INDEX}"); fi
+if [[ -n "${VALIDATION_DATASET_NAME:-}" ]]; then ALPHA_SELECTION_ARGS+=(--validation-dataset-name "${VALIDATION_DATASET_NAME}"); fi
+if [[ -n "${VALIDATION_SPLIT:-}" ]]; then ALPHA_SELECTION_ARGS+=(--validation-split "${VALIDATION_SPLIT}"); fi
+if [[ -n "${VAL_STAGE1_SPARSE_INDEX:-}" ]]; then ALPHA_SELECTION_ARGS+=(--val-stage1-sparse-index "${VAL_STAGE1_SPARSE_INDEX}"); fi
+if [[ -n "${VAL_STAGE1_RUN:-}" ]]; then ALPHA_SELECTION_ARGS+=(--val-stage1-run "${VAL_STAGE1_RUN}"); fi
 SPARSE_THREADS="${SPARSE_THREADS:-16}"
 RETRIEVAL_DEVICE="${RETRIEVAL_DEVICE:-auto}"
 RETRIEVAL_DEVICE_MAP="${RETRIEVAL_DEVICE_MAP:-auto}"
@@ -172,6 +200,10 @@ SPARSE_LOWER_OR_UPPER="${SPARSE_LOWER_OR_UPPER:-lower}"
 
 RANKER_DEVICE_MAP="${RANKER_DEVICE_MAP:-auto}"
 RANKER_DTYPE="${RANKER_DTYPE:-float16}"
+RETRIEVAL_QWEN_MIN_PIXELS="${RETRIEVAL_QWEN_MIN_PIXELS:-0}"
+RETRIEVAL_QWEN_MAX_PIXELS="${RETRIEVAL_QWEN_MAX_PIXELS:-0}"
+RANKER_QWEN_MIN_PIXELS="${RANKER_QWEN_MIN_PIXELS:-0}"
+RANKER_QWEN_MAX_PIXELS="${RANKER_QWEN_MAX_PIXELS:-0}"
 RERANK_TYPE="${RERANK_TYPE:-pointwise}"
 RERANK_NUM="${RERANK_NUM:-5}"
 RERANK_BATCH_SIZE="${RERANK_BATCH_SIZE:-1}"
@@ -204,7 +236,10 @@ STAGE2_DENSE_INDEX="${STAGE2_DENSE_INDEX:-dense_output/${INDEX_RELATIVE_PATH}}"
 STAGE2_SPARSE_INDEX="${STAGE2_SPARSE_INDEX:-sparse_output/${INDEX_RELATIVE_PATH}}"
 # Each worker reuses its Stage-1 sparse_concat query encoding in Stage 2.
 STAGE1_SPARSE_INDEX="${STAGE1_SPARSE_INDEX:-${STAGE2_SPARSE_INDEX}}"
+HAS_EXPLICIT_OUTPUT=false
+if [[ -n "${OUTPUT_DIR:-}" ]]; then HAS_EXPLICIT_OUTPUT=true; fi
 OUTPUT_DIR="${OUTPUT_DIR:-./three_stage_results/${ARTIFACT_MODEL_NAME}/${DATASET}/${DIRECTION_LABEL}/${DATASET_SPLIT}/sparse_concat_stage1}"
+if [[ "${HAS_EXPLICIT_OUTPUT}" == false ]]; then OUTPUT_DIR+="${ALPHA_OUTPUT_SUFFIX}"; fi
 OVERWRITE="${OVERWRITE:-false}"
 
 command -v "${DEEPSPEED_BIN}" >/dev/null 2>&1 || die "DeepSpeed executable was not found: ${DEEPSPEED_BIN}"
@@ -252,8 +287,11 @@ COMMAND=(
     --stage2-sparse-index "${STAGE2_SPARSE_INDEX}"
     --stage2-depth "${STAGE2_DEPTH}"
     --hybrid-alpha "${HYBRID_ALPHA}"
+    "${ALPHA_SELECTION_ARGS[@]}"
     --sparse-threads "${SPARSE_THREADS}"
     --retrieval-model-name-or-path "${RETRIEVAL_MODEL_PATH}"
+    --retrieval-qwen-min-pixels "${RETRIEVAL_QWEN_MIN_PIXELS}"
+    --retrieval-qwen-max-pixels "${RETRIEVAL_QWEN_MAX_PIXELS}"
     --retrieval-device "${RETRIEVAL_DEVICE}"
     --retrieval-device-map "${RETRIEVAL_DEVICE_MAP}"
     --retrieval-dtype "${RETRIEVAL_DTYPE}"
@@ -267,6 +305,8 @@ COMMAND=(
     --sparse-value-type "${SPARSE_VALUE_TYPE}"
     --sparse-lower-or-upper "${SPARSE_LOWER_OR_UPPER}"
     --ranker-model-name-or-path "${RANKER_MODEL_PATH}"
+    --ranker-qwen-min-pixels "${RANKER_QWEN_MIN_PIXELS}"
+    --ranker-qwen-max-pixels "${RANKER_QWEN_MAX_PIXELS}"
     --ranker-device-map "${RANKER_DEVICE_MAP}"
     --ranker-dtype "${RANKER_DTYPE}"
     --rerank-type "${RERANK_TYPE}"

@@ -53,6 +53,11 @@ class QuietProgress:
 
 
 class Processor:
+    def apply_chat_template(self, messages, **kwargs):
+        body = ''.join('<|vision_start|><|image_pad|><|vision_end|>' if part['type'] == 'image' else part['text']
+                       for part in messages[0]['content'])
+        return '<|im_start|>user\n' + body + '<|im_end|>\n<|im_start|>assistant\n'
+
     def __init__(self, *, bos=True, eos=True):
         self.tokenizer = SimpleNamespace(padding_side='right', pad_token_id=0, eos_token_id=2)
         self.bos, self.eos = bos, eos

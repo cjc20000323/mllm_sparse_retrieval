@@ -1,5 +1,9 @@
 # Three-stage retrieval time estimation
 
+Native Qwen2-VL, Qwen2.5-VL and Qwen3-VL Dense Instruct are supported through the shared
+three-stage functions. See [Qwen setup and complete commands](three_stage_qwen.md) for matching
+index manifests and independent retrieval/ranker pixel limits. The timing policy below is unchanged.
+
 Run the standalone launcher with the existing corpus indexes and model snapshots:
 
 ```bash

@@ -172,6 +172,11 @@ def _run_rerank():
          TrainingArguments, RerankTimeEstimationArguments))
 
     model_args, data_args, search_args, training_args, time_estimate_args = parser.parse_args_into_dataclasses()
+    from qwen_vl_prompts import is_native_qwen_checkpoint
+    if is_native_qwen_checkpoint(model_args.model_name_or_path):
+        from qwen_vl_pipeline import run_search
+        return run_search(model_args, data_args, search_args, training_args,
+                          rerank=True, time_options=time_estimate_args)
     model_args: ModelArguments
     data_args: PromptRepsLLMDataArguments
     search_args: PromptRepsLLMSearchArguments

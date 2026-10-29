@@ -35,6 +35,11 @@ Pipeline
 ``query.pkl`` or ``query.tsv`` is required.  Every intermediate run is still
 saved for inspection or resume.
 
+``--select-hybrid-alpha`` scans weights 0.1..0.9 from the same Stage-2 scores.
+Paired validation indexes select the weight on validation; otherwise the target
+split selects it. All weights are reported in ``stage2_alpha_sweep.csv`` before
+Stage 3 reranks only the selected candidates.
+
 Dataset adapters follow the existing retrieval tasks: COCO/Flickr use ``ir``,
 CUHK-PEDES/ICFG-PEDES/RSTPReid use ``tbpr`` (text -> person images), WebQA
 uses ``t2it`` (text -> image+text), and ReMuQ/LLaVA use ``it2t`` (image+text
@@ -53,6 +58,8 @@ the end-to-end wall time (which includes those costs).
 from __future__ import annotations
 
 import argparse
+import copy
+import csv
 import gc
 import json
 import os
@@ -83,6 +90,7 @@ Run = dict[str, dict[str, float]]
 STAGE1_METHODS = ("clip", "blip", "sparse_manual", "sparse_concat")
 STAGE2_EOL_TYPE = "disassembleeol_separate"
 STAGE2_CALCULATE_TYPE = "concat"
+ALPHA_CANDIDATES = tuple(i / 10 for i in range(1, 10))
 
 DATASET_TASK_TYPES = {
     "coco": "ir", "flickr": "ir", "fashion-iq": "cir",
@@ -120,6 +128,8 @@ class EncodedQueries:
     query_ids: list[str]
     dense_representations: Any
     sparse_topics: dict[str, str]
+    # Corpus-compatible fingerprint and pipeline settings survive model release.
+    qwen_metadata: Optional[dict[str, Any]] = None
 
 
 @dataclass(frozen=True)
@@ -532,6 +542,7 @@ def _select_encoded_queries(encoded: EncodedQueries, query_ids: Sequence[str]) -
         requested,
         np.ascontiguousarray(encoded.dense_representations[[positions[query_id] for query_id in requested]]),
         {query_id: encoded.sparse_topics[query_id] for query_id in requested},
+        qwen_metadata=copy.deepcopy(encoded.qwen_metadata),
     )
 
 
@@ -908,6 +919,9 @@ def retrieve_dense_from_corpus(
 
 
 def _resolve_lucene_index(path: Path) -> Path:
+    from qwen_vl_paths import has_qwen_manifest, resolve_sparse_index
+    if has_qwen_manifest(path):
+        return resolve_sparse_index(path)
     if (path / "index").is_dir():
         return path / "index"
     return path
@@ -1073,9 +1087,6 @@ def _load_retrieval_runtime(
     src_dir = Path(__file__).resolve().parent
     if str(src_dir) not in sys.path:
         sys.path.insert(0, str(src_dir))
-    from encode import get_filtered_ids
-    import model as model_module
-
     model_path = args.retrieval_model_name_or_path
     if not model_path:
         raise ValueError("在线大模型查询编码需要 --retrieval-model-name-or-path。")
@@ -1094,6 +1105,26 @@ def _load_retrieval_runtime(
     device_map = _device_map_for_process(args.retrieval_device_map, context)
     if device_map != "none":
         load_kwargs["device_map"] = device_map
+
+    from qwen_vl_prompts import is_native_qwen_checkpoint, model_family
+    if is_native_qwen_checkpoint(model_path):
+        from qwen_vl_pipeline import load_native_qwen
+        if args.sparse_logits_multiply_view_count:
+            raise ValueError("Qwen does not support the LLaVA-only sparse x5 ablation")
+        encoder, processor = load_native_qwen(
+            model_path, dtype=dtype, device_map=None if device_map == "none" else device_map,
+            device=device, min_pixels=getattr(args, "retrieval_qwen_min_pixels", 0),
+            max_pixels=getattr(args, "retrieval_qwen_max_pixels", 0),
+            lora_model_path=args.retrieval_lora_model_path,
+        )
+        return SimpleNamespace(
+            model=encoder, encoder=encoder, processor=processor, tokenizer=processor.tokenizer,
+            model_path=model_path, device=device, dtype=dtype, query_cache={},
+            qwen_family=model_family(encoder.config), qwen_load_settings=_qwen_load_settings(args),
+        )
+
+    from encode import get_filtered_ids
+    import model as model_module
 
     def load(model_class: Any):
         try:
@@ -1167,7 +1198,7 @@ def _release_retrieval_runtime(runtime: Any) -> None:
 
     if getattr(runtime, "original_get_rank", None) is not None:
         runtime.model_module.dist.get_rank = runtime.original_get_rank
-    for name in ("model", "encoder", "processor", "tokenizer", "image_tokenizer"):
+    for name in ("model", "encoder", "processor", "tokenizer", "image_tokenizer", "qwen_adapter"):
         if hasattr(runtime, name):
             setattr(runtime, name, None)
     if hasattr(runtime, "query_cache"):
@@ -1189,9 +1220,14 @@ def _retrieval_namespaces(
         eol_type=eol_type,
         calculate_type=calculate_type,
         use_output_embedding_cluster=False,
+        lora=bool(getattr(args, "retrieval_lora_model_path", None)),
+        lora_model_path=getattr(args, "retrieval_lora_model_path", None),
     )
     data_args = SimpleNamespace(
         dataset_name=args.dataset_name,
+        dataset_split=args.dataset_split,
+        qwen_min_pixels=getattr(args, "retrieval_qwen_min_pixels", 0),
+        qwen_max_pixels=getattr(args, "retrieval_qwen_max_pixels", 0),
         per_device_batch_size=args.retrieval_batch_size,
         reps_loc=args.retrieval_reps_loc,
         sparse_manual=sparse_manual,
@@ -1216,6 +1252,62 @@ def _retrieval_namespaces(
         composed_top_k=3,
     )
     return model_args, data_args
+
+
+def _qwen_load_settings(args: argparse.Namespace) -> dict[str, Any]:
+    return {key: getattr(args, key, None) for key in (
+        "retrieval_model_name_or_path", "retrieval_lora_model_path", "retrieval_dtype",
+        "retrieval_qwen_min_pixels", "retrieval_qwen_max_pixels",
+    )}
+
+
+def _is_qwen_checkpoint(path):
+    src_dir = str(Path(__file__).resolve().parent)
+    if src_dir not in sys.path:
+        sys.path.insert(0, src_dir)
+    from qwen_vl_prompts import is_native_qwen_checkpoint
+    return bool(path) and is_native_qwen_checkpoint(path)
+
+
+def _qwen_encoding_settings(args, eol_type, calculate_type, sparse_manual):
+    model_args, data_args = _retrieval_namespaces(
+        args, eol_type=eol_type, calculate_type=calculate_type, sparse_manual=sparse_manual,
+    )
+    return dict(model=vars(model_args), data=vars(data_args), task=args.task_type,
+                query_type=args.query_type, dtype=args.retrieval_dtype)
+
+
+def _qwen_query_records(args, records):
+    """Preserve retrieval modalities, never attach reference captions to IR images."""
+    result = []
+    for record in records:
+        value = dict(record)
+        value["text"] = _plain_text(value.get("text", ""))
+        if args.task_type == "ir" and args.query_type == "image":
+            value["text"] = ""
+        elif args.task_type == "cir":
+            value["composed"] = True
+        result.append(value)
+    return result
+
+
+def _validate_qwen_artifacts(args, encoded, paths, *, eol_type, calculate_type, sparse_manual):
+    """Validate even the rank-local reuse path, without reloading GPU weights."""
+    if not encoded.query_ids:
+        return
+    expected = encoded.qwen_metadata
+    if expected is None:
+        if _is_qwen_checkpoint(getattr(args, "retrieval_model_name_or_path", None)):
+            raise ValueError("Qwen query encodings are missing their configuration fingerprint; encode again")
+        return
+    from qwen_vl_pipeline import validate_manifest
+    settings = _qwen_encoding_settings(args, eol_type, calculate_type, sparse_manual)
+    if expected.get("pipeline_settings") != settings:
+        raise ValueError("Qwen query reuse configuration mismatch; encoding settings changed between stages")
+    for path, dense in paths:
+        actual = validate_manifest(path, expected)
+        if dense and len(_find_corpus_pickles(Path(path))) != actual["num_shards"]:
+            raise ValueError("Qwen dense corpus shard count differs from its manifest")
 
 
 def _dataset_query_ids(args: argparse.Namespace, dataset: Any) -> Sequence[Any]:
@@ -1701,6 +1793,28 @@ def encode_queries_online(
         args.num_expended_tokens,
         requested_ids_key,
     )
+    native = getattr(runtime, "qwen_family", None) in {"qwen2_vl", "qwen2_5_vl", "qwen3_vl"}
+    qwen_metadata = None
+    qwen_encoder = sparse_encoder = None
+    if native:
+        from qwen_vl_encoding import NativeQwenEncoder, SparseEncoder
+        from qwen_vl_pipeline import corpus_kind, prompt_metadata
+        if args.sparse_logits_multiply_view_count:
+            raise ValueError("Qwen does not support the LLaVA-only sparse x5 ablation")
+        if getattr(runtime, "qwen_load_settings", _qwen_load_settings(args)) != _qwen_load_settings(args):
+            raise ValueError("Qwen model, dtype, adapter or pixel limits changed; reload the retrieval runtime")
+        model_args, data_args = _retrieval_namespaces(
+            args, eol_type=eol_type, calculate_type=calculate_type, sparse_manual=sparse_manual,
+        )
+        qwen_metadata = prompt_metadata(
+            model_args, data_args, SimpleNamespace(task_type=args.task_type), runtime.processor,
+            corpus_kind(args.task_type, args.query_type), family=runtime.qwen_family,
+        )
+        qwen_metadata["pipeline_settings"] = _qwen_encoding_settings(args, eol_type, calculate_type, sparse_manual)
+        cache_key = ("qwen", qwen_metadata["fingerprint"],
+                     json.dumps(qwen_metadata["pipeline_settings"], sort_keys=True), requested_ids_key)
+        qwen_encoder = NativeQwenEncoder(runtime.encoder, runtime.processor, model_args, data_args, args.task_type)
+        sparse_encoder = SparseEncoder(runtime.processor.tokenizer, data_args, concat=calculate_type == "concat")
     cached = runtime.query_cache.get(cache_key)
     if cached is not None:
         return cached
@@ -1710,12 +1824,15 @@ def encode_queries_online(
         _query_records(args, dataset),
         requested_query_ids,
     )
-    model_args, data_args = _retrieval_namespaces(
-        args,
-        eol_type=eol_type,
-        calculate_type=calculate_type,
-        sparse_manual=sparse_manual,
-    )
+    if native:
+        records = _qwen_query_records(args, records)
+    if not native:
+        model_args, data_args = _retrieval_namespaces(
+            args,
+            eol_type=eol_type,
+            calculate_type=calculate_type,
+            sparse_manual=sparse_manual,
+        )
     query_ids: list[str] = []
     dense_parts = []
     topics: dict[str, str] = {}
@@ -1735,21 +1852,31 @@ def encode_queries_online(
                 else nullcontext()
             )
             with torch.inference_mode(), amp:
-                logits, dense_representations = _encode_query_batch(
-                    runtime, args, batch, model_args, data_args
-                )
+                if native:
+                    logits, dense_representations = qwen_encoder.encode(batch)
+                else:
+                    logits, dense_representations = _encode_query_batch(
+                        runtime, args, batch, model_args, data_args
+                    )
             query_ids.extend(_normalise_id(record["id"]) for record in batch)
             dense_parts.append(_dense_batch_to_numpy(dense_representations, len(batch)))
-            topics.update(
-                _batch_sparse_topics(runtime, batch, logits, model_args, data_args, args)
-            )
+            if native:
+                topics.update({record["id"]: _vector_to_topic(sparse_encoder.vector(row, record))
+                               for row, record in zip(logits, batch)})
+            else:
+                topics.update(
+                    _batch_sparse_topics(runtime, batch, logits, model_args, data_args, args)
+                )
         if not dense_parts:
             raise ValueError("当前数据集没有可编码的查询。")
         encoded = EncodedQueries(
             query_ids=query_ids,
             dense_representations=np.concatenate(dense_parts, axis=0),
             sparse_topics=topics,
+            qwen_metadata=qwen_metadata,
         )
+        if native:
+            encoded.qwen_metadata["query_examples"] = qwen_encoder.last_prompts[:2]
     runtime.query_cache[cache_key] = encoded
     return encoded
 
@@ -2661,6 +2788,12 @@ def run_stage1(
             )
         if not encoded.query_ids:
             return {}
+        _validate_qwen_artifacts(
+            args, encoded, [(args.stage1_sparse_index, False)],
+            eol_type="prompteol" if args.stage1_method == "sparse_manual" else STAGE2_EOL_TYPE,
+            calculate_type="separate" if args.stage1_method == "sparse_manual" else STAGE2_CALCULATE_TYPE,
+            sparse_manual=args.stage1_method == "sparse_manual",
+        )
         return retrieve_sparse_topics_from_lucene(
             Path(args.stage1_sparse_index),
             encoded.sparse_topics,
@@ -2739,6 +2872,11 @@ def run_stage2(
         timing=timing,
     )
 
+    _validate_qwen_artifacts(
+        args, encoded, [(args.stage2_dense_index, True), (args.stage2_sparse_index, False)],
+        eol_type=STAGE2_EOL_TYPE, calculate_type=STAGE2_CALCULATE_TYPE, sparse_manual=False,
+    )
+
     dense_run = retrieve_dense_from_corpus(
         encoded.dense_representations,
         encoded.query_ids,
@@ -2805,6 +2943,25 @@ def _load_ranker_model(
     device_map = _device_map_for_process(args.ranker_device_map, context)
     if device_map != "none":
         load_kwargs["device_map"] = device_map
+
+    if _is_qwen_checkpoint(model_path):
+        from qwen_vl_pipeline import load_native_qwen, load_qwen_processor
+        from qwen_vl_prompts import rerank_template
+        config, processor = load_qwen_processor(
+            model_path, min_pixels=getattr(args, "ranker_qwen_min_pixels", 0),
+            max_pixels=getattr(args, "ranker_qwen_max_pixels", 0),
+        )
+        if args.rerank_type != "pointwise":
+            raise ValueError("Qwen supports pointwise reranking only")
+        rerank_template(processor, args.task_type, args.query_type, args.rerank_template,
+                        caption="caption_generation" in args.rerank_template)
+        device = torch.device("cuda", context.local_rank) if torch.cuda.is_available() else torch.device("cpu")
+        model, processor = load_native_qwen(
+            model_path, dtype=dtype, device_map=None if device_map == "none" else device_map,
+            device=device, config=config, processor=processor,
+        )
+        processor.tokenizer.padding_side = "left" if args.rerank_reps_loc == "after_pad" else "right"
+        return model, processor
 
     def load(model_class: Any):
         try:
@@ -3035,6 +3192,212 @@ def run_stage3(
     }
 
 
+def _alpha_validation_args(args: argparse.Namespace) -> Optional[argparse.Namespace]:
+    if not getattr(args, "val_passage_reps", None):
+        return None
+    validation = copy.deepcopy(args)
+    validation.dataset_name = args.validation_dataset_name or args.dataset_name
+    validation.dataset_split = args.validation_split
+    validation.stage1_run = args.val_stage1_run
+    validation.stage1_command = None
+    validation.stage2_run = None
+    validation.ranker_run = None
+    validation.stage2_dense_index = args.val_passage_reps
+    validation.stage2_sparse_index = args.val_sparse_index
+    validation.stage1_sparse_index = args.val_stage1_sparse_index or (
+        args.val_sparse_index if args.stage1_method == "sparse_concat" else None
+    )
+    for name in ("stage1_run", "stage1_sparse_index", "stage2_dense_index", "stage2_sparse_index"):
+        value = getattr(validation, name)
+        if value:
+            setattr(validation, name, str(Path(value).expanduser()))
+    return validation
+
+
+def _validate_alpha_options(args: argparse.Namespace) -> None:
+    inputs = [getattr(args, name, None) for name in (
+        "val_passage_reps", "val_sparse_index", "val_stage1_run",
+        "val_stage1_sparse_index", "validation_dataset_name",
+    )]
+    if not getattr(args, "select_hybrid_alpha", False):
+        if any(inputs):
+            raise ValueError("Validation inputs require --select-hybrid-alpha.")
+        return
+    if args.stage2_run or args.ranker_run:
+        raise ValueError("Alpha selection requires computed Stage 2 and reranking; --stage2-run/--ranker-run are unsupported.")
+    if not args.stage2_dense_index or not args.stage2_sparse_index:
+        raise ValueError("Alpha selection requires both Stage-2 dense and sparse indexes.")
+    if bool(args.val_passage_reps) != bool(args.val_sparse_index):
+        raise ValueError("Provide both --val-passage-reps and --val-sparse-index, or neither to select on the target split.")
+    validation = _alpha_validation_args(args)
+    if validation is None:
+        if any(inputs):
+            raise ValueError("Validation dataset/Stage-1 inputs require both validation Stage-2 indexes.")
+        return
+    if DATASET_TASK_TYPES.get(validation.dataset_name) != args.task_type:
+        raise ValueError("Validation dataset must have the same task type as the target dataset.")
+    dense = Path(validation.stage2_dense_index).expanduser()
+    if not (dense.is_file() and dense.match("corpus*.pkl")) and not any(path.is_file() for path in dense.glob("corpus*.pkl")):
+        raise ValueError(f"No validation corpus*.pkl found: {dense}")
+    indexes = [validation.stage2_sparse_index]
+    if validation.stage1_run:
+        if not Path(validation.stage1_run).expanduser().is_file():
+            raise ValueError(f"Validation Stage-1 run does not exist: {validation.stage1_run}")
+    elif validation.stage1_method.startswith("sparse"):
+        if not validation.stage1_sparse_index:
+            raise ValueError("Validation sparse_manual requires --val-stage1-sparse-index.")
+        indexes.append(validation.stage1_sparse_index)
+    elif not validation.stage1_model_name_or_path:
+        raise ValueError("Validation CLIP/BLIP requires a Stage-1 model or --val-stage1-run.")
+    for name in indexes:
+        index = _resolve_lucene_index(Path(name).expanduser())
+        if not any(path.is_file() for path in index.glob("segments_*")):
+            raise ValueError(f"No validation Lucene segments_* found: {index}")
+
+
+def _alpha_main_result(context: DistributedContext, action: Any) -> Any:
+    """Broadcast the scalar selection or root evaluation/I/O error, never vectors."""
+    packet = [None]
+    if context.is_main:
+        try:
+            packet[0] = {"value": action(), "error": None}
+        except Exception as exc:
+            packet[0] = {"error": f"{type(exc).__name__}: {exc}"}
+    if context.is_distributed:
+        import torch.distributed as dist
+        dist.broadcast_object_list(packet, src=0)
+    if packet[0]["error"] is not None:
+        raise ValueError(f"Alpha selection failed: {packet[0]['error']}")
+    return packet[0]["value"]
+
+
+def _alpha_objective(rows: Sequence[dict[str, Any]], dataset_name: str) -> float:
+    by_category = {row["category"]: row["recall"] for row in rows}
+    try:
+        values = (
+            [by_category[category][str(k)] for category in ("dress", "shirt", "toptee") for k in (10, 50)]
+            if dataset_name == "fashion-iq" else [by_category["all"][str(k)] for k in (1, 5, 10)]
+        )
+    except KeyError as exc:
+        raise ValueError("Alpha selection is missing a required recall cutoff/category.") from exc
+    return sum(values) / len(values)
+
+
+class AlphaSweepReporter:
+    """Rank-0 CSV/selection output, incrementally saved before Stage 3."""
+
+    def __init__(self, output_dir: Path) -> None:
+        self.output_dir = output_dir
+        self.rows: list[dict[str, Any]] = []
+        self.scans: list[dict[str, Any]] = []
+        self.selection: Optional[dict[str, Any]] = None
+        self.validation_timing: dict[str, Any] = {}
+        self.last_run: Run = {}
+
+    def sweep(
+        self, args: argparse.Namespace, stage1: Run, dense: Run, sparse: Run,
+        *, role: str, timing: StageTimer,
+    ) -> float:
+        _validate_query_coverage(stage1, dense, f"{role} dense")
+        _validate_query_coverage(stage1, sparse, f"{role} sparse")
+        with timing.measure("alpha_evaluation", core=False):
+            evaluation = _build_recall_evaluation(args, stage1)
+            baselines = [row for name, run in (("dense", dense), ("sparse", sparse))
+                         for row in evaluate_recall(run, evaluation, stage="stage2", variant=name)]
+        scores = []
+        best_score, best_alpha = -1.0, ALPHA_CANDIDATES[0]
+        chosen_alpha = self.selection["alpha"] if self.selection else None
+        best_run: Run = {}
+        for alpha in ALPHA_CANDIDATES:
+            run = fuse_restricted_runs(stage1, dense, sparse, alpha, args.stage1_depth,
+                                       progress_desc=f"[alpha][{role}] {alpha:.1f}", timing=timing)
+            with timing.measure("alpha_evaluation", core=False):
+                hybrid_rows = evaluate_recall(run, evaluation, stage="stage2", variant="hybrid")
+                score = _alpha_objective(hybrid_rows, args.dataset_name)
+                scores.append({"alpha": alpha, "score": score})
+                if score > best_score:
+                    best_score, best_alpha = score, alpha
+                    if chosen_alpha is None:
+                        best_run = run
+                if chosen_alpha == alpha:
+                    best_run = run
+                for row in [*baselines, *hybrid_rows]:
+                    self.rows.append({
+                        "dataset_name": args.dataset_name, "dataset_split": args.dataset_split,
+                        "evaluation_role": role, "alpha": alpha, "beta": round(1 - alpha, 1),
+                        "variant": row["variant"], "category": row["category"],
+                        "query_count": row["query_count"],
+                        "selection_score": score if row["variant"] == "hybrid" else "",
+                        **{f"R@{k}": recall for k, recall in row["recall"].items()},
+                    })
+                tqdm.write(f"[alpha][{role}] alpha={alpha:.1f} mean recall={score:.6f}")
+        self.scans.append({"role": role, "dataset_name": args.dataset_name,
+                           "dataset_split": args.dataset_split, "scores": scores})
+        if self.selection is None:
+            self.selection = {"alpha": best_alpha, "beta": round(1 - best_alpha, 1), "score": best_score,
+                              "source": role, "dataset_name": args.dataset_name,
+                              "dataset_split": args.dataset_split}
+        self.last_run = best_run
+        if role == "validation":
+            with timing.measure("alpha_output", core=False):
+                directory = self.output_dir / "alpha_validation"
+                for name, run in (("stage1", stage1), ("stage2_dense", dense),
+                                  ("stage2_sparse", sparse), ("stage2_hybrid", best_run)):
+                    write_trec_run(run, directory / f"{name}_run.trec", name)
+                    write_json_run(run, directory / f"{name}_run.json")
+        with timing.measure("alpha_output", core=False):
+            self.save()
+        tqdm.write(f"[alpha] selected={self.selection['alpha']:.1f} "
+                   f"source={self.selection['source']} {self.selection['dataset_name']}/"
+                   f"{self.selection['dataset_split']} mean recall={self.selection['score']:.6f}")
+        return self.selection["alpha"]
+
+    def save(self) -> None:
+        payload = {"selection": self.selection, "candidates": ALPHA_CANDIDATES,
+                   "objective": "mean R@1,R@5,R@10; Fashion-IQ: mean category R@10,R@50",
+                   "tie_break": "smallest alpha", "recall_scale": "0-1", "scans": self.scans,
+                   "validation_timing": self.validation_timing}
+        temporary = self.output_dir / "alpha_selection.tmp.json"
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(self.output_dir / "alpha_selection.json")
+        columns = ["dataset_name", "dataset_split", "evaluation_role", "alpha", "beta", "variant",
+                   "category", "query_count", "selection_score", "selected"]
+        cutoffs = sorted({int(key[2:]) for row in self.rows for key in row if key.startswith("R@")})
+        temporary = self.output_dir / "stage2_alpha_sweep.tmp.csv"
+        with temporary.open("w", encoding="utf-8-sig", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=columns + [f"R@{k}" for k in cutoffs])
+            writer.writeheader()
+            for row in self.rows:
+                writer.writerow({**row, "selected": row["alpha"] == self.selection["alpha"]})
+        temporary.replace(self.output_dir / "stage2_alpha_sweep.csv")
+
+
+def _run_alpha_validation(
+    args: argparse.Namespace, context: DistributedContext,
+) -> tuple[Run, Run, Run, StageTimer, StageTimer]:
+    """Execute validation Stage 1/2 once, retaining rank-local query reuse."""
+    first, second = StageTimer("precomputed" if args.stage1_run else "computed"), StageTimer()
+    runtime, encoded = None, None
+    stage1: Run = {}
+    try:
+        if args.stage1_method == "sparse_concat" and not args.stage1_run:
+            local_stage1, encoded, stage1, _ = _run_sparse_concat_stage1(args, context, first)
+        else:
+            if context.is_main:
+                if args.stage1_method == "sparse_manual" and not args.stage1_run:
+                    runtime = _load_retrieval_runtime(args, context)
+                stage1 = run_stage1(args, runtime, timing=first)
+            local_stage1 = _scatter_run(stage1, context)
+        if encoded is None and runtime is None and local_stage1:
+            runtime = _load_retrieval_runtime(args, context)
+        dense, sparse, _ = run_stage2(args, local_stage1, runtime, timing=second, encoded_queries=encoded)
+        dense, sparse = _gather_run(dense, context), _gather_run(sparse, context)
+        return stage1, dense, sparse, first, second
+    finally:
+        encoded = None
+        _release_retrieval_runtime(runtime)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run Stage-1 coarse retrieval -> Stage-2 hybrid retrieval -> Stage-3 ranker."
@@ -3101,6 +3464,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--stage2-sparse-index", help="Stage-2 corpus-side sparse directory containing index/.")
     parser.add_argument("--stage2-depth", type=int, default=1000)
     parser.add_argument("--hybrid-alpha", type=float, default=0.5, help="Dense weight in Stage-2 hybrid fusion.")
+    parser.add_argument("--select-hybrid-alpha", action="store_true", help="Scan 0.1..0.9; select on validation indexes, or the target split when neither is supplied.")
+    parser.add_argument("--val-passage-reps", help="Validation dense corpus*.pkl directory (paired with --val-sparse-index).")
+    parser.add_argument("--val-sparse-index", help="Validation sparse corpus directory or Lucene index/.")
+    parser.add_argument("--validation-dataset-name", help="Defaults to the target dataset; must have the same task type.")
+    parser.add_argument("--validation-split", default="val")
+    parser.add_argument("--val-stage1-sparse-index", help="Required for validation sparse_manual; sparse_concat defaults to --val-sparse-index.")
+    parser.add_argument("--val-stage1-run", help="Optional validation Stage-1 precomputed run, separate from the target run.")
     parser.add_argument("--sparse-threads", type=int, default=16)
     parser.add_argument("--no-dense-normalize", action="store_true")
 
@@ -3123,6 +3493,8 @@ def _parser() -> argparse.ArgumentParser:
         default="after_pad",
     )
     parser.add_argument("--prompt-type", default="prompt_5")
+    parser.add_argument("--retrieval-qwen-min-pixels", type=int, default=0, help="Qwen query image minimum pixel area; 0 uses checkpoint defaults.")
+    parser.add_argument("--retrieval-qwen-max-pixels", type=int, default=0, help="Qwen query image maximum pixel area; 0 uses checkpoint defaults.")
     parser.add_argument("--random-view-seed", type=int, default=42)
     parser.add_argument("--sparse-length", type=int, default=128)
     parser.add_argument("--text-sparse-length", type=int, default=128)
@@ -3141,6 +3513,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--ranker-model-name-or-path", help="Current VLM checkpoint used by Reranker.")
     parser.add_argument("--ranker-device-map", default="auto")
     parser.add_argument("--ranker-dtype", choices=("float16", "bfloat16", "float32"), default="float16")
+    parser.add_argument("--ranker-qwen-min-pixels", type=int, default=0, help="Qwen reranker image minimum pixel area; 0 uses checkpoint defaults.")
+    parser.add_argument("--ranker-qwen-max-pixels", type=int, default=0, help="Qwen reranker image maximum pixel area; 0 uses checkpoint defaults.")
     parser.add_argument("--rerank-type", choices=("pointwise", "listwise"), default="pointwise")
     parser.add_argument("--rerank-num", type=int, default=20)
     parser.add_argument("--rerank-batch-size", type=int, default=1)
@@ -3163,6 +3537,11 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _validate_args(args: argparse.Namespace) -> None:
+    _validate_alpha_options(args)
+    for prefix in ("retrieval", "ranker"):
+        low, high = (getattr(args, f"{prefix}_qwen_{edge}_pixels", 0) for edge in ("min", "max"))
+        if min(low, high) < 0 or (low and high and low > high):
+            raise ValueError(f"Invalid {prefix} Qwen pixel limits: require nonnegative values and min <= max")
     expected_task = DATASET_TASK_TYPES.get(args.dataset_name)
     if expected_task is not None and args.task_type != expected_task:
         raise ValueError(
@@ -3262,6 +3641,30 @@ def main() -> None:
             output_dir.mkdir(parents=True, exist_ok=True)
             timing_reporter = TimingReporter(args, output_dir, wall_started)
 
+        select_alpha = getattr(args, "select_hybrid_alpha", False)
+        alpha_reporter = AlphaSweepReporter(output_dir) if select_alpha and distributed_context.is_main else None
+        if select_alpha:
+            # The requested fixed weight is irrelevant in selection mode.
+            args.hybrid_alpha = 0.5
+            validation_args = _alpha_validation_args(args)
+            if validation_args is not None:
+                active_stage = "stage2"
+                validation_stage1, validation_dense, validation_sparse, validation_first, validation_second = _run_alpha_validation(
+                    validation_args, distributed_context,
+                )
+                args.hybrid_alpha = _alpha_main_result(distributed_context, lambda: alpha_reporter.sweep(
+                    validation_args, validation_stage1, validation_dense, validation_sparse,
+                    role="validation", timing=validation_second,
+                ))
+                measurements = {"stage1": _collect_stage_timing(validation_first, distributed_context),
+                                "stage2": _collect_stage_timing(validation_second, distributed_context)}
+                def save_validation_timing():
+                    alpha_reporter.validation_timing = measurements
+                    alpha_reporter.save()
+                    alpha_reporter.last_run = {}
+                _alpha_main_result(distributed_context, save_validation_timing)
+                del validation_stage1, validation_dense, validation_sparse
+
         retrieval_runtime = None
         local_encoded = None
         parallel_stage1 = args.stage1_method == "sparse_concat" and not args.stage1_run
@@ -3327,7 +3730,18 @@ def main() -> None:
             )
             dense_run = _gather_run(local_dense_run, distributed_context)
             sparse_run = _gather_run(local_sparse_run, distributed_context)
-            stage2_run = _gather_run(local_stage2_run, distributed_context)
+            stage2_run = _gather_run(local_stage2_run, distributed_context) if not select_alpha else {}
+            if select_alpha:
+                args.hybrid_alpha = _alpha_main_result(distributed_context, lambda: alpha_reporter.sweep(
+                    args, stage1_run, dense_run, sparse_run, role="target", timing=stage2_timer,
+                ))
+                # Keep the original query ownership; no vector/run repartition is needed.
+                local_stage2_run = fuse_restricted_runs(
+                    local_stage1_run, local_dense_run, local_sparse_run, args.hybrid_alpha,
+                    args.stage1_depth, timing=stage2_timer,
+                )
+                if distributed_context.is_main:
+                    stage2_run = alpha_reporter.last_run
             if distributed_context.is_main:
                 _validate_query_coverage(stage1_run, stage2_run, "Stage 2")
                 if dense_run:
@@ -3475,6 +3889,9 @@ def main() -> None:
                     "timing_metrics.xlsx",
                 ],
             }
+            if select_alpha:
+                metadata["stage2"]["alpha_selection"] = alpha_reporter.selection
+                metadata["files"].extend(["stage2_alpha_sweep.csv", "alpha_selection.json"])
             with (output_dir / "pipeline_metadata.json").open("w", encoding="utf-8") as handle:
                 json.dump(metadata, handle, ensure_ascii=False, indent=2)
             assert timing_reporter is not None

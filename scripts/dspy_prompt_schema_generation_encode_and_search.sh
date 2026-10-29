@@ -46,6 +46,19 @@ DEMONSTRATION_NUM="${DEMONSTRATION_NUM:-1}"
 DSPY_STRENGTH="${DSPY_STRENGTH:-light}"
 FORCE_REGENERATE_DSPY_ASPECTS="${FORCE_REGENERATE_DSPY_ASPECTS:-false}"
 USE_INITIAL_DSPY_ASPECTS="${USE_INITIAL_DSPY_ASPECTS:-true}"
+# pool mode selects 3..6 exact entries from a JSON pool; free keeps existing behavior.
+# Example: DSPY_ASPECT_MODE=pool DSPY_ASPECT_POOL_FILE=./configs/dspy_aspect_pool_ir.json bash "$0"
+DSPY_ASPECT_MODE="${DSPY_ASPECT_MODE:-free}"
+DSPY_ASPECT_POOL_FILE="${DSPY_ASPECT_POOL_FILE:-}"
+ASPECT_SELECTION_ARGS=(--dspy_aspect_mode "${DSPY_ASPECT_MODE}")
+if [[ -n "${DSPY_ASPECT_POOL_FILE}" ]]; then
+    ASPECT_SELECTION_ARGS+=(--dspy_aspect_pool_file "${DSPY_ASPECT_POOL_FILE}")
+fi
+case "${DSPY_ASPECT_MODE}" in
+    free) ;;
+    pool) [[ -f "${DSPY_ASPECT_POOL_FILE}" ]] || { echo "pool mode requires an existing DSPY_ASPECT_POOL_FILE." >&2; exit 2; } ;;
+    *) echo "DSPY_ASPECT_MODE must be free or pool." >&2; exit 2 ;;
+esac
 
 # Validation-dataset arguments are effective when
 # USE_VALIDATION_DATASET_RESOLVER=True is set in the Python script.  With that
@@ -111,4 +124,5 @@ deepspeed \
     "${VALIDATION_ARGS[@]}" \
     "${GENERATED_VALIDATION_ARGS[@]}" \
     "${REGENERATE_ARGS[@]}" \
-    "${INITIAL_ASPECT_ARGS[@]}"
+    "${INITIAL_ASPECT_ARGS[@]}" \
+    "${ASPECT_SELECTION_ARGS[@]}"

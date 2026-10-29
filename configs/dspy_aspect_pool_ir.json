@@ -1,0 +1,10 @@
+{
+  "aspects": [
+    "object", "person", "action", "relation",
+    "scene", "appearance", "color", "material",
+    "shape", "position", "texture", "time"
+  ],
+  "initial_aspects": [
+    "object", "relation", "scene", "action", "appearance"
+  ]
+}

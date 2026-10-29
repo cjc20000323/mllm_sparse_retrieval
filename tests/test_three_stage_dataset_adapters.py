@@ -49,12 +49,12 @@ def args_for(name, **overrides):
     return fixtures.ThreeStageRecallTests.args(**values)
 
 
-def write_dataset(root, name):
+def write_dataset(root, name, image_size=(4, 3)):
     """Tiny real JSON/Parquet files; never download data or start a VLM."""
     task, _, _, directory = PROFILES[name]
     data_dir = root / "data" / directory
     data_dir.mkdir(parents=True)
-    image = Image.new("RGB", (4, 3), "red")
+    image = Image.new("RGB", image_size, "red")
     buffer = BytesIO()
     image.save(buffer, format="PNG")
     image.save(data_dir / "query.png")

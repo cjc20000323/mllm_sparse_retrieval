@@ -19,6 +19,7 @@ from io import BytesIO
 from itertools import chain
 
 import dspy
+from dspy_aspect_pool import DspyAspectSelectionArguments
 import faiss
 import numpy as np
 import torch
@@ -157,6 +158,30 @@ class DspyReflectionArguments:
 
 
 _DSPY_REFLECTION_CONFIG = DspyReflectionArguments()
+_DSPY_ASPECT_POOL = None
+_DSPY_ASPECT_SOURCES = {}
+_DSPY_REQUESTED_ROUNDS = None
+
+
+def _aspect_selection_identity():
+    return _DSPY_ASPECT_POOL.identity() if _DSPY_ASPECT_POOL is not None else {'mode': 'free'}
+
+
+def _aspect_pool_suffix():
+    return '_pool_' + _DSPY_ASPECT_POOL.identity()['fingerprint'][:16] if _DSPY_ASPECT_POOL is not None else ''
+
+
+def _checked_dspy_aspects(aspects):
+    return _DSPY_ASPECT_POOL.validate(aspects) if _DSPY_ASPECT_POOL is not None else normalize_dspy_aspects(aspects)
+
+
+def _pool_constraint():
+    return '\n\n' + _DSPY_ASPECT_POOL.constraint() if _DSPY_ASPECT_POOL is not None else ''
+
+
+def _metric_cache_key(aspects):
+    key = _dspy_aspect_key(aspects)
+    return (_DSPY_ASPECT_POOL.identity()['fingerprint'], key) if _DSPY_ASPECT_POOL is not None else key
 
 
 def _reflection_lock_suffix():
@@ -194,7 +219,7 @@ def is_main_process():
 
 
 def begin_dspy_trial_recording(initial_aspects=None, total_rounds=None,
-                               round_log_path=None):
+                               round_log_path=None, requested_rounds=None):
     """Reset metric history and deterministic caches for one GEPA compile.
 
     ``initial_aspects`` is the optional hand-written warm-start.  When present,
@@ -217,10 +242,15 @@ def begin_dspy_trial_recording(initial_aspects=None, total_rounds=None,
     global _DSPY_INSTRUCTION_ASPECT_CACHE
     global _DSPY_ASPECT_INSTRUCTION_MAP
     global _DSPY_METRIC_CACHE
+    global _DSPY_ASPECT_SOURCES
+    global _DSPY_REQUESTED_ROUNDS
     _DSPY_TRIAL_RECORDING = True
     _DSPY_TRIAL_RESULTS = {}
     _DSPY_TRIAL_EVALUATION_COUNT = 0
     _DSPY_TOTAL_ROUNDS = int(total_rounds) if total_rounds is not None else None
+    _DSPY_REQUESTED_ROUNDS = requested_rounds if requested_rounds is not None else _DSPY_TOTAL_ROUNDS
+    if _DSPY_ASPECT_POOL is not None and _DSPY_TOTAL_ROUNDS is not None:
+        _DSPY_TOTAL_ROUNDS = min(_DSPY_TOTAL_ROUNDS, _DSPY_ASPECT_POOL.capacity)
     _DSPY_ROUND_LOG_PATH = (
         os.path.abspath(round_log_path) if round_log_path is not None else None
     )
@@ -234,6 +264,7 @@ def begin_dspy_trial_recording(initial_aspects=None, total_rounds=None,
     _DSPY_INSTRUCTION_ASPECT_CACHE = {}
     _DSPY_ASPECT_INSTRUCTION_MAP = {}
     _DSPY_METRIC_CACHE = {}
+    _DSPY_ASPECT_SOURCES = {}
 
     if _DSPY_TOTAL_ROUNDS is None or _DSPY_TOTAL_ROUNDS < 1:
         _DSPY_TRIAL_RECORDING = False
@@ -263,13 +294,14 @@ def begin_dspy_trial_recording(initial_aspects=None, total_rounds=None,
     if is_main_process():
         print(f'DSPy per-round aspect log: {_DSPY_ROUND_LOG_PATH}', flush=True)
 
-    normalized_initial_aspects = normalize_dspy_aspects(initial_aspects)
-    initial_key = _dspy_aspect_key(normalized_initial_aspects)
+    normalized_initial_aspects = _checked_dspy_aspects(initial_aspects) if initial_aspects is not None else []
+    initial_key = _dspy_aspect_key(normalized_initial_aspects) if normalized_initial_aspects else None
     if initial_key is not None:
         _DSPY_INITIAL_TRIAL_ASPECTS = list(normalized_initial_aspects)
         _DSPY_INITIAL_TRIAL_KEY = initial_key
         _DSPY_INITIAL_TRIAL_PENDING = True
         _DSPY_RESERVED_ASPECT_KEYS.add(initial_key)
+        _DSPY_ASPECT_SOURCES[initial_key] = 'initial'
 
 
 def end_dspy_trial_recording():
@@ -292,7 +324,7 @@ def record_dspy_trial_result(aspects, score, feedback=None, instruction=None,
     if not _DSPY_TRIAL_RECORDING:
         return
 
-    normalized_aspects = normalize_dspy_aspects(aspects)
+    normalized_aspects = _checked_dspy_aspects(aspects)
     if not normalized_aspects:
         return
 
@@ -344,6 +376,16 @@ def record_dspy_trial_result(aspects, score, feedback=None, instruction=None,
                 'reflection': result['reflection'],
                 'direction_results': direction_results,
             }
+            if _DSPY_ASPECT_POOL is not None:
+                pool_metadata = {
+                    'aspect_selection': _aspect_selection_identity(),
+                    'candidate_source': _DSPY_ASPECT_SOURCES.get(key, 'model'),
+                    'requested_optimization_rounds': _DSPY_REQUESTED_ROUNDS,
+                    'effective_optimization_rounds': _DSPY_TOTAL_ROUNDS,
+                    'legal_combination_count': _DSPY_ASPECT_POOL.capacity,
+                }
+                result.update(pool_metadata)
+                round_log_entry.update(pool_metadata)
             try:
                 with open(_DSPY_ROUND_LOG_PATH, 'a', encoding='utf-8') as log_file:
                     log_file.write(
@@ -511,6 +553,8 @@ def resolve_validation_dataset_name(data_args, training_args, search_args):
 
 def save_dspy_aspects(aspects, dataset_name, dspy_mode, dspy_model_name_or_path, output_root,
                       validation_dataset_name=None, validation_data_source='original'):
+    if _DSPY_ASPECT_POOL is not None:
+        aspects = _checked_dspy_aspects(aspects)
     write_time = datetime.now().astimezone()
     timestamp = write_time.strftime('%Y%m%d_%H%M%S_%f')
     safe_dataset_name = get_safe_dataset_name(dataset_name)
@@ -525,7 +569,7 @@ def save_dspy_aspects(aspects, dataset_name, dspy_mode, dspy_model_name_or_path,
     output_path = os.path.join(
         output_dir,
         f'{safe_dataset_name}_{safe_dspy_mode}_{safe_dspy_model_name}{validation_suffix}'
-        f'{validation_source_suffix}_'
+        f'{validation_source_suffix}{_aspect_pool_suffix()}_'
         f'dspy_aspects_{timestamp}.json',
     )
     output_data = {
@@ -537,6 +581,8 @@ def save_dspy_aspects(aspects, dataset_name, dspy_mode, dspy_model_name_or_path,
         'written_at': write_time.isoformat(timespec='microseconds'),
         'aspects': aspects,
     }
+    if _DSPY_ASPECT_POOL is not None:
+        output_data['aspect_selection'] = _aspect_selection_identity()
     with open(output_path, 'w', encoding='utf-8') as output_file:
         json.dump(output_data, output_file, ensure_ascii=False, indent=2)
         output_file.write('\n')
@@ -576,6 +622,8 @@ def normalize_dspy_aspects(aspects, max_aspects=_DSPY_MAX_ASPECTS):
 
 def _pad_dspy_aspects(aspects, min_aspects=_DSPY_MIN_ASPECTS):
     """Pad a prediction with semantic defaults until it has enough views."""
+    if _DSPY_ASPECT_POOL is not None:
+        return _DSPY_ASPECT_POOL.validate(aspects)
     normalized = normalize_dspy_aspects(aspects)
     for variant in _DSPY_NOVELTY_VARIANTS:
         if len(normalized) >= min_aspects:
@@ -587,17 +635,18 @@ def _pad_dspy_aspects(aspects, min_aspects=_DSPY_MIN_ASPECTS):
 
 def _dspy_aspect_key(aspects):
     """Return an order-insensitive key used to compare aspect sets."""
-    normalized = normalize_dspy_aspects(aspects)
+    normalized = _checked_dspy_aspects(aspects) if aspects is not None else []
     return tuple(sorted(normalized)) if normalized else None
 
 
 def _dspy_instruction_key(dataset_name, task_type, instruction):
     """Identify a GEPA candidate by its effective predictor Instruction."""
-    return (
+    key = (
         str(dataset_name).strip().lower(),
         str(task_type).strip().lower(),
         str(instruction or '').strip(),
     )
+    return key + (_DSPY_ASPECT_POOL.identity()['fingerprint'],) if _DSPY_ASPECT_POOL is not None else key
 
 
 def make_unique_gepa_instruction_proposal(proposal, proposal_attempt):
@@ -633,7 +682,7 @@ def make_unique_gepa_instruction_proposal(proposal, proposal_attempt):
             'aspect set, even when its validation score was lower.'
         )
         unique_proposal[component_name] = (
-            f'{instruction}\n\n{exploration_constraint}'
+            f'{instruction}\n\n{exploration_constraint}{_pool_constraint()}'
         )
     return unique_proposal
 
@@ -642,17 +691,19 @@ def _dspy_novelty_context():
     """Build a compact prompt fragment describing already-used viewpoints."""
     forbidden_keys = _DSPY_RESERVED_ASPECT_KEYS | _DSPY_SEEN_ASPECT_KEYS
     if not forbidden_keys:
-        return ''
+        return _pool_constraint()
     forbidden = ['; '.join(key) for key in sorted(forbidden_keys)]
     return (
         'Do not repeat any complete aspect set listed below.  Produce a '
         'meaningfully different set of retrieval views. Already used sets: '
-        + ' | '.join(forbidden)
+        + ' | '.join(forbidden) + _pool_constraint()
     )
 
 
 def _fallback_unique_dspy_aspects(aspects, generation_id):
     """Deterministically construct a new aspect set if LM retries repeat."""
+    if _DSPY_ASPECT_POOL is not None:
+        return _DSPY_ASPECT_POOL.next_unused(_DSPY_RESERVED_ASPECT_KEYS | _DSPY_SEEN_ASPECT_KEYS)
     base = _pad_dspy_aspects(aspects)
 
     forbidden_keys = _DSPY_RESERVED_ASPECT_KEYS | _DSPY_SEEN_ASPECT_KEYS
@@ -741,7 +792,7 @@ def get_task_initial_dspy_aspects(dataset_name, task_type):
 
 def build_gepa_seed_instruction(dataset_name, task_type, initial_aspects=None):
     """Build the Instruction that GEPA evaluates and reflects on in round 1."""
-    normalized = normalize_dspy_aspects(initial_aspects)
+    normalized = _checked_dspy_aspects(initial_aspects) if initial_aspects is not None else []
     if normalized:
         starting_point = json.dumps(normalized, ensure_ascii=False)
         start_rule = (
@@ -759,6 +810,7 @@ def build_gepa_seed_instruction(dataset_name, task_type, initial_aspects=None):
         'redundant wording. When GEPA supplies retrieval feedback, study the failed queries, the wrong '
         'top-1 targets, the correct targets and their ranks, then rewrite this Instruction so the next '
         'aspect set addresses those failure patterns. Do not copy an already evaluated complete aspect set.'
+        + _pool_constraint()
     )
 
 
@@ -820,7 +872,7 @@ def get_locked_dspy_aspects_path(dataset_name, dspy_mode, dspy_model_name_or_pat
         output_root,
         'dspy_aspects',
         f'{safe_dataset_name}_{safe_dspy_mode}_{safe_dspy_model_name}{validation_suffix}'
-        f'{validation_source_suffix}{_reflection_lock_suffix()}_locked.json',
+        f'{validation_source_suffix}{_reflection_lock_suffix()}{_aspect_pool_suffix()}_locked.json',
     )
 
 
@@ -843,6 +895,8 @@ def load_locked_dspy_aspects(dataset_name, dspy_mode, dspy_model_name_or_path, o
     locked_reflection = output_data.get('reflection', DspyReflectionArguments().identity())
     if locked_reflection != _DSPY_REFLECTION_CONFIG.identity():
         raise ValueError(f'DSPy reflection configuration mismatch in {locked_path}.')
+    if _DSPY_ASPECT_POOL is not None and output_data.get('aspect_selection') != _aspect_selection_identity():
+        raise ValueError(f'DSPy aspect pool configuration mismatch in {locked_path}.')
 
     if output_data.get('dataset_name') != dataset_name:
         raise ValueError(
@@ -881,13 +935,13 @@ def load_locked_dspy_aspects(dataset_name, dspy_mode, dspy_model_name_or_path, o
     if not isinstance(aspects, list) or not aspects or not all(isinstance(aspect, str) for aspect in aspects):
         raise ValueError(f'Invalid DSPy aspects lock file: {locked_path}')
 
-    return normalize_dspy_aspects(aspects), locked_path
+    return _checked_dspy_aspects(aspects), locked_path
 
 
 def save_locked_dspy_aspects(aspects, dataset_name, dspy_mode, dspy_model_name_or_path, output_root,
                              validation_dataset_name=None, selection_metadata=None,
                              validation_data_source='original'):
-    aspects = normalize_dspy_aspects(aspects)
+    aspects = _checked_dspy_aspects(aspects)
     if not aspects:
         raise ValueError('Cannot lock an empty DSPy aspects list.')
     locked_path = get_locked_dspy_aspects_path(
@@ -912,6 +966,8 @@ def save_locked_dspy_aspects(aspects, dataset_name, dspy_mode, dspy_model_name_o
     }
     if selection_metadata is not None:
         output_data['selection'] = selection_metadata
+    if _DSPY_ASPECT_POOL is not None:
+        output_data['aspect_selection'] = _aspect_selection_identity()
     temporary_path = f'{locked_path}.tmp.{os.getpid()}'
     try:
         with open(temporary_path, 'w', encoding='utf-8') as locked_file:
@@ -1213,13 +1269,25 @@ class GenerateSchemaAspects(dspy.Signature):
     aspects: list[str] = dspy.OutputField()
 
 
+class SelectPoolAspects(GenerateSchemaAspects):
+    """Select exact entries from the closed pool supplied in the Instruction."""
+
+    # A concrete list annotation also works with DSPy adapters that call
+    # issubclass(annotation, Type) on Python 3.10. The pool enforces string
+    # elements, membership, uniqueness and cardinality on the raw output.
+    aspects: list = dspy.OutputField(desc='Choose 3 to 6 different, exact entries from the configured aspect pool.')
+
+
 class SchemaAspectProgram(dspy.Module):
     def __init__(self):
         super().__init__()
-        self.generate = dspy.Predict(GenerateSchemaAspects)
+        signature = SelectPoolAspects if _DSPY_ASPECT_POOL is not None else GenerateSchemaAspects
+        self.generate = dspy.Predict(signature)
 
     def forward(self, dataset_name, task_type, seed_texts, novelty_context=None):
         """Map each GEPA Instruction to one stable, unique aspect candidate."""
+        if _DSPY_ASPECT_POOL is not None:
+            return self._forward_pool(dataset_name, task_type, seed_texts, novelty_context)
         global _DSPY_GENERATION_COUNTER
         global _DSPY_INITIAL_TRIAL_PENDING
         global _DSPY_NOVELTY_FALLBACK_COUNT
@@ -1336,6 +1404,85 @@ class SchemaAspectProgram(dspy.Module):
             )
         return last_prediction
 
+    def _forward_pool(self, dataset_name, task_type, seed_texts, novelty_context):
+        """Validate raw predictions, then synchronize the chosen subset and provenance."""
+        global _DSPY_GENERATION_COUNTER, _DSPY_NOVELTY_FALLBACK_COUNT
+        instruction = str(self.generate.signature.instructions or '')
+        instruction_key = _dspy_instruction_key(dataset_name, task_type, instruction)
+        prediction, payload, error = None, None, None
+        try:
+            cached = _DSPY_INSTRUCTION_ASPECT_CACHE.get(instruction_key) if _DSPY_TRIAL_RECORDING else None
+            initial = _DSPY_TRIAL_RECORDING and _DSPY_INITIAL_TRIAL_PENDING and cached is None
+            if cached is not None:
+                chosen = _checked_dspy_aspects(cached)
+                # Retain DSPy's predictor trace for GEPA reflection; force its stable output.
+                prediction = self.generate(dataset_name=dataset_name, task_type=task_type,
+                                           seed_texts=seed_texts, novelty_context=novelty_context or _dspy_novelty_context())
+                source = _DSPY_ASPECT_SOURCES.get(_dspy_aspect_key(chosen), 'model')
+                generation, retries, is_new = _DSPY_GENERATION_COUNTER, 0, False
+            elif initial:
+                chosen = _checked_dspy_aspects(_DSPY_INITIAL_TRIAL_ASPECTS)
+                source, generation, retries, is_new = 'initial', 1, 0, False
+            else:
+                chosen = None
+                generation = _DSPY_GENERATION_COUNTER + 1
+                forbidden = (_DSPY_RESERVED_ASPECT_KEYS | _DSPY_SEEN_ASPECT_KEYS) if _DSPY_TRIAL_RECORDING else set()
+                context = (novelty_context or _dspy_novelty_context()) + _pool_constraint()
+                for retries in range(_DSPY_NOVELTY_MAX_RETRIES + 1):
+                    prediction = self.generate(
+                        dataset_name=dataset_name, task_type=task_type, seed_texts=seed_texts,
+                        novelty_context=context, config={
+                            'rollout_id': f'dspy_pool_trial_{generation}_{retries}', 'temperature': 0.8,
+                        })
+                    try:
+                        candidate = _checked_dspy_aspects(getattr(prediction, 'aspects', None))
+                    except ValueError:
+                        continue
+                    if _dspy_aspect_key(candidate) not in forbidden:
+                        chosen = candidate
+                        break
+                source = 'model'
+                if chosen is None:
+                    chosen = _DSPY_ASPECT_POOL.next_unused(forbidden)
+                    source = 'pool_fallback'
+                is_new = True
+            payload = {'aspects': chosen, 'source': source, 'generation': generation,
+                       'retries': retries, 'is_new': is_new, 'error': None}
+        except Exception as exc:
+            error = f'{type(exc).__name__}: {exc}'
+        # Predictor calls keep each rank's GEPA trace. Only the root's valid choice
+        # becomes a candidate; all ranks also see service/cache errors before metrics.
+        errors = [error]
+        if is_distributed() and dist.get_world_size() > 1:
+            errors = [None] * dist.get_world_size()
+            dist.all_gather_object(errors, error)
+        if is_main_process():
+            if any(item is not None for item in errors):
+                payload = {'error': next(item for item in errors if item is not None)}
+        else:
+            payload = None
+        payload = broadcast_object_from_main(payload)
+        if payload['error'] is not None:
+            raise RuntimeError(f'DSPy pool candidate failed: {payload["error"]}')
+        chosen = _checked_dspy_aspects(payload['aspects'])
+        if prediction is None:
+            prediction = dspy.Prediction(aspects=chosen)
+        else:
+            prediction.aspects = list(chosen)
+        if _DSPY_TRIAL_RECORDING:
+            key = _dspy_aspect_key(chosen)
+            _DSPY_SEEN_ASPECT_KEYS.add(key)
+            _DSPY_INSTRUCTION_ASPECT_CACHE[instruction_key] = list(chosen)
+            _DSPY_ASPECT_INSTRUCTION_MAP[key] = instruction
+            _DSPY_ASPECT_SOURCES[key] = payload['source']
+            if payload['is_new']:
+                _DSPY_GENERATION_COUNTER = payload['generation']
+                _DSPY_NOVELTY_FALLBACK_COUNT += payload['source'] == 'pool_fallback'
+        if is_main_process():
+            print(f'[dspy-pool] source={payload["source"]} retries={payload["retries"]} '
+                  f'aspects={json.dumps(chosen)}', flush=True)
+        return prediction
+
 
 class RetrievalAction:
     def __init__(self, training_args, data_args, model_args, search_args, prompt_generation_args, model, processor,
@@ -1349,19 +1496,20 @@ class RetrievalAction:
         self.prompt_generation_args.dspy_strength += get_validation_source_suffix(
             get_validation_data_source(data_args)
         )
+        self.prompt_generation_args.dspy_strength += _aspect_pool_suffix()
         self.model = model
         self.processor = processor
         self.vocab_dict = vocab_dict
         self.encode_counter = 0
         self.initial_prompt_aspects = None
-        self.initial_prompt_views = get_task_initial_dspy_prompt_views(
+        self.initial_prompt_views = None if _DSPY_ASPECT_POOL is not None else get_task_initial_dspy_prompt_views(
             data_args.dataset_name,
             training_args.task_type,
         )
 
     def set_initial_prompt_aspects(self, aspects):
         """Enable exact template reuse for the selected warm-start aspects."""
-        self.initial_prompt_aspects = normalize_dspy_aspects(aspects) if aspects else None
+        self.initial_prompt_aspects = _checked_dspy_aspects(aspects) if aspects else None
 
     def _construct_prompt_lists(self, aspects_prompt_list):
         constructed_text_prompts, constructed_img_prompts, constructed_fusion_prompts = construct_prompt(
@@ -2486,6 +2634,8 @@ class RetrievalAction:
 
 
 def construct_prompt(aspects, task_type):
+    if _DSPY_ASPECT_POOL is not None:
+        aspects = _checked_dspy_aspects(aspects)
     if task_type == 'itr':
         constructed_text_prompts = [
             f'Summary the {aspect} in above sentence in one word: ' for aspect in aspects
@@ -2703,9 +2853,11 @@ class RetrievalMultimodalInstructionProposer:
             except (ValueError, SyntaxError) as exc:
                 raise ValueError('GEPA reflective trace contains unparseable aspects.') from exc
         key = _dspy_aspect_key(aspects)
-        result = _DSPY_METRIC_CACHE.get(key)
+        result = _DSPY_METRIC_CACHE.get(_metric_cache_key(aspects))
         if result is None or 'direction_results' not in result:
             raise RuntimeError('No fully evaluated retrieval evidence for this GEPA reflective trace.')
+        if _DSPY_ASPECT_POOL is not None and result.get('aspect_selection') != _aspect_selection_identity():
+            raise ValueError('Cached visual reflection evidence has a different aspect pool.')
         return key, aspects, result
 
     def __call__(self, candidate, reflective_dataset, components_to_update):
@@ -2753,6 +2905,7 @@ class RetrievalMultimodalInstructionProposer:
                                     f'Wrong Top-1: {failure["wrong_top1"]}\n'
                                     f'Correct rank: {failure["target_rank"]}\n'
                                     'Return a concise visual diagnosis and generalizable aspect improvements.'
+                                    + _pool_constraint()
                                 )
                                 analysis = self.client.complete(
                                     prompt, image_path=image['path'],
@@ -2782,6 +2935,7 @@ class RetrievalMultimodalInstructionProposer:
                 f'Current Instruction:\n{instruction}\n\n'
                 f'Retrieval feedback:\n{feedback_text}\n\n'
                 f'Visual diagnoses (empty means no Top-1 failures):\n{analysis_text}'
+                + _pool_constraint()
             )
             improved = self.client.complete(
                 prompt, max_tokens=self.config.dspy_reflection_instruction_max_tokens,
@@ -2794,6 +2948,8 @@ class RetrievalMultimodalInstructionProposer:
                 'current_instruction': instruction, 'cases': evidence,
                 'new_instruction': improved,
             }
+            if _DSPY_ASPECT_POOL is not None:
+                log_entry['aspect_selection'] = _aspect_selection_identity()
             with open(self.log_path, 'a', encoding='utf-8') as log_file:
                 log_file.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
                 log_file.flush()
@@ -2943,7 +3099,7 @@ def build_gepa_retrieval_feedback(aspects, aggregate_score, direction_results):
         'a new set of 3 to 6 concise, complementary retrieval aspects. The next complete aspect set must differ '
         'from every set already evaluated, even if the current score is low.'
     )
-    return '\n'.join(lines)
+    return '\n'.join(lines) + _pool_constraint()
 
 
 def dspy_metric(example, pred, trace=None, pred_name=None, pred_trace=None):
@@ -2952,14 +3108,18 @@ def dspy_metric(example, pred, trace=None, pred_name=None, pred_trace=None):
     with torch.inference_mode():
         try:
             rank = get_rank()
-            aspects = normalize_dspy_aspects(getattr(pred, 'aspects', None))
+            aspects = _checked_dspy_aspects(getattr(pred, 'aspects', None))
             aspects_prompt_list = broadcast_object_from_main(aspects)
+            aspects_prompt_list = _checked_dspy_aspects(aspects_prompt_list)
             aspect_key = _dspy_aspect_key(aspects_prompt_list)
             if aspect_key is None:
                 raise ValueError('DSPy produced an empty aspect list.')
 
-            cached_result = _DSPY_METRIC_CACHE.get(aspect_key)
+            cache_key = _metric_cache_key(aspects_prompt_list)
+            cached_result = _DSPY_METRIC_CACHE.get(cache_key)
             if cached_result is not None:
+                if _DSPY_ASPECT_POOL is not None and cached_result.get('aspect_selection') != _aspect_selection_identity():
+                    raise ValueError('Cached retrieval result has a different aspect pool.')
                 print(
                     f'[dspy_metric][rank={rank}] reused cached retrieval result '
                     f'for pred_name={pred_name!r}: {cached_result["score"]}',
@@ -3068,6 +3228,8 @@ def dspy_metric(example, pred, trace=None, pred_name=None, pred_trace=None):
                 'direction_results': direction_results,
                 'reflection': _DSPY_REFLECTION_CONFIG.identity(),
             }
+            if _DSPY_ASPECT_POOL is not None:
+                cached_result['aspect_selection'] = _aspect_selection_identity()
             record_dspy_trial_result(
                 aspects_prompt_list,
                 max_val_sparse_metric,
@@ -3077,7 +3239,7 @@ def dspy_metric(example, pred, trace=None, pred_name=None, pred_trace=None):
             )
             # Commit the metric cache only after rank 0 has durably appended
             # the per-round JSONL record and every rank has seen that success.
-            _DSPY_METRIC_CACHE[aspect_key] = cached_result
+            _DSPY_METRIC_CACHE[cache_key] = cached_result
             print(
                 f'[dspy_metric][rank={rank}] validation evaluation completed: '
                 f'{max_val_sparse_metric}',
@@ -3366,18 +3528,22 @@ class SafeGEPA(dspy.GEPA):
 
 def main():
     global _DSPY_REFLECTION_CONFIG
+    global _DSPY_ASPECT_POOL
     parser = HfArgumentParser(
         (ModelArguments, PromptRepsLLMSearchArguments, PromptRepsLLMDataArguments, TrainingArguments,
-         PromptGenerationArguments, DspyReflectionArguments))
+         PromptGenerationArguments, DspyReflectionArguments, DspyAspectSelectionArguments))
 
     (model_args, search_args, data_args, training_args,
-     prompt_generation_args, reflection_args) = parser.parse_args_into_dataclasses()
+     prompt_generation_args, reflection_args, aspect_selection_args) = parser.parse_args_into_dataclasses()
     model_args: ModelArguments
     data_args: PromptRepsLLMDataArguments
     training_args: TrainingArguments
     prompt_generation_args: PromptGenerationArguments
     reflection_args.validate(data_args.dataset_name, training_args.task_type)
     _DSPY_REFLECTION_CONFIG = reflection_args
+    _DSPY_ASPECT_POOL = aspect_selection_args.load_pool()
+    if _DSPY_ASPECT_POOL is not None and int(os.environ.get('RANK', '0')) == 0:
+        print(f'DSPy restricted aspect pool: {json.dumps(_aspect_selection_identity())}', flush=True)
     served_model_name = model_args.dspy_model_path.removeprefix('openai/')
 
     dspy_lm = dspy.LM(
@@ -3409,6 +3575,10 @@ def main():
     else:
         total_dspy_rounds = 27
 
+    requested_dspy_rounds = total_dspy_rounds
+    if _DSPY_ASPECT_POOL is not None:
+        total_dspy_rounds = min(total_dspy_rounds, _DSPY_ASPECT_POOL.capacity)
+
     # Round 1 is GEPA's seed candidate; every remaining round must be a unique
     # aspect set that completes the full validation metric. DSPy's constructor
     # requires a metric-call value, but SafeGEPA removes that limit before the
@@ -3427,7 +3597,7 @@ def main():
         'gepa_logs',
         f'{get_safe_dataset_name(data_args.dataset_name)}_'
         f'{get_safe_dataset_name(prompt_generation_args.dspy_strength)}_'
-        f'{gepa_run_timestamp}_rank_{gepa_rank}',
+        f'{gepa_run_timestamp}_rank_{gepa_rank}{_aspect_pool_suffix()}',
     )
     gepa_round_log_path = os.path.join(gepa_log_dir, 'dspy_rounds.jsonl')
     reflection_client = None
@@ -3486,6 +3656,12 @@ def main():
         torch.cuda.set_device(device)
 
         print(device)
+
+    if _DSPY_ASPECT_POOL is not None and is_distributed() and dist.get_world_size() > 1:
+        fingerprints = [None] * dist.get_world_size()
+        dist.all_gather_object(fingerprints, _DSPY_ASPECT_POOL.identity()['fingerprint'])
+        if len(set(fingerprints)) != 1:
+            raise ValueError('DSPy aspect pool contents differ between distributed ranks.')
 
     # 下面这部分指定采用的模型精度
     if training_args.bf16:
@@ -3796,13 +3972,16 @@ def main():
         initial_aspects = None
         initial_score = None
         if prompt_generation_args.use_initial_dspy_aspects:
-            task_initial_aspects = get_task_initial_dspy_aspects(
-                data_args.dataset_name,
-                training_args.task_type,
-            )
-            initial_aspects = normalize_dspy_aspects(
-                task_initial_aspects if task_initial_aspects is not None else INITIAL_DSPY_ASPECTS
-            )
+            if _DSPY_ASPECT_POOL is not None:
+                initial_aspects = list(_DSPY_ASPECT_POOL.initial_aspects)
+            else:
+                task_initial_aspects = get_task_initial_dspy_aspects(
+                    data_args.dataset_name,
+                    training_args.task_type,
+                )
+                initial_aspects = normalize_dspy_aspects(
+                    task_initial_aspects if task_initial_aspects is not None else INITIAL_DSPY_ASPECTS
+                )
             if not initial_aspects:
                 raise ValueError(
                     '--use_initial_dspy_aspects is enabled, but no initial aspects are available.'
@@ -3865,6 +4044,7 @@ def main():
             initial_aspects,
             total_rounds=total_dspy_rounds,
             round_log_path=gepa_round_log_path,
+            requested_rounds=requested_dspy_rounds,
         )
         compiled_program = None
         try:
@@ -3960,7 +4140,7 @@ def main():
                 # history. Select the highest-scoring aspect list that was
                 # actually evaluated instead of sampling the compiled program.
                 best_result = dspy_trial_results[0]
-                generated_aspects = normalize_dspy_aspects(best_result['aspects'])
+                generated_aspects = _checked_dspy_aspects(best_result['aspects'])
                 if not generated_aspects:
                     raise ValueError(
                         'DSPy highest-scoring trial produced an empty aspects list.'
@@ -4015,6 +4195,16 @@ def main():
                     'seed_instruction': seed_instruction,
                     'provided_initial_score': INITIAL_DSPY_ASPECTS_VALIDATION_SCORE,
                 }
+                if _DSPY_ASPECT_POOL is not None:
+                    stop_reason = 'pool_exhausted' if _DSPY_ASPECT_POOL.capacity <= requested_dspy_rounds else 'round_budget'
+                    selection_metadata.update({
+                        'aspect_selection': _aspect_selection_identity(),
+                        'requested_optimization_rounds': requested_dspy_rounds,
+                        'effective_optimization_rounds': total_dspy_rounds,
+                        'legal_combination_count': _DSPY_ASPECT_POOL.capacity,
+                        'dspy_gepa_stop_condition': stop_reason,
+                        'selected_candidate_source': best_result.get('candidate_source'),
+                    })
                 locked_path = save_locked_dspy_aspects(
                     generated_aspects,
                     data_args.dataset_name,

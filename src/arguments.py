@@ -59,6 +59,8 @@ class ModelArguments(tevatron.retriever.arguments.ModelArguments):
 
 @dataclass
 class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
+    qwen_min_pixels: int = field(default=0, metadata={"help": "Qwen image minimum pixels; 0 uses checkpoint defaults"})
+    qwen_max_pixels: int = field(default=0, metadata={"help": "Qwen image maximum pixels; 0 uses checkpoint defaults"})
     dense_output_dir: str = field(default='./dense_output/')
     sparse_output_dir: str = field(default='./sparse_output/')
     use_generated_validation_data: bool = field(
