@@ -1,4 +1,8 @@
 #!/bin/bash
+USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"  # true: FreeRet pre-MLP dense; prompts/sparse unchanged
+USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"  # Complete FreeRet dense/sparse prompts; requires FreeRet dense
+USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prepend FreeRet constraints to all representation views
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.sh" || exit $?
 # Standalone Qwen retrieval, configured like search.sh. One dataset per run.
 # Examples:
 #   bash scripts/search_qwen.sh
@@ -248,6 +252,7 @@ SPARSE_INDEX="$(sparse_collection_path "${SPARSE_INDEX:-${SPARSE_OUTPUT_ROOT}/${
 command -v "${DEEPSPEED_BIN}" >/dev/null 2>&1 || die "DeepSpeed executable not found: ${DEEPSPEED_BIN}"
 [[ -f "${QWEN_MODEL_PATH}/config.json" ]] || die "Checkpoint config.json not found: ${QWEN_MODEL_PATH}"
 [[ -f src/search.py ]] || die "Python entrypoint not found: src/search.py"
+dense_mode_paths
 require_corpus Test "${PASSAGE_REPS}" "${SPARSE_INDEX}"
 ALPHA_LABEL="alpha_${ALPHA}"
 ALPHA_SELECTION_SOURCE=fixed
@@ -261,6 +266,7 @@ else
         VAL_RELATIVE="$(relative_path val)"
         VAL_PASSAGE_REPS="${VAL_PASSAGE_REPS:-${DENSE_OUTPUT_ROOT}/${VAL_RELATIVE}}"
         VAL_SPARSE_INDEX="$(sparse_collection_path "${VAL_SPARSE_INDEX:-${SPARSE_OUTPUT_ROOT}/${VAL_RELATIVE}/collection}")"
+        dense_mode_paths
         require_corpus Validation "${VAL_PASSAGE_REPS}" "${VAL_SPARSE_INDEX}"
         ALPHA_SELECTION_SOURCE=validation
         FUSION_ALPHA_ARGS+=(--val_passage_reps "${VAL_PASSAGE_REPS}" --val_sparse_index "${VAL_SPARSE_INDEX}")
@@ -275,6 +281,7 @@ else
     fi
 fi
 OUTPUT_DIR="${OUTPUT_DIR:-${QWEN_OUTPUT_ROOT}/${RELATIVE}/${DIRECTION}/search/${ALPHA_LABEL}}"
+dense_mode_paths
 SPARSE_ARGS=()
 for name in SPARSE_MANUAL SPARSE_VALUE_MEAN IS_FILTERED; do
     [[ "${!name}" == false ]] || SPARSE_ARGS+=("--${name,,}")
@@ -295,7 +302,7 @@ else
 fi
 printf 'Results: %s\n' "${OUTPUT_DIR}"
 
-"${DEEPSPEED_BIN}" --num_gpus="${GPUS}" --num_nodes="${NUM_NODES}" src/search.py \
+"${DEEPSPEED_BIN}" --num_gpus="${GPUS}" --num_nodes="${NUM_NODES}" src/search.py --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" \
     --model_name_or_path "${QWEN_MODEL_PATH}" \
     --dataset_name "${DATASET}" \
     --dataset_split "${DATASET_SPLIT}" \

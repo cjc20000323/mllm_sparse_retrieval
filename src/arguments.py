@@ -49,6 +49,9 @@ class ModelArguments(tevatron.retriever.arguments.ModelArguments):
     lora_model_path: str = field(default='./output/llava-hf-llama3-llava-next-8b-hf')
     use_output_embedding_cluster: bool = field(default=False)
     cluster_sum: int = field(default=8000)
+    use_freeret_dense: bool = field(default=False, metadata={"help": "Use the final decoder pre-MLP state for dense only; preserve prompts and sparse logits"})
+    use_freeret_prompt_constraints: bool = field(default=False, metadata={"help": "Add FreeRet task_description once before input and task constraints before each representation instruction; requires use_freeret_dense"})
+    use_freeret_full_prompt: bool = field(default=False, metadata={"help": "Complete FreeRet prompts for dense and sparse, with perspectives in semantic rules; requires use_freeret_dense"})
     eol_type: str = field(default='prompteol')
     calculate_type: str = field(default='separate')
     dspy_model_path: str = field(default=model_path_prefix + f'checkpoints/Meta-Llama-3.1-8B-Instruct')
@@ -59,6 +62,7 @@ class ModelArguments(tevatron.retriever.arguments.ModelArguments):
 
 @dataclass
 class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
+    llava_image_mode: str = field(default="anyres", metadata={"choices": ["anyres", "base"], "help": "LLaVA-NeXT image processing: native AnyRes or one global image"})
     qwen_min_pixels: int = field(default=0, metadata={"help": "Qwen image minimum pixels; 0 uses checkpoint defaults"})
     qwen_max_pixels: int = field(default=0, metadata={"help": "Qwen image maximum pixels; 0 uses checkpoint defaults"})
     dense_output_dir: str = field(default='./dense_output/')

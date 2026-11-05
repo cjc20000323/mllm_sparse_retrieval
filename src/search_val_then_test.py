@@ -3661,7 +3661,7 @@ def main():
 
             output_path = os.path.join(
                 f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                f'0_{i + 1}_0_{10 - i - 1}.xlsx')
+                f'0_{i + 1}_0_{10 - i - 1}.csv')
         elif training_args.task_type == 'tbpr':
             if data_args.prompt_generation:
                 os.makedirs(
@@ -3670,7 +3670,7 @@ def main():
 
                 output_path = os.path.join(
                     f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
-                    f'0_{i + 1}_0_{10 - i - 1}.xlsx')
+                    f'0_{i + 1}_0_{10 - i - 1}.csv')
             else:
                 os.makedirs(
                     f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
@@ -3678,7 +3678,7 @@ def main():
 
                 output_path = os.path.join(
                     f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                    f'0_{i + 1}_0_{10 - i - 1}.xlsx')
+                    f'0_{i + 1}_0_{10 - i - 1}.csv')
         elif training_args.task_type == 't2it':
             os.makedirs(
                 f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
@@ -3686,7 +3686,7 @@ def main():
 
             output_path = os.path.join(
                 f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                f'0_{i + 1}_0_{10 - i - 1}.xlsx')
+                f'0_{i + 1}_0_{10 - i - 1}.csv')
         elif training_args.task_type == 'it2t':
             os.makedirs(
                 f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
@@ -3694,7 +3694,7 @@ def main():
 
             output_path = os.path.join(
                 f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                f'0_{i + 1}_0_{10 - i - 1}.xlsx')
+                f'0_{i + 1}_0_{10 - i - 1}.csv')
         else:
             if data_args.prompt_generation:
                 os.makedirs(
@@ -3703,7 +3703,7 @@ def main():
 
                 output_path = os.path.join(
                     f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
-                    f'0_{i + 1}_0_{10 - i - 1}.xlsx')
+                    f'0_{i + 1}_0_{10 - i - 1}.csv')
             else:
                 os.makedirs(
                     f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
@@ -3711,7 +3711,7 @@ def main():
 
                 output_path = os.path.join(
                     f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                    f'0_{i + 1}_0_{10 - i - 1}.xlsx')
+                    f'0_{i + 1}_0_{10 - i - 1}.csv')
 
         metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run[i], look_up, lookup_indices, search_args)
         metric.sort_and_count()
@@ -3738,7 +3738,7 @@ def main():
     best_weight = validation_best_weight
     if dist.get_rank() == 0:
         print(f'Validation-selected fusion weight: {best_weight}')
-        print(f'Test-set diagnostic best weight, not used for best.xlsx: {test_diagnostic_best_weight}')
+        print(f'Test-set diagnostic best weight, not used for best.csv: {test_diagnostic_best_weight}')
 
     best_test_fusion_run = {}
     best_test_fusion_run.update(
@@ -3751,33 +3751,33 @@ def main():
     if training_args.task_type == 'cir':
         output_path = os.path.join(
             f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-            f'best.xlsx')
+            f'best.csv')
     elif training_args.task_type == 'tbpr':
         if data_args.prompt_generation:
             output_path = os.path.join(
                 f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
-                f'best.xlsx')
+                f'best.csv')
         else:
             output_path = os.path.join(
                 f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                f'best.xlsx')
+                f'best.csv')
     elif training_args.task_type == 't2it':
         output_path = os.path.join(
             f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-            f'best.xlsx')
+            f'best.csv')
     elif training_args.task_type == 'it2t':
         output_path = os.path.join(
             f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-            f'best.xlsx')
+            f'best.csv')
     else:
         if data_args.prompt_generation:
             output_path = os.path.join(
                 f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
-                f'best.xlsx')
+                f'best.csv')
         else:
             output_path = os.path.join(
                 f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
-                f'best.xlsx')
+                f'best.csv')
 
     metric = RecallMetrics(dataset, dense_run, sparse_run, best_test_fusion_run, look_up, lookup_indices, search_args)
 
@@ -3817,12 +3817,14 @@ def main():
                 sparse_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
                                           'r@1': True in torch.isin(search_results[1], target),
                                           'r@5': True in torch.isin(search_results[5], target),
-                                          'r@10': True in torch.isin(search_results[10], target)}
+                                          'r@10': True in torch.isin(search_results[10], target),
+                                        'r@20': True in torch.isin(search_results[20], target)}
             else:
                 sparse_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
                                         'r@1': True in torch.isin(search_results[1], target),
                                         'r@5': True in torch.isin(search_results[5], target),
-                                        'r@10': True in torch.isin(search_results[10], target)}
+                                        'r@10': True in torch.isin(search_results[10], target),
+                                        'r@20': True in torch.isin(search_results[20], target)}
 
         for k, v in tqdm(normalize_dense_run.items()):
             target = metric.dataset.get_target(k, metric.search_args.query_type)
@@ -3838,12 +3840,14 @@ def main():
                 dense_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
                                          'r@1': True in torch.isin(search_results[1], target),
                                          'r@5': True in torch.isin(search_results[5], target),
-                                         'r@10': True in torch.isin(search_results[10], target)}
+                                         'r@10': True in torch.isin(search_results[10], target),
+                                        'r@20': True in torch.isin(search_results[20], target)}
             else:
                 dense_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
                                        'r@1': True in torch.isin(search_results[1], target),
                                        'r@5': True in torch.isin(search_results[5], target),
-                                       'r@10': True in torch.isin(search_results[10], target)}
+                                       'r@10': True in torch.isin(search_results[10], target),
+                                        'r@20': True in torch.isin(search_results[20], target)}
 
         for k, v in tqdm(metric.fusion_run.items()):
             target = metric.dataset.get_target(k, metric.search_args.query_type)
@@ -3859,12 +3863,14 @@ def main():
                 hybrid_correct_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
                                           'r@1': True in torch.isin(search_results[1], target),
                                           'r@5': True in torch.isin(search_results[5], target),
-                                          'r@10': True in torch.isin(search_results[10], target)}
+                                          'r@10': True in torch.isin(search_results[10], target),
+                                        'r@20': True in torch.isin(search_results[20], target)}
             else:
                 hybrid_wrong_dict[k] = {'results': target.tolist() if search_args.query_type == 'image' else target, 'search': search_results[10].tolist(), 'score': [float(item) for item in search_scores[10]],
                                         'r@1': True in torch.isin(search_results[1], target),
                                         'r@5': True in torch.isin(search_results[5], target),
-                                        'r@10': True in torch.isin(search_results[10], target)}
+                                        'r@10': True in torch.isin(search_results[10], target),
+                                        'r@20': True in torch.isin(search_results[20], target)}
 
         os.makedirs(f'./case_study', exist_ok=True)
         if data_args.sparse_manual:

@@ -21,7 +21,7 @@ from vlm2vec_dense import (QUERY_INSTRUCTIONS as VLM2VEC_INSTRUCTIONS, VLM2VecQu
                            query_prompt as vlm2vec_query_prompt, validate_resolution)
 
 logger = logging.getLogger(__name__)
-RECALL_K = (1, 5, 10, 100, 200, 300, 400)
+RECALL_K = (1, 5, 10, 20, 100, 200, 300, 400)
 MMRET_INSTRUCTIONS = {
     "ir:text": "Retrieve an image matching the given description.",
     "ir:image": "Retrieve a caption describing the given image.",
@@ -242,9 +242,9 @@ def write_recall(counts, directory):
         raise ValueError("Cannot evaluate an empty query set.")
     recalls = counts[:-1] / counts[-1]
     directory.mkdir(parents=True, exist_ok=True)
-    target = directory / "dense.xlsx"
-    # Match the existing dense.xlsx layout: K header, followed by dense Recall@K.
-    pd.DataFrame([recalls], columns=list(RECALL_K)).to_excel(target, index=False)
+    target = directory / "dense.csv"
+    # Preserve the K header and dense Recall@K row for direct pandas.read_csv.
+    pd.DataFrame([recalls], columns=list(RECALL_K)).to_csv(target, index=False, encoding="utf-8-sig")
     print(f"[dense] queries={counts[-1]} " + " ".join(f"R@{k}={value:.6f}" for k, value in zip(RECALL_K, recalls)))
     print(f"[dense] saved {target}")
     return target

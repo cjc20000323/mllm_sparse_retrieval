@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"  # true: FreeRet pre-MLP dense; prompts/sparse unchanged
+USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"  # Complete FreeRet dense/sparse prompts; requires FreeRet dense
+USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prepend FreeRet constraints to all representation views
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.sh" || exit $?
 # Shared configuration for sparse_index_qwen.sh and rerank_qwen.sh.
 # encode_qwen.sh and search_qwen.sh are standalone; keep their settings aligned.
 # Existing Python entrypoints own prompts and model behavior.
@@ -221,6 +225,7 @@ qwen_job_paths() {
     relative="$(qwen_relative_path val)"
     QWEN_VAL_DENSE_PATH="${DENSE_OUTPUT_ROOT}/${relative}"
     QWEN_VAL_SPARSE_PATH="${SPARSE_OUTPUT_ROOT}/${relative}"
+    dense_mode_paths
 }
 
 qwen_sparse_index_path() {
@@ -246,6 +251,7 @@ qwen_require_corpus() {
 }
 
 qwen_preflight_job() {
+    dense_mode_paths
     local stage="$1"
     case "${stage}" in
         sparse_index)
@@ -263,13 +269,14 @@ qwen_preflight_job() {
 }
 
 qwen_command() {
+    dense_mode_paths
     local stage="$1" alpha_label="alpha_${ALPHA}" name
     if [[ "${stage}" == sparse_index ]]; then
-        QWEN_COMMAND=("${PYTHON_BIN}" -B src/qwen_sparse_index.py
+        QWEN_COMMAND=("${PYTHON_BIN}" -B src/qwen_sparse_index.py --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}"
             --sparse-root "${QWEN_SPARSE_PATH}" --threads "${THREADS}")
         return
     fi
-    QWEN_COMMAND=("${DEEPSPEED_BIN}" --num_gpus "${GPUS}" --num_nodes "${NUM_NODES}" "src/${stage}.py"
+    QWEN_COMMAND=("${DEEPSPEED_BIN}" --num_gpus "${GPUS}" --num_nodes "${NUM_NODES}" "src/${stage}.py" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}"
         --model_name_or_path "${QWEN_MODEL_PATH}" --dataset_name "${QWEN_DATASET}"
         --dataset_split "${DATASET_SPLIT}" --task_type "${QWEN_TASK}" --encode_type "${QWEN_CORPUS}"
         --eol_type "${EOL_TYPE}" --calculate_type "${CALCULATE_TYPE}" --prompt_type "${PROMPT_TYPE}"

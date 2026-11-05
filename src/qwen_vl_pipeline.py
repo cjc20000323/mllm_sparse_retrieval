@@ -5,6 +5,11 @@ the existing program. Non-Qwen entrypoints continue through their original path.
 """
 from __future__ import annotations
 
+import freeret_full_prompt as full_prompt
+
+import freeret_prompt_constraints as prompt_constraints
+
+
 import csv
 import hashlib
 import json
@@ -19,11 +24,11 @@ import torch
 import torch.distributed as dist
 from tqdm import tqdm
 
-from qwen_vl_encoding import NativeQwenEncoder, SparseEncoder
+from qwen_vl_encoding import NativeQwenEncoder, SparseEncoder, sparse_encoder_for
 from qwen_vl_paths import artifact_root, resolve_sparse_index
 from qwen_vl_prompts import (METHODS, PROMPT_VERSION, QWEN2_PROMPT_VERSION, QWEN3_PROMPT_VERSION,
                             PROMPT_VERSIONS,
-                            MODEL_TYPES, TURN_END, model_family, render_user, retrieval_prompt)
+                            MODEL_TYPES, TURN_END, model_family, render_user, retrieval_prompt, is_native_qwen_checkpoint)
 
 MANIFEST = "qwen25_prompt_manifest.json"
 QWEN2_MANIFEST = "qwen2_prompt_manifest.json"
@@ -31,6 +36,8 @@ QWEN3_MANIFEST = "qwen3_prompt_manifest.json"
 
 
 def manifest_name(metadata):
+    if metadata["config"].get("freeret_full_prompt"):
+        return full_prompt.MANIFEST
     return {PROMPT_VERSION: MANIFEST, QWEN2_PROMPT_VERSION: QWEN2_MANIFEST,
             QWEN3_PROMPT_VERSION: QWEN3_MANIFEST}[metadata["config"]["version"]]
 
@@ -127,6 +134,19 @@ def load_runtime(model_args, data, training):
     if data.qwen_min_pixels and data.qwen_max_pixels and data.qwen_min_pixels > data.qwen_max_pixels:
         raise ValueError("qwen_min_pixels must not exceed qwen_max_pixels")
     dtype = torch.bfloat16 if training.bf16 else torch.float16 if training.fp16 else torch.float32
+    if full_prompt.enabled(model_args) and not is_native_qwen_checkpoint(model_args.model_name_or_path):
+        from transformers import LlavaNextProcessor, LlavaNextForConditionalGeneration
+        from llava_resolution import configure
+        from rerank_batching import configure_rerank_processor
+        processor = LlavaNextProcessor.from_pretrained(model_args.model_name_or_path)
+        model = LlavaNextForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
+            torch_dtype=dtype,attn_implementation="sdpa",device_map={"":device}).eval()
+        if getattr(model_args,"lora",False):
+            from peft import PeftModel
+            model = PeftModel.from_pretrained(model,model_args.lora_model_path).merge_and_unload().eval()
+        processor = configure(model,processor,data.llava_image_mode)
+        configure_rerank_processor(model,processor,data.reps_loc)
+        return model,processor,rank,world
     model, processor = load_native_qwen(
         model_args.model_name_or_path, dtype=dtype, device_map={"": device},
         min_pixels=data.qwen_min_pixels, max_pixels=data.qwen_max_pixels,
@@ -154,7 +174,7 @@ def build_dataset(data, task, processor, *, corpus=False, query_type="text", spl
     return cls(name, processor, split, mode, **kwargs)
 
 
-def dataset_records(dataset, task, kind):
+def dataset_records(dataset, task, kind, *, prompt_constraints_mode=False):
     """Keep native annotation IDs for evaluation; serialize/search their strings."""
     records = []
     if task in {"ir", "tbpr"}:
@@ -188,6 +208,9 @@ def dataset_records(dataset, task, kind):
             identifier = image_id if corpus else composed_id
             records.append(dict(id=str(identifier), native_id=identifier, text=text, image=image,
                                 composed=not corpus, reference_id=str(image_id), dress_type=dress))
+    if prompt_constraints_mode and task in {"t2it", "it2t"}:
+        for record in records:
+            record["_freeret_role"] = "target" if kind == "corpus" else "query"
     if len({record["id"] for record in records}) != len(records):
         raise ValueError("Dataset contains duplicate retrieval IDs")
     return records
@@ -204,6 +227,8 @@ def query_kind(task, query_type):
 
 
 def prompt_metadata(model_args, data, training, processor, kind, *, family=None):
+    if full_prompt.enabled(model_args):
+        return full_prompt.metadata(model_args,data,training,processor,kind,family=family)
     # Corpus/query prompts differ by design. Store BOTH role specifications in
     # the fingerprint so a query can verify exactly the corpus it is searching.
     task = training.task_type
@@ -250,12 +275,16 @@ def prompt_metadata(model_args, data, training, processor, kind, *, family=None)
                   vision_processor=image_options, checkpoint_files=weights,
                   min_pixels=getattr(processor.image_processor, "min_pixels", None),
                   max_pixels=getattr(processor.image_processor, "max_pixels", None))
+    from dense_representation import configuration, enabled
+    config = configuration(config, enabled(model_args), prompt_constraints.enabled(model_args), full_prompt.enabled(model_args))
     digest = hashlib.sha256(json.dumps(config, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     return dict(fingerprint=digest, config=config, kind=kind)
 
 
 def validate_manifest(path, expected):
     root = artifact_root(path)
+    from dense_representation import validate_artifact
+    validate_artifact(path, bool(expected["config"].get("dense_representation")), bool(expected["config"].get("freeret_prompt_constraints")), bool(expected["config"].get("freeret_full_prompt")))
     manifest = root / manifest_name(expected)
     if not manifest.is_file():
         raise ValueError(f"Missing {manifest}; rebuild the old Qwen corpus with the native prompt adapter")
@@ -272,12 +301,19 @@ def artifact_dirs(model_args, data, training):
     relative = Path(Path(model_args.model_name_or_path).name) / data.dataset_name / training.encode_type / ("filter" if data.is_filtered else "no_filter") / model_args.calculate_type / data.prompt_type / data.dataset_split
     if training.task_type in {"tbpr", "cir"}:
         relative /= data.tbpr_type if training.task_type == "tbpr" else data.cir_type
-    return [Path(base) / relative / leaf for base in (data.dense_output_dir, data.sparse_output_dir)]
+    from dense_representation import mode_path, enabled
+    if full_prompt.enabled(model_args) and not is_native_qwen_checkpoint(model_args.model_name_or_path):
+        from llava_resolution import corpus_has_images
+        if data.llava_image_mode == "base" and corpus_has_images(training.task_type,training.encode_type):
+            leaf += "_llava_base"
+    return [mode_path(Path(base) / relative / leaf, enabled(model_args), prompt_constraints.enabled(model_args), full_prompt.enabled(model_args))
+            for base in (data.dense_output_dir, data.sparse_output_dir)]
 
 
 def encode_batches(encoder, records, data):
-    sparse = SparseEncoder(encoder.processor.tokenizer, data, concat=encoder.concat)
-    for start in tqdm(range(0, len(records), data.per_device_batch_size), desc="Qwen query/corpus encoding"):
+    sparse = sparse_encoder_for(encoder)
+    label = "FreeRet query/corpus encoding" if full_prompt.enabled(encoder.model_args) else "Qwen query/corpus encoding"
+    for start in tqdm(range(0, len(records), data.per_device_batch_size), desc=label):
         batch = records[start:start + data.per_device_batch_size]
         logits, dense = encoder.encode(batch)
         vectors = [sparse.vector(row, record) for row, record in zip(logits, batch)]
@@ -294,7 +330,7 @@ def prepare_encode_outputs(roots, metadata, *, query=False):
     dense, sparse = (Path(root).resolve() for root in roots)
     for root in (dense, sparse):
         root.mkdir(parents=True, exist_ok=True)
-    collection = sparse / "collection"
+    collection = sparse if metadata["config"].get("full_prompt_family", "").startswith("llava") else sparse / "collection"
     manifests = list(dict.fromkeys(root / manifest_name(metadata) for root in (dense, sparse)))
     if query:
         artifacts = [dense / "query.pkl", sparse / "query.tsv"]
@@ -342,7 +378,7 @@ def run_encode(model_args, data, training):
         raise ValueError("Query artifact encoding requires one worker; online search shards queries automatically")
     dataset = build_dataset(data, task, processor, corpus=not data.encode_is_query,
                             query_type=kind, generated=data.use_generated_validation_data)
-    records = dataset_records(dataset, task, kind)[rank::world]
+    records = dataset_records(dataset, task, kind, prompt_constraints_mode=prompt_constraints.active(model_args))[rank::world]
     metadata = prompt_metadata(model_args, data, training, processor, kind, family=model_family(model.config))
     roots = artifact_dirs(model_args, data, training)
     # Only rank zero resets old files. The collective also keeps other ranks
@@ -362,7 +398,8 @@ def run_encode(model_args, data, training):
     encoder = NativeQwenEncoder(model, processor, model_args, data, task)
     rows, ids = [], []
     sparse_name = "query.tsv" if data.encode_is_query else f"corpus_{rank}.jsonl"
-    collection = roots[1] if data.encode_is_query else roots[1] / "collection"
+    legacy_full = full_prompt.enabled(model_args) and model_family(model.config) == "llava_next"
+    collection = roots[1] if data.encode_is_query or legacy_full else roots[1] / "collection"
     collection.mkdir(exist_ok=True)
     with (collection / sparse_name).open("w", encoding="utf-8") as stream:
         for batch, dense, vectors in encode_batches(encoder, records, data):
@@ -382,7 +419,18 @@ def run_encode(model_args, data, training):
     if rank == 0:
         for root in roots:
             (root / manifest_name(metadata)).write_text(json.dumps(dict(metadata, num_shards=world, examples=encoder.last_prompts[:2]), indent=2, ensure_ascii=False), encoding="utf-8")
-        print("Qwen corpus artifacts:", *(str(root) for root in roots), sep="\n")
+        from dense_representation import write_manifest, enabled, reuse_sparse_index
+        for root in roots:
+            write_manifest(root, enabled(model_args), prompt_constraints.enabled(model_args), full_prompt.enabled(model_args))
+        if legacy_full:
+            from llava_resolution import write_manifest as write_resolution, resolution_metadata, corpus_has_images
+            report = resolution_metadata(model.config,data.llava_image_mode if corpus_has_images(task,kind) else "anyres")
+            for root in roots:
+                write_resolution(root,report)
+        if enabled(model_args) and not data.encode_is_query:
+            reuse_sparse_index(roots[1], manifest_name=manifest_name(metadata))
+        print("FreeRet corpus artifacts:" if full_prompt.enabled(model_args) else "Qwen corpus artifacts:",
+              *(str(root) for root in roots), sep="\n")
 
 
 def _run(scores):
@@ -595,13 +643,13 @@ def run_search(model_args, data, search, training, *, rerank=False, time_options
         validate_prior_cache_options(search.use_rerank_prior_cache, search.modify_type, search.rerank_template,
                                      task, search.query_type, search.rerank_type)
     model, processor, rank, world = load_runtime(model_args, data, training)
-    if rerank:
+    if rerank and model_family(model.config) != "llava_next":
         from qwen_vl_prompts import rerank_template
         rerank_template(processor, task, search.query_type, search.rerank_template, caption="caption_generation" in search.rerank_template)
     encoder = NativeQwenEncoder(model, processor, model_args, data, task)
     target_kind = corpus_kind(task, search.query_type)
     dataset = build_dataset(data, task, processor, query_type=search.query_type)
-    all_records = dataset_records(dataset, task, query_kind(task, search.query_type))
+    all_records = dataset_records(dataset, task, query_kind(task, search.query_type), prompt_constraints_mode=prompt_constraints.active(model_args))
     expected = prompt_metadata(model_args, data, training, processor, target_kind, family=model_family(model.config))
     index = CorpusSearch(search.passage_reps, search.sparse_index, expected, search, rank)
     try:
@@ -615,7 +663,7 @@ def run_search(model_args, data, search, training, *, rerank=False, time_options
         name = search.validation_dataset_name or ({"ir": "flickr", "tbpr": "RSTPReid", "t2it": "webqa", "it2t": "llava"}.get(task, data.dataset_name) if search.use_fixed_validation_dataset else data.dataset_name)
         selection_data = replace(data, dataset_name=name, dataset_split="val")
         selection_dataset = build_dataset(selection_data, task, processor, query_type=search.query_type, generated=data.use_generated_validation_data)
-        selection_records = dataset_records(selection_dataset, task, query_kind(task, search.query_type))
+        selection_records = dataset_records(selection_dataset, task, query_kind(task, search.query_type), prompt_constraints_mode=prompt_constraints.active(model_args))
         val_encoder = NativeQwenEncoder(model, processor, model_args, selection_data, task)
         val_index = CorpusSearch(search.val_passage_reps, search.val_sparse_index, prompt_metadata(model_args, selection_data, training, processor, target_kind, family=model_family(model.config)), search, rank)
         try:
@@ -629,6 +677,8 @@ def run_search(model_args, data, search, training, *, rerank=False, time_options
     if rank == 0:
         try:
             output.mkdir(parents=True, exist_ok=True)
+            from dense_representation import write_manifest, enabled
+            write_manifest(output, enabled(model_args), prompt_constraints.enabled(model_args), full_prompt.enabled(model_args))
             metrics = _baseline_recalls(dataset, all_records, dense, sparse, task, search.query_type)
             alpha_selection = dict(source="fixed", dataset=None, split=None)
             alpha = search.alpha
@@ -692,7 +742,7 @@ def rerank_records(model, processor, dataset, queries, run, task, model_args, da
     if search.rerank_type != "pointwise":
         raise ValueError("Qwen reranking supports pointwise only; listwise has no implemented scoring definition")
     caption = "caption_generation" in search.rerank_template
-    template = rerank_template(processor, task, search.query_type, search.rerank_template, caption=caption)
+    template = None if model_family(model.config) == "llava_next" else rerank_template(processor, task, search.query_type, search.rerank_template, caption=caption)
     candidate_kind = corpus_kind(task, search.query_type)
     corpus = dataset_records(dataset, task, candidate_kind)
     query_map = {record["id"]: record for record in queries}

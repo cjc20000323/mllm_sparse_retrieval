@@ -252,7 +252,7 @@ echo "[vlm2vec-search] ${DATASET}/${DATASET_SPLIT}, ${TASK_TYPE}; query=${QUERY_
 echo "[vlm2vec-search] model=${MODEL_NAME_OR_PATH}; processes=${NUM_PROCESSES}; batch=${BATCH_SIZE}; ${DTYPE}"
 echo "[vlm2vec-search] image resolution: ${VLM2VEC_IMAGE_RESOLUTION}; native HF checkpoint loading"
 echo "[vlm2vec-search] corpus index: ${PASSAGE_REPS}"
-echo "[vlm2vec-search] results: ${SAVE_DIR}/dense.xlsx"
+echo "[vlm2vec-search] results: ${SAVE_DIR}/dense.csv"
 printf 'Command:'
 printf ' %q' "${COMMAND[@]}"
 printf '\n'

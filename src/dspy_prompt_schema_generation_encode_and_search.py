@@ -2371,10 +2371,10 @@ class RetrievalAction:
                 if (sparse_recalls[1] + sparse_recalls[5] + sparse_recalls[10]) / 3 > max_val_sparse_metric:
                     max_val_sparse_metric = (sparse_recalls[1] + sparse_recalls[5] + sparse_recalls[10]) / 3
                 if not is_dspy:
-                    output_path = os.path.join(output_dir, f'0_{i + 1}_0_{10 - i - 1}_val.xlsx')
+                    output_path = os.path.join(output_dir, f'0_{i + 1}_0_{10 - i - 1}_val.csv')
                     metric.print_recall(output_path)
                 else:
-                    output_path = os.path.join(output_dir, f'0_{i + 1}_0_{10 - i - 1}_val_dspy.xlsx')
+                    output_path = os.path.join(output_dir, f'0_{i + 1}_0_{10 - i - 1}_val_dspy.csv')
                     metric.print_recall(output_path)
 
             best_test_fusion_run = {}
@@ -2410,7 +2410,7 @@ class RetrievalAction:
                 if (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3 > max_test_fusion_metric:
                     max_test_fusion_metric = (fusion_recalls[1] + fusion_recalls[5] + fusion_recalls[10]) / 3
                     test_best_weight = float((i + 1) / 10)
-                output_path = os.path.join(output_dir, f'0_{i + 1}_0_{10 - i - 1}_test.xlsx')
+                output_path = os.path.join(output_dir, f'0_{i + 1}_0_{10 - i - 1}_test.csv')
                 metric.print_recall(output_path)
 
             best_test_fusion_run = {}
@@ -3002,7 +3002,7 @@ def collect_retrieval_diagnostics(dataset, sparse_run, query_type):
             None,
         )
         canonical_query_id = _canonical_retrieval_id(query_id)
-        hits = tuple(bool(set(ranked_ids[:depth]) & target_set) for depth in (1, 5, 10))
+        hits = tuple(bool(set(ranked_ids[:depth]) & target_set) for depth in (1, 5, 10, 20))
         local_stats.setdefault(canonical_query_id, hits)
         if hits[0]:
             continue
@@ -3046,7 +3046,7 @@ def collect_retrieval_diagnostics(dataset, sparse_run, query_type):
             count = len(unique_stats)
             recalls = {
                 depth: 100.0 * sum(hits[index] for hits in unique_stats.values()) / count if count else 0.0
-                for index, depth in enumerate((1, 5, 10))
+                for index, depth in enumerate((1, 5, 10, 20))
             }
             failures = sorted(unique_failures.values(), key=_retrieval_failure_sort_key)[:limit]
             if _DSPY_REFLECTION_CONFIG.dspy_reflection_mode == 'multimodal':
@@ -4420,7 +4420,7 @@ def main():
                 dataset_list[index], formal_split,
                 global_best_weight, query_type_list[index], device, False, output_dir)
 
-            output_path = os.path.join(output_dir, 'best.xlsx')
+            output_path = os.path.join(output_dir, 'best.csv')
             search_args.query_type = query_type_list[index]
             retrieval_action.print_metric(output_path, dataset_list[index], dense_run, sparse_run, best_test_fusion_run,
                                           look_up, lookup_indices, search_args)

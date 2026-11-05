@@ -24,8 +24,8 @@ first call. The launcher does not download any datasets or install packages.
 Use the project's existing environment with Transformers **>=4.57.3**, PyTorch,
 torchvision, Pillow, accelerate, safetensors, pandas, a Parquet engine and the
 project's tevatron package. Multiple GPU processes additionally need DeepSpeed.
-Searching additionally needs FAISS (`faiss-cpu` or a compatible GPU build) and
-an Excel writer (`openpyxl` or `xlsxwriter`) for the Recall spreadsheet.
+Searching additionally needs FAISS (`faiss-cpu` or a compatible GPU build).
+Recall reports use CSV and do not require an Excel writer.
 
 Run one dataset per invocation:
 
@@ -212,9 +212,10 @@ prompt/eol/sparse flags remain output-path compatibility labels; they do not
 change VLM2Vec's candidate templates or pooling.
 
 Search defaults to
-`search_results/<model_basename>/<dataset>/<query_type>/<split>/vlm2vec_<resolution>/dense.xlsx`.
-An explicit `SAVE_DIR` / `--save_dir` is preserved exactly. Recall@1, 5, 10,
-100, 200, 300 and 400 retain the existing dense spreadsheet format. Query shards
+`search_results/<model_basename>/<dataset>/<query_type>/<split>/vlm2vec_<resolution>/dense.csv`.
+An explicit `SAVE_DIR` / `--save_dir` is preserved exactly. Recall@1, 5, 10, 20,
+100, 200, 300 and 400 retain the existing header and dense-recall row. CSV uses
+UTF-8 with BOM and no index column. Query shards
 are disjoint; actual hit/query counts are reduced across all processes, including
 empty local shards, and only rank 0 writes the result. A corpus's IDs and vector
 dimension are validated before retrieval. The existing pickle format has no

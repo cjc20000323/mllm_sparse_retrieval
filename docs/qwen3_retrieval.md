@@ -35,7 +35,7 @@ DeepStack 特征注入和交错 MRoPE 均保留。使用 SDPA 执行此路径。
 ## 可运行示例：Flickr 图搜文
 
 以下为 Bash 命令。在已有项目 GPU 环境中运行，依赖包括 Transformers、PyTorch、
-Accelerate、DeepSpeed、项目原有的 FAISS、Pyserini/Java、pandas/openpyxl，
+Accelerate、DeepSpeed、项目原有的 FAISS、Pyserini/Java、pandas（CSV 报告无需 openpyxl），
 以及非手动文本稀疏扩展需要的 NLTK 数据。本地验证版本为 Transformers 4.57.3 / PyTorch 2.9.1。
 普通图片路径和图片字节通过 PIL 与原生 processor 处理，不需要额外调用 `qwen-vl-utils`。
 数据位置沿用 `src/arguments.py` 的配置。

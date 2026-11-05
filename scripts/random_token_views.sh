@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"  # true: FreeRet pre-MLP dense; prompts/sparse unchanged
+USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"  # Complete FreeRet dense/sparse prompts; requires FreeRet dense
+USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prepend FreeRet constraints to all representation views
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.sh" || exit $?
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -160,7 +164,8 @@ run_encode() {
     --num_gpus="${GPUS}" \
     --num_nodes="${NUM_NODES}" \
     --master_port="${MASTER_PORT}" \
-    src/encode.py \
+    src/encode.py --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" \
+    --llava_image_mode "${LLAVA_IMAGE_MODE:-anyres}" \
     --model_name_or_path "${MODEL_PATH}" \
     --output_dir ./output \
     "${PRECISION_ARGS[@]}" \
@@ -204,7 +209,7 @@ run_search() {
     --num_gpus="${GPUS}" \
     --num_nodes="${NUM_NODES}" \
     --master_port="${MASTER_PORT}" \
-    src/search.py \
+    src/search.py --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" \
     --model_name_or_path "${MODEL_PATH}" \
     --output_dir "${SEARCH_OUTPUT_DIR}" \
     "${PRECISION_ARGS[@]}" \

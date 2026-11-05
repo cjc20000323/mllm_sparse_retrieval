@@ -220,8 +220,8 @@ the complete corpus; Recall@K aggregates actual query counts, including uneven
 or empty worker shards. `--use_gpu` uses GPU FAISS on the current worker's GPU
 when available, otherwise falls back to CPU search.
 
-Only rank 0 writes `dense.xlsx`, using `SAVE_DIR` / `--save_dir`, or by default
+Only rank 0 writes `dense.csv`, using `SAVE_DIR` / `--save_dir`, or by default
 `search_results/<model_basename>/<dataset>/<query_type>/<split>/`. It contains
-the existing Recall@K header and dense-recall row. Excel output requires pandas
-and an Excel writer (`openpyxl` or `xlsxwriter`). No weights or packages are
+the existing Recall@K header and dense-recall row, including Recall@20. CSV output
+uses pandas, UTF-8 with BOM, and no index column or Excel writer. No weights or packages are
 downloaded by the launcher. The three-stage pipeline remains separate.

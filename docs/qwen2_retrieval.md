@@ -26,7 +26,7 @@ concat 方法只执行一次完整多模态前向。每条样本单独定位图�
 ## 可运行示例：Flickr 图搜文
 
 以下为 Bash 命令。需要项目原有的 GPU 环境和数据路径，以及 PyTorch、Transformers、
-Accelerate、DeepSpeed、FAISS、Pyserini/Java、pandas/openpyxl；非手动文本稀疏扩展还需要 NLTK 数据。
+Accelerate、DeepSpeed、FAISS、Pyserini/Java、pandas；CSV 报告无需 openpyxl，非手动文本稀疏扩展还需要 NLTK 数据。
 本地验证环境为 PyTorch 2.9.1 / Transformers 4.57.3。普通图片路径和字节通过 PIL 与原生 processor
 处理，不需要额外调用 `qwen-vl-utils`。数据路径沿用 `src/arguments.py`。
 

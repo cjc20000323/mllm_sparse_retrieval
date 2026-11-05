@@ -1,4 +1,8 @@
 #!/bin/bash
+USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"  # true: FreeRet pre-MLP dense; prompts/sparse unchanged
+USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"  # Complete FreeRet dense/sparse prompts; requires FreeRet dense
+USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prepend FreeRet constraints to all representation views
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.sh" || exit $?
 
 BASE_MODEL=llava-hf-llava-v1.6-mistral-7b-hf
 LORA_MODEL=llava-hf-llama3-llava-next-8b-hf_3epoch-lr4e-4-perbatch-8-32-flickr_lora_64_16_0_05_no_cutoff_and_pad_to_after_pad
@@ -62,7 +66,7 @@ if [[ "${USE_GENERATED_VALIDATION_DATA}" == "true" ]]; then
 fi
 
 
-deepspeed --num_gpus=$GPUS --num_nodes=$NUM_NODES src/rerank.py \
+deepspeed --num_gpus=$GPUS --num_nodes=$NUM_NODES src/rerank.py --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" \
     --model_name_or_path ./checkpoints/${BASE_MODEL} \
     --per_device_batch_size 1 \
     --threads 16 \

@@ -2,13 +2,14 @@ import torch.distributed as dist
 import torch
 from tqdm import tqdm
 import pandas as pd
+from pathlib import Path
 
 
 def get_recall_k_settings(data_name):
     """Return the shared retrieval cutoffs without requiring a process group."""
     if data_name == 'fashion-iq':
         return [1, 5, 10, 20, 30, 50, 100, 200, 300, 400]
-    return [1, 5, 10, 100, 200, 300, 400]
+    return [1, 5, 10, 20, 100, 200, 300, 400]
 
 
 class RecallMetrics:
@@ -332,168 +333,31 @@ class RecallMetrics:
                 dist.all_gather_object(object_list=self.fusion_recall_lists[k], obj=self.fusion_counts[k])
 
     def print_recall(self, output_path):
-        if dist.get_rank() == 0:
-            print(len(self.lookup_indices) * dist.get_world_size())
-            xlsx_data = []
-            if self.dataset.data_name != 'fashion-iq':
-                xlsx_data.append([1, 5, 10, 100, 200, 300, 400])
-                if len(self.dense_run) > 0:
+        if dist.get_rank() != 0:
+            return
+        print(len(self.lookup_indices) * dist.get_world_size())
+        rows = []
+        categories = self.fashion_iq_list if self.dataset.data_name == 'fashion-iq' else (None,)
+        for category in categories:
+            for name, label in (('dense', 'Dense'), ('sparse', 'Sparse'), ('fusion', 'Fusion/Hybrid')):
+                if not getattr(self, name + '_run'):
+                    continue
+                if name == 'dense':
                     print(len(self.look_up))
-                    dense_recalls = {k: sum(self.dense_recall_lists[k]) for k in self.recall_k_setting_list}
-                    for k in self.recall_k_setting_list:
-                        print('Dense recall @ {}: {}'.format(k, self.dense_recall_lists[k]))
-                    print(
-                        'Dense reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
-                            dense_recalls[1],
-                            dense_recalls[5],
-                            dense_recalls[10],
-                            dense_recalls[100],
-                            dense_recalls[200],
-                            dense_recalls[300],
-                            dense_recalls[400]
-                        ))
-                    xlsx_data.append([dense_recalls[1],
-                                      dense_recalls[5],
-                                      dense_recalls[10],
-                                      dense_recalls[100],
-                                      dense_recalls[200],
-                                      dense_recalls[300],
-                                      dense_recalls[400]])
-
-                if len(self.sparse_run) > 0:
-                    sparse_recalls = {k: sum(self.sparse_recall_lists[k]) for k in self.recall_k_setting_list}
-                    for k in self.recall_k_setting_list:
-                        print('Sparse recall @ {}: {}'.format(k, self.sparse_recall_lists[k]))
-                    print(
-                        'Sparse reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
-                            sparse_recalls[1],
-                            sparse_recalls[5],
-                            sparse_recalls[10],
-                            sparse_recalls[100],
-                            sparse_recalls[200],
-                            sparse_recalls[300],
-                            sparse_recalls[400]))
-                    xlsx_data.append([sparse_recalls[1],
-                                      sparse_recalls[5],
-                                      sparse_recalls[10],
-                                      sparse_recalls[100],
-                                      sparse_recalls[200],
-                                      sparse_recalls[300],
-                                      sparse_recalls[400]])
-                if len(self.fusion_run) > 0:
-                    fusion_recalls = {k: sum(self.fusion_recall_lists[k]) for k in self.recall_k_setting_list}
-                    for k in self.recall_k_setting_list:
-                        print('Fusion/Hybrid recall @ {}: {}'.format(k, self.fusion_recall_lists[k]))
-                    print(
-                        'Fusion/Hybrid reps recall: r@1 {}, r@5 {}, r@10 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
-                            fusion_recalls[1],
-                            fusion_recalls[5],
-                            fusion_recalls[10],
-                            fusion_recalls[100],
-                            fusion_recalls[200],
-                            fusion_recalls[300],
-                            fusion_recalls[400]))
-                    xlsx_data.append([fusion_recalls[1],
-                                      fusion_recalls[5],
-                                      fusion_recalls[10],
-                                      fusion_recalls[100],
-                                      fusion_recalls[200],
-                                      fusion_recalls[300],
-                                      fusion_recalls[400]])
-                df = pd.DataFrame(xlsx_data[1:], columns=xlsx_data[0])
-
-                # 将DataFrame写入Excel文件，index=False表示不写入行索引
-                df.to_excel(output_path, index=False)
-            else:
-                xlsx_data.append([1, 5, 10, 20, 30, 50, 100, 200, 300, 400])
-                for dress_type in self.fashion_iq_list:
-                    if len(self.dense_run) > 0:
-                        print(len(self.look_up))
-                        print(dress_type)
-                        dense_recalls = {
-                            dress_type: {k: sum(self.dense_recall_lists[dress_type][k]) for k in self.recall_k_setting_list}}
-                        for k in self.recall_k_setting_list:
-                            print('Dense recall @ {}: {}'.format(k, self.dense_recall_lists[dress_type][k]))
-                        print(
-                            'Dense reps recall: r@1 {}, r@5 {}, r@10 {}, r@20 {}, r@30 {}, r@50 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
-                                dense_recalls[dress_type][1],
-                                dense_recalls[dress_type][5],
-                                dense_recalls[dress_type][10],
-                                dense_recalls[dress_type][20],
-                                dense_recalls[dress_type][30],
-                                dense_recalls[dress_type][50],
-                                dense_recalls[dress_type][100],
-                                dense_recalls[dress_type][200],
-                                dense_recalls[dress_type][300],
-                                dense_recalls[dress_type][400]
-                            ))
-                        xlsx_data.append([dense_recalls[dress_type][1],
-                                          dense_recalls[dress_type][5],
-                                          dense_recalls[dress_type][10],
-                                          dense_recalls[dress_type][20],
-                                          dense_recalls[dress_type][30],
-                                          dense_recalls[dress_type][50],
-                                          dense_recalls[dress_type][100],
-                                          dense_recalls[dress_type][200],
-                                          dense_recalls[dress_type][300],
-                                          dense_recalls[dress_type][400]])
-
-                    if len(self.sparse_run) > 0:
-                        sparse_recalls = {dress_type: {k: sum(self.sparse_recall_lists[dress_type][k]) for k in self.recall_k_setting_list}}
-                        for k in self.recall_k_setting_list:
-                            print('Sparse recall @ {}: {}'.format(k, self.sparse_recall_lists[dress_type][k]))
-                        print(
-                            'Sparse reps recall: r@1 {}, r@5 {}, r@10 {}, r@20 {}, r@30 {}, r@50 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
-                                sparse_recalls[dress_type][1],
-                                sparse_recalls[dress_type][5],
-                                sparse_recalls[dress_type][10],
-                                sparse_recalls[dress_type][20],
-                                sparse_recalls[dress_type][30],
-                                sparse_recalls[dress_type][50],
-                                sparse_recalls[dress_type][100],
-                                sparse_recalls[dress_type][200],
-                                sparse_recalls[dress_type][300],
-                                sparse_recalls[dress_type][400]))
-                        xlsx_data.append([sparse_recalls[dress_type][1],
-                                          sparse_recalls[dress_type][5],
-                                          sparse_recalls[dress_type][10],
-                                          sparse_recalls[dress_type][20],
-                                          sparse_recalls[dress_type][30],
-                                          sparse_recalls[dress_type][50],
-                                          sparse_recalls[dress_type][100],
-                                          sparse_recalls[dress_type][200],
-                                          sparse_recalls[dress_type][300],
-                                          sparse_recalls[dress_type][400]])
-                    if len(self.fusion_run) > 0:
-                        fusion_recalls = {dress_type: {k: sum(self.fusion_recall_lists[dress_type][k]) for k in self.recall_k_setting_list}}
-                        for k in self.recall_k_setting_list:
-                            print('Fusion/Hybrid recall @ {}: {}'.format(k, self.fusion_recall_lists[dress_type][k]))
-                        print(
-                            'Fusion/Hybrid reps recall: r@1 {}, r@5 {}, r@10 {}, r@20 {}, r@30 {}, r@50 {}, r@100 {}, r@200 {}, r@300 {}, r@400 {}'.format(
-                                fusion_recalls[dress_type][1],
-                                fusion_recalls[dress_type][5],
-                                fusion_recalls[dress_type][10],
-                                fusion_recalls[dress_type][20],
-                                fusion_recalls[dress_type][30],
-                                fusion_recalls[dress_type][50],
-                                fusion_recalls[dress_type][100],
-                                fusion_recalls[dress_type][200],
-                                fusion_recalls[dress_type][300],
-                                fusion_recalls[dress_type][400]))
-                        xlsx_data.append([fusion_recalls[dress_type][1],
-                                          fusion_recalls[dress_type][5],
-                                          fusion_recalls[dress_type][10],
-                                          fusion_recalls[dress_type][20],
-                                          fusion_recalls[dress_type][30],
-                                          fusion_recalls[dress_type][50],
-                                          fusion_recalls[dress_type][100],
-                                          fusion_recalls[dress_type][200],
-                                          fusion_recalls[dress_type][300],
-                                          fusion_recalls[dress_type][400]])
-                df = pd.DataFrame(xlsx_data[1:], columns=xlsx_data[0])
-
-                # 将DataFrame写入Excel文件，index=False表示不写入行索引
-                df.to_excel(output_path, index=False)
+                    if category is not None:
+                        print(category)
+                gathered = getattr(self, name + '_recall_lists')
+                if category is not None:
+                    gathered = gathered[category]
+                recalls = {k: sum(gathered[k]) for k in self.recall_k_setting_list}
+                for k in self.recall_k_setting_list:
+                    print('{} recall @ {}: {}'.format(label, k, gathered[k]))
+                print('{} reps recall: {}'.format(label, ', '.join(
+                    'r@{} {}'.format(k, recalls[k]) for k in self.recall_k_setting_list)))
+                rows.append([recalls[k] for k in self.recall_k_setting_list])
+        output_path = Path(output_path).with_suffix('.csv')
+        pd.DataFrame(rows, columns=self.recall_k_setting_list).to_csv(
+            output_path, index=False, encoding='utf-8-sig')
 
     def statistical_error_data(self, processor, candidate_pool):
         for k, v in self.fusion_run.items():

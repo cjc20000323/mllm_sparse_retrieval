@@ -217,9 +217,9 @@ Set `DATA_ROOT`, `DATASET_SPLIT`, `DENSE_OUTPUT_DIR`, `BATCH_SIZE`, `NUM_PROCESS
 (or `GPUS`), `MASTER_PORT` and `DTYPE` as needed; search also accepts `DEPTH`,
 `SAVE_DIR` and `USE_GPU`. Defaults are Flickr/test, text queries, one process,
 batch size 1 and FP16; use `DTYPE=float32` on CPU. Each worker searches the whole
-index with disjoint queries. Rank 0 writes `dense.xlsx` to `SAVE_DIR` or
+index with disjoint queries. Rank 0 writes `dense.csv` to `SAVE_DIR` or
 `search_results/<model_basename>/<dataset>/<query_type>/<split>/`.
-Excel output requires pandas and `openpyxl` or `xlsxwriter`. The launcher does
+CSV output uses pandas, UTF-8 with BOM, and no index column or Excel writer. The launcher does
 not download models or install packages. The three-stage pipeline is unchanged.
 
 Path-label overrides must be identical on both commands: `PROMPT_TYPE`,

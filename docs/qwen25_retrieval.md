@@ -38,7 +38,7 @@ Qwen 支持图文按内容列表顺序交错排列，没有“必须先图像”
 ## 完整命令示例：Flickr 图搜文
 
 在已有 GPU 环境运行，需要该项目原有的依赖：PyTorch、Transformers、Accelerate、
-PEFT、NLTK 数据、FAISS、Pyserini/Java、pandas 和 openpyxl。本地验证版本为
+PEFT、NLTK 数据、FAISS、Pyserini/Java 和 pandas；CSV 报告无需 openpyxl。本地验证版本为
 PyTorch 2.9.1 / Transformers 4.57.3。普通图片路径和 Parquet 图片字节由 PIL 与原生
 processor 处理，无须为图片额外安装 `qwen-vl-utils`。数据位置沿用 `arguments.py`。
 

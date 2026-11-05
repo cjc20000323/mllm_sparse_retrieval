@@ -234,7 +234,7 @@ COMMAND+=("${PROJECT_ROOT}/src/search_dense.py"
 echo "[mmret-search] ${DATASET}/${DATASET_SPLIT}, ${TASK_TYPE}; query=${QUERY_TYPE}; candidates=${ENCODE_TYPE}"
 echo "[mmret-search] model=${MODEL_NAME_OR_PATH}; processes=${NUM_PROCESSES}; batch=${BATCH_SIZE}; ${DTYPE}"
 echo "[mmret-search] corpus index: ${PASSAGE_REPS}"
-echo "[mmret-search] results: ${SAVE_DIR}/dense.xlsx"
+echo "[mmret-search] results: ${SAVE_DIR}/dense.csv"
 printf 'Command:'
 printf ' %q' "${COMMAND[@]}"
 printf '\n'

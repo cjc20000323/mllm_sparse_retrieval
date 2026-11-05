@@ -16,6 +16,8 @@ def build_sparse_index(sparse_root, *, threads=16):
     if threads < 1:
         raise ValueError("threads must be positive")
     root = artifact_root(sparse_root).resolve()
+    from dense_representation import validate_artifact, marked, prompts_marked, full_prompts_marked
+    validate_artifact(root, marked(root), prompts_marked(root), full_prompts_marked(root))
     collection = root / "collection"
     target = collection / "index"
     if collection.resolve() != collection or target.resolve() != target:
@@ -63,9 +65,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sparse-root", required=True)
     parser.add_argument("--threads", type=int, default=16)
+    from dense_representation import boolean, mode_path, validate_artifact
+    parser.add_argument("--use-freeret-dense", "--use_freeret_dense", nargs="?", const=True, default=False, type=boolean)
+    parser.add_argument("--use-freeret-prompt-constraints", "--use_freeret_prompt_constraints", nargs="?", const=True, default=False, type=boolean)
+    parser.add_argument("--use-freeret-full-prompt", "--use_freeret_full_prompt", nargs="?", const=True, default=False, type=boolean)
     args = parser.parse_args()
     try:
-        build_sparse_index(args.sparse_root, threads=args.threads)
+        path = mode_path(args.sparse_root, args.use_freeret_dense, args.use_freeret_prompt_constraints, args.use_freeret_full_prompt)
+        validate_artifact(path, args.use_freeret_dense, args.use_freeret_prompt_constraints, args.use_freeret_full_prompt)
+        build_sparse_index(path, threads=args.threads)
     except subprocess.CalledProcessError as exc:
         # Preserve the indexer's status for the Bash batch's stop-on-failure logic.
         raise SystemExit(exc.returncode) from exc

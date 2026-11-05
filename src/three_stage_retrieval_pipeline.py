@@ -47,15 +47,20 @@ uses ``t2it`` (text -> image+text), and ReMuQ/LLaVA use ``it2t`` (image+text
 
 Each completed stage also reports query-level Recall@K using the same cutoffs
 as ``metrices.RecallMetrics``.  ``recall_metrics.json`` and
-``recall_metrics.xlsx`` are updated after every stage, including precomputed
+``recall_metrics.csv`` are updated after every stage, including precomputed
 runs, so completed measurements survive a later-stage failure.
 
 Core-compute timings exclude model/index loading, evaluation and output I/O.
-``timing_metrics.json`` / ``timing_metrics.xlsx`` distinguish their sum from
+``timing_metrics.json`` / ``timing_metrics.csv`` distinguish their sum from
 the end-to-end wall time (which includes those costs).
 """
 
 from __future__ import annotations
+
+import freeret_full_prompt as full_prompt
+
+import freeret_prompt_constraints as prompt_constraints
+
 
 import argparse
 import copy
@@ -130,6 +135,7 @@ class EncodedQueries:
     sparse_topics: dict[str, str]
     # Corpus-compatible fingerprint and pipeline settings survive model release.
     qwen_metadata: Optional[dict[str, Any]] = None
+    llava_resolution: Optional[dict[str, Any]] = None
 
 
 @dataclass(frozen=True)
@@ -275,6 +281,16 @@ def _collect_stage_timing(timer: StageTimer, context: DistributedContext) -> Opt
     return _merge_stage_timings(gathered)
 
 
+def _write_metrics_csv(path: Path, rows: Iterable[Mapping[str, Any]], columns: Sequence[str]) -> None:
+    """Publish a complete UTF-8 CSV table after the temporary write succeeds."""
+    temporary = path.with_suffix(".tmp.csv")
+    with temporary.open("w", encoding="utf-8-sig", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+    temporary.replace(path)
+
+
 class TimingReporter:
     """Incremental rank-0 reports; failure finalization uses no collectives."""
 
@@ -356,10 +372,8 @@ class TimingReporter:
         for scope, seconds in (("core_compute_total", payload["totals"]["compute_seconds"]), ("end_to_end_total", wall_seconds)):
             table.append({"record_type": "total", "component": scope, "status": self.status,
                           "seconds": seconds, "duration": _format_duration(seconds)})
-        pandas, engine = RecallReporter._output_dependencies()
-        excel_temp = self.output_dir / "timing_metrics.tmp.xlsx"
-        pandas.DataFrame(table).to_excel(excel_temp, index=False, engine=engine)
-        excel_temp.replace(self.output_dir / "timing_metrics.xlsx")
+        _write_metrics_csv(self.output_dir / "timing_metrics.csv", table,
+                           ["record_type", "stage", "source", "status", "seconds", "duration", "critical_rank", "component"])
         return payload
 
 
@@ -543,6 +557,7 @@ def _select_encoded_queries(encoded: EncodedQueries, query_ids: Sequence[str]) -
         np.ascontiguousarray(encoded.dense_representations[[positions[query_id] for query_id in requested]]),
         {query_id: encoded.sparse_topics[query_id] for query_id in requested},
         qwen_metadata=copy.deepcopy(encoded.qwen_metadata),
+        llava_resolution=copy.deepcopy(encoded.llava_resolution),
     )
 
 
@@ -1091,6 +1106,9 @@ def _load_retrieval_runtime(
     if not model_path:
         raise ValueError("在线大模型查询编码需要 --retrieval-model-name-or-path。")
 
+    from llava_resolution import validate_checkpoint
+    validate_checkpoint(model_path, getattr(args, "retrieval_llava_image_mode", "anyres"))
+
     context = distributed_context or DistributedContext()
     dtype = _retrieval_dtype(args.retrieval_dtype)
     if context.is_distributed and args.retrieval_device in {"auto", "cuda"}:
@@ -1108,6 +1126,8 @@ def _load_retrieval_runtime(
 
     from qwen_vl_prompts import is_native_qwen_checkpoint, model_family
     if is_native_qwen_checkpoint(model_path):
+        if getattr(args, "retrieval_llava_image_mode", "anyres") != "anyres":
+            raise ValueError("LLaVA base retrieval mode cannot be used with Qwen")
         from qwen_vl_pipeline import load_native_qwen
         if args.sparse_logits_multiply_view_count:
             raise ValueError("Qwen does not support the LLaVA-only sparse x5 ablation")
@@ -1162,6 +1182,9 @@ def _load_retrieval_runtime(
         encoder = PeftModel.from_pretrained(encoder, args.retrieval_lora_model_path)
         encoder = encoder.merge_and_unload()
 
+    from llava_resolution import configure as configure_llava_resolution
+    processor = configure_llava_resolution(encoder, processor, getattr(args, "retrieval_llava_image_mode", "anyres"))
+    args._retrieval_llava_resolution = getattr(encoder, "_llava_resolution_report", None)
     tokenizer = getattr(processor, "tokenizer", processor)
     if args.retrieval_reps_loc == "after_pad" and hasattr(tokenizer, "padding_side"):
         tokenizer.padding_side = "left"
@@ -1251,6 +1274,14 @@ def _retrieval_namespaces(
         composed_top_type="text",
         composed_top_k=3,
     )
+    if getattr(args, "use_freeret_dense", False):
+        model_args.use_freeret_dense = True
+    if full_prompt.enabled(args):
+        model_args.use_freeret_full_prompt = True
+        model_args.full_prompt_dtype = args.retrieval_dtype
+        data_args.llava_image_mode = getattr(args,"retrieval_llava_image_mode","anyres")
+    if prompt_constraints.enabled(args):
+        model_args.use_freeret_prompt_constraints = True
     return model_args, data_args
 
 
@@ -1282,6 +1313,8 @@ def _qwen_query_records(args, records):
     result = []
     for record in records:
         value = dict(record)
+        if prompt_constraints.active(args) and args.task_type in {"t2it", "it2t"}:
+            value["_freeret_role"] = "query"
         value["text"] = _plain_text(value.get("text", ""))
         if args.task_type == "ir" and args.query_type == "image":
             value["text"] = ""
@@ -1295,6 +1328,15 @@ def _validate_qwen_artifacts(args, encoded, paths, *, eol_type, calculate_type, 
     """Validate even the rank-local reuse path, without reloading GPU weights."""
     if not encoded.query_ids:
         return
+    from dense_representation import validate_artifact
+    for path, _ in paths:
+        validate_artifact(path, getattr(args, "use_freeret_dense", False), prompt_constraints.enabled(args), full_prompt.enabled(args))
+    if encoded.llava_resolution is not None:
+        from llava_resolution import validate_artifact, target_has_images
+        if encoded.llava_resolution["mode"] != getattr(args, "retrieval_llava_image_mode", "anyres"):
+            raise ValueError("LLaVA query reuse image mode mismatch")
+        for path, _ in paths:
+            validate_artifact(path, encoded.llava_resolution, has_images=target_has_images(args.task_type, args.query_type))
     expected = encoded.qwen_metadata
     if expected is None:
         if _is_qwen_checkpoint(getattr(args, "retrieval_model_name_or_path", None)):
@@ -1408,7 +1450,8 @@ def _plain_text(value: Any) -> str:
 
 
 def _base_image_prompt(runtime: Any, args: argparse.Namespace, task_type: str) -> Any:
-    import template as templates
+    templates = prompt_constraints.Templates(args, SimpleNamespace(dataset_name=args.dataset_name),
+                                               input_type="query" if task_type == "it2t" else "image")
 
     model_path = runtime.model_path
     if task_type == "it2t":
@@ -1459,7 +1502,8 @@ def _concat_aspect_prompts(templates: Any, prompt_type: str) -> Sequence[str]:
 
 
 def _concat_image_prompt(runtime: Any, args: argparse.Namespace, task_type: str) -> str:
-    import template as templates
+    templates = prompt_constraints.Templates(args, SimpleNamespace(dataset_name=args.dataset_name),
+                                               input_type="query" if task_type == "it2t" else "image")
 
     model_path = runtime.model_path
     if task_type == "it2t":
@@ -1551,6 +1595,10 @@ def _encode_query_batch(
     model_args: Any,
     data_args: Any,
 ) -> tuple[Any, Any]:
+    if full_prompt.enabled(model_args):
+        from qwen_vl_encoding import NativeQwenEncoder
+        prepared = _qwen_query_records(args, records)
+        return NativeQwenEncoder(runtime.encoder,runtime.processor,model_args,data_args,args.task_type).encode(prepared)
     texts = [_plain_text(record.get("text", "")) for record in records]
     calculate_type = model_args.calculate_type
     if args.task_type == "cir":
@@ -1793,6 +1841,12 @@ def encode_queries_online(
         args.num_expended_tokens,
         requested_ids_key,
     )
+    if getattr(args, "use_freeret_dense", False):
+        cache_key += ("dense_freeret_pre_mlp",)
+    if full_prompt.enabled(args):
+        cache_key += (full_prompt.SUFFIX, json.dumps(full_prompt.CONFIGURATION, sort_keys=True))
+    if prompt_constraints.enabled(args):
+        cache_key += (prompt_constraints.SUFFIX, prompt_constraints.FINGERPRINT)
     native = getattr(runtime, "qwen_family", None) in {"qwen2_vl", "qwen2_5_vl", "qwen3_vl"}
     qwen_metadata = None
     qwen_encoder = sparse_encoder = None
@@ -1815,6 +1869,19 @@ def encode_queries_online(
                      json.dumps(qwen_metadata["pipeline_settings"], sort_keys=True), requested_ids_key)
         qwen_encoder = NativeQwenEncoder(runtime.encoder, runtime.processor, model_args, data_args, args.task_type)
         sparse_encoder = SparseEncoder(runtime.processor.tokenizer, data_args, concat=calculate_type == "concat")
+    if not native:
+        from llava_resolution import resolution_metadata
+        report = resolution_metadata(runtime.encoder.config, getattr(args, "retrieval_llava_image_mode", "anyres"))
+        if report != getattr(runtime.encoder, "_llava_resolution_report", None):
+            raise ValueError("LLaVA image mode changed; reload the retrieval runtime")
+        cache_key += (json.dumps(report, sort_keys=True),)
+    if full_prompt.enabled(args) and not native:
+        from qwen_vl_pipeline import prompt_metadata, corpus_kind
+        model_args, data_args = _retrieval_namespaces(args,eol_type=eol_type,calculate_type=calculate_type,sparse_manual=sparse_manual)
+        qwen_metadata = prompt_metadata(model_args,data_args,SimpleNamespace(task_type=args.task_type),runtime.processor,
+                                       corpus_kind(args.task_type,args.query_type),family="llava_next")
+        qwen_metadata["pipeline_settings"] = _qwen_encoding_settings(args,eol_type,calculate_type,sparse_manual)
+        cache_key += (qwen_metadata["fingerprint"],)
     cached = runtime.query_cache.get(cache_key)
     if cached is not None:
         return cached
@@ -1874,6 +1941,7 @@ def encode_queries_online(
             dense_representations=np.concatenate(dense_parts, axis=0),
             sparse_topics=topics,
             qwen_metadata=qwen_metadata,
+            llava_resolution=getattr(runtime.encoder, "_llava_resolution_report", None),
         )
         if native:
             encoded.qwen_metadata["query_examples"] = qwen_encoder.last_prompts[:2]
@@ -2090,24 +2158,12 @@ class RecallReporter:
         self.output_dir = output_dir
         self.evaluation = _build_recall_evaluation(args, query_ids)
         self.rows: list[dict[str, Any]] = []
-        self._pandas, self._excel_engine = self._output_dependencies()
         query_count = len(self.evaluation.targets)
         tqdm.write(
             f"[recall] evaluation queries={query_count}/"
             f"{self.evaluation.dataset_query_count} (stage1 query set); "
             "R@K uses all available candidates when K exceeds the returned count."
         )
-
-    @staticmethod
-    def _output_dependencies() -> tuple[Any, str]:
-        import pandas as pd
-        try:
-            import openpyxl  # noqa: F401
-        except ImportError as exc:
-            raise RuntimeError(
-                "召回率 Excel 输出需要 openpyxl，请在当前运行环境中安装 openpyxl。"
-            ) from exc
-        return pd, "openpyxl"
 
     def record(self, stage: str, runs: Mapping[str, Run]) -> None:
         new_rows = []
@@ -2156,11 +2212,9 @@ class RecallReporter:
             )},
             **{f"R@{k}": row["recall"][str(k)] for k in self.evaluation.k_values},
         } for row in self.rows]
-        excel_temp = self.output_dir / "recall_metrics.tmp.xlsx"
-        self._pandas.DataFrame(table).to_excel(
-            excel_temp, index=False, engine=self._excel_engine,
-        )
-        excel_temp.replace(self.output_dir / "recall_metrics.xlsx")
+        _write_metrics_csv(self.output_dir / "recall_metrics.csv", table,
+                           ["stage", "variant", "category", "query_count", "min_candidates", "max_candidates",
+                            *[f"R@{k}" for k in self.evaluation.k_values]])
 
 
 def _resolve_multimodal_image_paths(dataset: Any, task_type: str) -> None:
@@ -2938,6 +2992,8 @@ def _load_ranker_model(
 
     context = distributed_context or DistributedContext()
     model_path = args.ranker_model_name_or_path
+    from llava_resolution import validate_checkpoint
+    validate_checkpoint(model_path, getattr(args, "ranker_llava_image_mode", "anyres"))
     dtype = _ranker_dtype(args.ranker_dtype)
     load_kwargs: dict[str, Any] = {"torch_dtype": dtype, "low_cpu_mem_usage": True}
     device_map = _device_map_for_process(args.ranker_device_map, context)
@@ -2945,6 +3001,8 @@ def _load_ranker_model(
         load_kwargs["device_map"] = device_map
 
     if _is_qwen_checkpoint(model_path):
+        if getattr(args, "ranker_llava_image_mode", "anyres") != "anyres":
+            raise ValueError("LLaVA base reranking mode cannot be used with Qwen")
         from qwen_vl_pipeline import load_native_qwen, load_qwen_processor
         from qwen_vl_prompts import rerank_template
         config, processor = load_qwen_processor(
@@ -2995,6 +3053,9 @@ def _load_ranker_model(
     if args.rerank_reps_loc == "after_pad" and hasattr(processor, "tokenizer"):
         processor.tokenizer.padding_side = "left"
         processor.tokenizer.padding = True
+    from llava_resolution import configure as configure_llava_resolution
+    processor = configure_llava_resolution(model, processor, getattr(args, "ranker_llava_image_mode", "anyres"))
+    args._ranker_llava_resolution = getattr(model, "_llava_resolution_report", None)
     return model.eval(), processor
 
 
@@ -3493,6 +3554,7 @@ def _parser() -> argparse.ArgumentParser:
         default="after_pad",
     )
     parser.add_argument("--prompt-type", default="prompt_5")
+    parser.add_argument("--retrieval-llava-image-mode", choices=("anyres", "base"), default="anyres")
     parser.add_argument("--retrieval-qwen-min-pixels", type=int, default=0, help="Qwen query image minimum pixel area; 0 uses checkpoint defaults.")
     parser.add_argument("--retrieval-qwen-max-pixels", type=int, default=0, help="Qwen query image maximum pixel area; 0 uses checkpoint defaults.")
     parser.add_argument("--random-view-seed", type=int, default=42)
@@ -3513,11 +3575,19 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--ranker-model-name-or-path", help="Current VLM checkpoint used by Reranker.")
     parser.add_argument("--ranker-device-map", default="auto")
     parser.add_argument("--ranker-dtype", choices=("float16", "bfloat16", "float32"), default="float16")
+    parser.add_argument("--ranker-llava-image-mode", choices=("anyres", "base"), default="anyres")
     parser.add_argument("--ranker-qwen-min-pixels", type=int, default=0, help="Qwen reranker image minimum pixel area; 0 uses checkpoint defaults.")
     parser.add_argument("--ranker-qwen-max-pixels", type=int, default=0, help="Qwen reranker image maximum pixel area; 0 uses checkpoint defaults.")
     parser.add_argument("--rerank-type", choices=("pointwise", "listwise"), default="pointwise")
     parser.add_argument("--rerank-num", type=int, default=20)
     parser.add_argument("--rerank-batch-size", type=int, default=1)
+    from dense_representation import boolean
+    parser.add_argument("--use-freeret-dense", "--use_freeret_dense", nargs="?", const=True, default=False, type=boolean,
+                        help="Use final decoder pre-MLP hidden states for dense only; preserve prompts and sparse")
+    parser.add_argument("--use-freeret-full-prompt", "--use_freeret_full_prompt", nargs="?", const=True, default=False, type=boolean,
+                        help="Use complete FreeRet prompts for dense and sparse; requires FreeRet dense")
+    parser.add_argument("--use-freeret-prompt-constraints", "--use_freeret_prompt_constraints", nargs="?", const=True, default=False, type=boolean,
+                        help="Add FreeRet task_description before input and task constraints to all representation instructions; requires FreeRet dense")
     parser.add_argument("--rerank-template", default="relevant")
     parser.add_argument("--use-rerank-prior-cache", "--use_rerank_prior_cache", action="store_true")
     parser.add_argument("--rerank-prior-cache-dir", "--rerank_prior_cache_dir", default=None)
@@ -3531,12 +3601,18 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--rerank-reps-loc", choices=("before_pad", "after_pad"), default="after_pad")
 
-    parser.add_argument("--output-dir", default="./three_stage_results")
+    parser.add_argument(
+        "--output-dir", default=None,
+        help="Defaults to ./three_stage_results/stage1_<depth>_stage2_<depth>; "
+             "explicit paths are used unchanged.",
+    )
     parser.add_argument("--overwrite", action="store_true")
     return parser
 
 
 def _validate_args(args: argparse.Namespace) -> None:
+    from dense_representation import prepare_pipeline
+    prepare_pipeline(args)
     _validate_alpha_options(args)
     for prefix in ("retrieval", "ranker"):
         low, high = (getattr(args, f"{prefix}_qwen_{edge}_pixels", 0) for edge in ("min", "max"))
@@ -3608,6 +3684,11 @@ def _validate_args(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = _parser()
     args = parser.parse_args()
+    if args.output_dir is None:
+        args.output_dir = str(
+            Path("./three_stage_results")
+            / f"stage1_{args.stage1_depth}_stage2_{args.stage2_depth}"
+        )
     try:
         _validate_args(args)
     except (ValueError, FileExistsError) as exc:
@@ -3639,6 +3720,8 @@ def main() -> None:
         output_dir = Path(args.output_dir).expanduser().resolve()
         if distributed_context.is_main:
             output_dir.mkdir(parents=True, exist_ok=True)
+            from dense_representation import write_manifest
+            write_manifest(output_dir, getattr(args, "use_freeret_dense", False), prompt_constraints.enabled(args), full_prompt.enabled(args))
             timing_reporter = TimingReporter(args, output_dir, wall_started)
 
         select_alpha = getattr(args, "select_hybrid_alpha", False)
@@ -3823,7 +3906,7 @@ def main() -> None:
                     "unit": "seconds",
                     "stage_scope": "core_compute_excluding_setup_evaluation_output",
                     "distributed_reduction": "max_rank_accumulated_compute_per_stage",
-                    "files": ["timing_metrics.json", "timing_metrics.xlsx"],
+                    "files": ["timing_metrics.json", "timing_metrics.csv"],
                 },
                 "recall": {
                     "k_values": recall_reporter.evaluation.k_values,
@@ -3843,6 +3926,8 @@ def main() -> None:
                     "per_rank_query_counts": {str(rank): count for rank, count in enumerate(stage1_rank_counts)},
                     "query_encoding": "online" if args.stage1_method.startswith("sparse") and not args.stage1_run else "precomputed_or_direct",
                     "retrieval_model_name_or_path": args.retrieval_model_name_or_path,
+                    "llava_image_mode": args.retrieval_llava_image_mode,
+                    "llava_resolution": getattr(args, "_retrieval_llava_resolution", None),
                     "sparse_index": args.stage1_sparse_index,
                     "eol_type": "prompteol" if args.stage1_method == "sparse_manual" else (
                         STAGE2_EOL_TYPE if args.stage1_method == "sparse_concat" else None
@@ -3860,6 +3945,8 @@ def main() -> None:
                     ),
                     "reused_query_count": len(stage1_run) if reuse_stage1_queries else 0,
                     "retrieval_model_name_or_path": args.retrieval_model_name_or_path,
+                    "llava_image_mode": args.retrieval_llava_image_mode,
+                    "llava_resolution": getattr(args, "_retrieval_llava_resolution", None),
                     "dense_corpus_index": args.stage2_dense_index,
                     "sparse_corpus_index": args.stage2_sparse_index,
                     "eol_type": STAGE2_EOL_TYPE,
@@ -3870,6 +3957,8 @@ def main() -> None:
                 },
                 "stage3": {
                     "ranker_model_name_or_path": args.ranker_model_name_or_path,
+                    "llava_image_mode": args.ranker_llava_image_mode,
+                    "llava_resolution": getattr(args, "_ranker_llava_resolution", None),
                     "rerank_type": args.rerank_type,
                     "rerank_num": args.rerank_num,
                     "rerank_template": args.rerank_template,
@@ -3884,9 +3973,9 @@ def main() -> None:
                     "stage3_ranker_run.trec",
                     "stage3_ranker_run.json",
                     "recall_metrics.json",
-                    "recall_metrics.xlsx",
+                    "recall_metrics.csv",
                     "timing_metrics.json",
-                    "timing_metrics.xlsx",
+                    "timing_metrics.csv",
                 ],
             }
             if select_alpha:
@@ -3903,8 +3992,8 @@ def main() -> None:
             try:
                 timing_reporter.finish(completed=False, failed_stage=active_stage)
             except Exception as timing_error:
-                # In particular, do not mask a retrieval error with an Excel
-                # dependency/I/O error. JSON is always attempted first.
+                # In particular, do not mask a retrieval error with a CSV
+                # output error. JSON is always attempted first.
                 tqdm.write(f"[timing] Could not finalize timing report: {timing_error}")
         # Preserve the original traceback, including interrupted runs.
         raise

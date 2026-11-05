@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"  # true: FreeRet pre-MLP dense; prompts/sparse unchanged
+USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"  # Complete FreeRet dense/sparse prompts; requires FreeRet dense
+USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prepend FreeRet constraints to all representation views
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.sh" || exit $?
+# Default result directories end in stage1_<STAGE1_DEPTH>_stage2_<STAGE2_DEPTH>.
+# Explicit OUTPUT_DIR/--output-dir paths remain unchanged.
 
 # Standalone WebQA/ReMuQ/LLaVA launcher; starts DeepSpeed directly, not another
 # shell script. Run one dataset per invocation (default: WebQA):
@@ -67,7 +73,7 @@ is_true() {
 EXTRA_ARGS=()
 while (($# > 0)); do
     case "${1%%=*}" in
-        --dataset-name|--dataset-split|--task-type|--query-type|--data-root|--output-dir|--stage1-sparse-index|--stage2-dense-index|--stage2-sparse-index|--modify_type|--modify-type|--rerank-template|--rerank-type|--rerank-prior-cache-dir|--rerank_prior_cache_dir|--val-passage-reps|--val-sparse-index|--validation-dataset-name|--validation-split|--val-stage1-sparse-index|--val-stage1-run)
+        --retrieval-llava-image-mode|--ranker-llava-image-mode|--dataset-name|--dataset-split|--task-type|--query-type|--data-root|--output-dir|--stage1-depth|--stage2-depth|--stage1-sparse-index|--stage2-dense-index|--stage2-sparse-index|--modify_type|--modify-type|--rerank-template|--rerank-type|--rerank-prior-cache-dir|--rerank_prior_cache_dir|--val-passage-reps|--val-sparse-index|--validation-dataset-name|--validation-split|--val-stage1-sparse-index|--val-stage1-run)
             CLI_OPTION="${1%%=*}"
             if [[ "$1" == *=* ]]; then
                 CLI_VALUE="${1#*=}"
@@ -80,12 +86,16 @@ while (($# > 0)); do
             fi
             [[ -n "${CLI_VALUE}" ]] || die "${CLI_OPTION} requires a non-empty value."
             case "${CLI_OPTION}" in
+                --retrieval-llava-image-mode) RETRIEVAL_LLAVA_IMAGE_MODE="${CLI_VALUE}" ;;
+                --ranker-llava-image-mode) RANKER_LLAVA_IMAGE_MODE="${CLI_VALUE}" ;;
                 --dataset-name) DATASET="${CLI_VALUE}" ;;
                 --dataset-split) DATASET_SPLIT="${CLI_VALUE}" ;;
                 --task-type) TASK_TYPE="${CLI_VALUE}" ;;
                 --query-type) QUERY_TYPE="${CLI_VALUE}" ;;
                 --data-root) DATA_ROOT="${CLI_VALUE}" ;;
                 --output-dir) OUTPUT_DIR="${CLI_VALUE}" ;;
+                --stage1-depth) STAGE1_DEPTH="${CLI_VALUE}" ;;
+                --stage2-depth) STAGE2_DEPTH="${CLI_VALUE}" ;;
                 --stage1-sparse-index) STAGE1_SPARSE_INDEX="${CLI_VALUE}" ;;
                 --stage2-dense-index) STAGE2_DENSE_INDEX="${CLI_VALUE}" ;;
                 --stage2-sparse-index) STAGE2_SPARSE_INDEX="${CLI_VALUE}" ;;
@@ -189,6 +199,11 @@ RETRIEVAL_DEVICE_MAP="${RETRIEVAL_DEVICE_MAP:-auto}"
 RETRIEVAL_DTYPE="${RETRIEVAL_DTYPE:-float16}"
 RETRIEVAL_BATCH_SIZE="${RETRIEVAL_BATCH_SIZE:-1}"
 RETRIEVAL_REPS_LOC="${RETRIEVAL_REPS_LOC:-after_pad}"
+RETRIEVAL_LLAVA_IMAGE_MODE="${RETRIEVAL_LLAVA_IMAGE_MODE:-${LLAVA_IMAGE_MODE:-anyres}}"
+RANKER_LLAVA_IMAGE_MODE="${RANKER_LLAVA_IMAGE_MODE:-${LLAVA_IMAGE_MODE:-anyres}}"
+for LLAVA_MODE in "${RETRIEVAL_LLAVA_IMAGE_MODE}" "${RANKER_LLAVA_IMAGE_MODE}"; do
+    case "${LLAVA_MODE}" in anyres|base) ;; *) die "LLaVA image mode must be anyres or base." ;; esac
+done
 
 PROMPT_TYPE="${PROMPT_TYPE:-prompt_5}"
 SPARSE_LENGTH="${SPARSE_LENGTH:-40}"
@@ -231,6 +246,9 @@ MANUAL_LABEL="no_manual"
 CLUSTER_LABEL="no_cluster"
 USE_MEAN_LABEL="no_mean"
 EXPERIMENT_LEAF="${NUM_EXPENDED_TOKENS}_${MANUAL_LABEL}_${SPARSE_LENGTH}_${SPARSE_VALUE_TYPE}_${CLUSTER_LABEL}_${RETRIEVAL_REPS_LOC}_${EOL_TYPE}_${SPARSE_LOWER_OR_UPPER}_${USE_MEAN_LABEL}"
+if [[ "${RETRIEVAL_LLAVA_IMAGE_MODE}" == base ]] && { [[ "${TARGET_TYPE}" == image ]] || [[ "${TASK_TYPE}" == t2it ]]; }; then
+    EXPERIMENT_LEAF+="_llava_base"
+fi
 INDEX_RELATIVE_PATH="${ARTIFACT_MODEL_NAME}/${DATASET}/${TARGET_TYPE}/${FILTER_LABEL}/${CALCULATE_TYPE}/${PROMPT_TYPE}/${DATASET_SPLIT}/${EXPERIMENT_LEAF}"
 STAGE2_DENSE_INDEX="${STAGE2_DENSE_INDEX:-dense_output/${INDEX_RELATIVE_PATH}}"
 STAGE2_SPARSE_INDEX="${STAGE2_SPARSE_INDEX:-sparse_output/${INDEX_RELATIVE_PATH}}"
@@ -240,6 +258,12 @@ HAS_EXPLICIT_OUTPUT=false
 if [[ -n "${OUTPUT_DIR:-}" ]]; then HAS_EXPLICIT_OUTPUT=true; fi
 OUTPUT_DIR="${OUTPUT_DIR:-./three_stage_results/${ARTIFACT_MODEL_NAME}/${DATASET}/${DIRECTION_LABEL}/${DATASET_SPLIT}/sparse_concat_stage1}"
 if [[ "${HAS_EXPLICIT_OUTPUT}" == false ]]; then OUTPUT_DIR+="${ALPHA_OUTPUT_SUFFIX}"; fi
+if [[ "${HAS_EXPLICIT_OUTPUT}" == false && ( "${RETRIEVAL_LLAVA_IMAGE_MODE}" == base || "${RANKER_LLAVA_IMAGE_MODE}" == base ) ]]; then
+    OUTPUT_DIR+="_retrieval_${RETRIEVAL_LLAVA_IMAGE_MODE}_ranker_${RANKER_LLAVA_IMAGE_MODE}"
+fi
+if [[ "${HAS_EXPLICIT_OUTPUT}" == false ]]; then
+    OUTPUT_DIR+="/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}"
+fi
 OVERWRITE="${OVERWRITE:-false}"
 
 command -v "${DEEPSPEED_BIN}" >/dev/null 2>&1 || die "DeepSpeed executable was not found: ${DEEPSPEED_BIN}"
@@ -274,7 +298,7 @@ COMMAND=(
     "${DEEPSPEED_BIN}"
     --num_gpus "${GPUS}"
     --num_nodes "${NUM_NODES}"
-    src/three_stage_retrieval_pipeline.py
+    src/three_stage_retrieval_pipeline.py --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}"
     --dataset-name "${DATASET}"
     --dataset-split "${DATASET_SPLIT}"
     --task-type "${TASK_TYPE}"
@@ -297,6 +321,7 @@ COMMAND=(
     --retrieval-dtype "${RETRIEVAL_DTYPE}"
     --retrieval-batch-size "${RETRIEVAL_BATCH_SIZE}"
     --retrieval-reps-loc "${RETRIEVAL_REPS_LOC}"
+    --retrieval-llava-image-mode "${RETRIEVAL_LLAVA_IMAGE_MODE}"
     --prompt-type "${PROMPT_TYPE}"
     --sparse-length "${SPARSE_LENGTH}"
     --text-sparse-length "${TEXT_SPARSE_LENGTH}"
@@ -309,6 +334,7 @@ COMMAND=(
     --ranker-qwen-max-pixels "${RANKER_QWEN_MAX_PIXELS}"
     --ranker-device-map "${RANKER_DEVICE_MAP}"
     --ranker-dtype "${RANKER_DTYPE}"
+    --ranker-llava-image-mode "${RANKER_LLAVA_IMAGE_MODE}"
     --rerank-type "${RERANK_TYPE}"
     --rerank-num "${RERANK_NUM}"
     --rerank-batch-size "${RERANK_BATCH_SIZE}"

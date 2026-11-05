@@ -2,7 +2,7 @@
 
 The search script writes one pickle for each sparse_manual setting.  This module
 computes query-level Overlap, Spearman rank correlation, and RBO, then writes
-their averages to one Excel workbook.  Paired comparison is the default; an
+their averages to one CSV with a table_type column. Paired comparison is the default; an
 opt-in partial report can describe a single available setting.
 """
 
@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import os
 import pickle
+from pathlib import Path
 from collections.abc import Mapping
 from typing import Any
 
@@ -242,18 +243,21 @@ def _calculate_condition(
     return summary, per_query
 
 
-def _write_workbook(
+def _write_csv_report(
         output_path: str | os.PathLike[str],
         summaries: list[dict[str, Any]],
         per_query: list[dict[str, Any]],
         metadata_rows: list[dict[str, Any]],
 ) -> str:
-    output_path = str(output_path)
+    output_path = str(Path(output_path).with_suffix(".csv"))
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-    with pd.ExcelWriter(output_path) as writer:
-        pd.DataFrame(summaries).to_excel(writer, sheet_name="summary", index=False)
-        pd.DataFrame(per_query).to_excel(writer, sheet_name="per_query", index=False)
-        pd.DataFrame(metadata_rows).to_excel(writer, sheet_name="metadata", index=False)
+    rows = []
+    for table_type, records in (("summary", summaries), ("per_query", per_query), ("metadata", metadata_rows)):
+        rows.extend({**record, "table_type": table_type} for record in records)
+    columns = list(dict.fromkeys(["table_type", *(key for row in rows for key in row)]))
+    # Object dtype retains integer counts while other record types leave cells empty.
+    pd.DataFrame(rows, columns=columns, dtype=object).to_csv(
+        output_path, index=False, encoding="utf-8-sig")
     return output_path
 
 
@@ -272,7 +276,7 @@ def _compute_single_similarity(
     ]
     for key, value in sorted(metadata.items()):
         metadata_rows.append({"item": f"{condition}_{key}", "value": value})
-    return _write_workbook(output_path, [summary], rows, metadata_rows)
+    return _write_csv_report(output_path, [summary], rows, metadata_rows)
 
 
 def compute_similarity(
@@ -315,7 +319,7 @@ def compute_similarity(
     for key, value in sorted(no_manual_metadata.items()):
         metadata_rows.append({"item": f"no_manual_{key}", "value": value})
 
-    return _write_workbook(
+    return _write_csv_report(
         output_path, [manual_summary, no_manual_summary, delta],
         manual_rows + no_manual_rows, metadata_rows,
     )
@@ -330,7 +334,7 @@ def compute_from_directory(
     """Write a paired report, or an opt-in single-condition report.
 
     Return None if the required run files are unavailable.  When a second run
-    arrives, the paired report replaces the earlier single-condition workbook.
+    arrives, the paired report replaces the earlier single-condition CSV.
     """
     stats_directory = str(stats_directory)
     manual_path = os.path.join(stats_directory, "test_runs_manual.pkl")
@@ -344,7 +348,7 @@ def compute_from_directory(
 
     if output_path is None:
         output_path = os.path.join(
-            stats_directory, "dense_sparse_similarity_test.xlsx"
+            stats_directory, "dense_sparse_similarity_test.csv"
         )
     if has_manual and has_no_manual:
         return compute_similarity(manual_path, no_manual_path, output_path, rbo_p)
@@ -366,7 +370,7 @@ def main() -> None:
     parser.add_argument(
         "--output",
         default=None,
-        help="Optional output Excel path; defaults to the stats directory.",
+        help="Optional CSV path; defaults to the stats directory. Legacy Excel suffixes are changed to .csv.",
     )
     parser.add_argument(
         "--allow_partial",

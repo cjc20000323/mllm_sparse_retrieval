@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"  # true: FreeRet pre-MLP dense; prompts/sparse unchanged
+USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"  # Complete FreeRet dense/sparse prompts; requires FreeRet dense
+USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prepend FreeRet constraints to all representation views
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.sh" || exit $?
 # Run one Qwen checkpoint over multiple datasets, sequentially.
 # Only this new launcher is configured; the existing pipeline is reused unchanged.
 #
@@ -26,6 +30,7 @@ Configure through the block below or environment variables:
   DATASETS          whitespace-separated names (default: "flickr coco")
   QWEN_MODEL_PATH   overrides the family checkpoint under QWEN_CHECKPOINT_ROOT
   QWEN_OUTPUT_ROOT  independent model/dataset/direction/split output directories
+  STAGE1_DEPTH / STAGE2_DEPTH  default 1000/1000; directories end in stage1_<depth>_stage2_<depth>
   IR_QUERY_TYPE    image | text, applies only to COCO/Flickr (default: image)
   GPUS             processes per dataset (default: 1)
   SELECT_HYBRID_ALPHA  true scans 0.1..0.9; false keeps HYBRID_ALPHA (default: false)
@@ -65,6 +70,8 @@ IR_QUERY_TYPE="${IR_QUERY_TYPE:-image}"
 export GPUS="${GPUS:-1}"
 export DATA_ROOT="${DATA_ROOT:-/root/autodl-tmp}"
 export DATASET_SPLIT="${DATASET_SPLIT:-test}"
+export STAGE1_DEPTH="${STAGE1_DEPTH:-1000}"
+export STAGE2_DEPTH="${STAGE2_DEPTH:-1000}"
 export RETRIEVAL_DTYPE="${RETRIEVAL_DTYPE:-float16}"
 export RANKER_DTYPE="${RANKER_DTYPE:-float16}"
 export RETRIEVAL_QWEN_MIN_PIXELS="${RETRIEVAL_QWEN_MIN_PIXELS:-0}"
@@ -177,8 +184,9 @@ for dataset in "${DATASET_LIST[@]}"; do
         JOB_OUTPUT+="/${TBPR_TYPE:-origin_type}"
     fi
     if [[ "${SELECT_HYBRID_ALPHA}" == true ]]; then JOB_OUTPUT+="/alpha_select"; fi
+    JOB_OUTPUT+="/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}"
     validation_job_env "${dataset}"
-    JOB_ENV=(
+    JOB_ENV=("USE_FREERET_DENSE=${USE_FREERET_DENSE}" "USE_FREERET_PROMPT_CONSTRAINTS=${USE_FREERET_PROMPT_CONSTRAINTS}" "USE_FREERET_FULL_PROMPT=${USE_FREERET_FULL_PROMPT}" 
         "DATASET=${dataset}" "QUERY_TYPE=${QUERY}"
         "BASE_MODEL=${ARTIFACT_TAG}" "ARTIFACT_MODEL_NAME=${ARTIFACT_TAG}"
         "RETRIEVAL_MODEL_PATH=${QWEN_MODEL_PATH}" "RANKER_MODEL_PATH=${QWEN_MODEL_PATH}"

@@ -47,7 +47,7 @@ alpha 融合规则沿用现有实现。加载、校验、输出和资源清理�
 
 ## Flickr 图搜文完整示例
 
-以下 Bash 命令在已有 GPU、DeepSpeed、Transformers、Pyserini/Java 和 pandas/openpyxl 环境运行。
+以下 Bash 命令在已有 GPU、DeepSpeed、Transformers、Pyserini/Java 和 pandas 环境运行；CSV 报告无需 openpyxl。
 数据位置沿用项目设置，`DATA_ROOT` 可为三阶段流程指定数据根目录。
 先选择模型，再用同一检索配置建库。也可直接使用符合这些配置的已有索引。
 

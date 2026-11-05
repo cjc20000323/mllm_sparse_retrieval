@@ -234,7 +234,7 @@ COMMAND+=("${PROJECT_ROOT}/src/search_dense.py"
 echo "[unime-search] ${DATASET}/${DATASET_SPLIT}, ${TASK_TYPE}; query=${QUERY_TYPE}; candidates=${ENCODE_TYPE}"
 echo "[unime-search] model=${MODEL_NAME_OR_PATH}; processes=${NUM_PROCESSES}; batch=${BATCH_SIZE}; ${DTYPE}"
 echo "[unime-search] corpus index: ${PASSAGE_REPS}"
-echo "[unime-search] results: ${SAVE_DIR}/dense.xlsx"
+echo "[unime-search] results: ${SAVE_DIR}/dense.csv"
 printf 'Command:'
 printf ' %q' "${COMMAND[@]}"
 printf '\n'

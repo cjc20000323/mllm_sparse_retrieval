@@ -172,22 +172,36 @@ class NativeQwenEncoder:
         method = (model_args.eol_type, model_args.calculate_type)
         if method not in METHODS:
             raise ValueError(f"Qwen adapter supports {sorted(METHODS)}, got {method}")
+        from dense_representation import configure_model, enabled
+        configure_model(model, enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         self.model, self.processor = model, processor
         self.model_args, self.data, self.task = model_args, data_args, task
         self.concat = method[1] == "concat"
         self.last_prompts = []
 
     def prepare(self, records):
+        import freeret_full_prompt as full_prompt
+        if full_prompt.enabled(self.model_args):
+            from adaptive_views import family_of
+            return full_prompt.prepare(self.processor,family_of(self.model.config),records,self.data.dataset_name,
+                padding_side="left" if self.data.reps_loc=="after_pad" else "right")
         contexts, instructions, groups = [], [], []
         for record in records:
             context, whole, views = retrieval_prompt(record, self.task, self.data, self.processor, include_views=self.concat)
-            contexts.append(context)
+            from freeret_prompt_constraints import augment, augment_context
+            whole = augment(whole, self.model_args, self.data.dataset_name, record)
+            views = [augment(view, self.model_args, self.data.dataset_name, record) for view in views]
+            contexts.append(augment_context(context, self.model_args, self.data.dataset_name))
             instructions.append([whole] + views if self.concat else [whole])
             groups.append([record["image"]] if record.get("image") is not None else [])
         return prepare_views(self.processor, contexts, instructions, groups,
                              padding_side="left" if self.data.reps_loc == "after_pad" else "right")
 
     def encode(self, records):
+        import freeret_full_prompt as full_prompt
+        if full_prompt.enabled(self.model_args):
+            return full_prompt.encode(self, records, [full_prompt.fixed_aspects(
+                record,self.task,self.data,self.processor,concat=self.concat) for record in records])
         batch = self.prepare(records)
         self.last_prompts = batch.prompts
         logits, hidden = forward_views(self.model, batch, isolated=self.concat)
@@ -195,6 +209,25 @@ class NativeQwenEncoder:
         # Ragged per-sample lists also handle task-specific view counts safely.
         sparse = [torch.log1p(torch.relu(row[1:] if self.concat else row)) for row in logits]
         return sparse, dense
+
+
+class LegacyFullSparseEncoder:
+    """Keep the existing LLaVA sparse conversion with complete prompt logits."""
+    def __init__(self, encoder):
+        self.encoder = encoder
+
+    def vector(self, row, record):
+        from adaptive_view_encoding import sparse_vectors
+        return sparse_vectors(self.encoder,[record],[row])[0]
+
+
+def sparse_encoder_for(encoder):
+    import freeret_full_prompt as full_prompt
+    from adaptive_views import family_of
+    if full_prompt.enabled(encoder.model_args) and not family_of(encoder.model.config).startswith("qwen"):
+        encoder.family = family_of(encoder.model.config)
+        return LegacyFullSparseEncoder(encoder)
+    return SparseEncoder(encoder.processor.tokenizer,encoder.data,concat=encoder.concat)
 
 
 class SparseEncoder:

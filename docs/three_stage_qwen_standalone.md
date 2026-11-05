@@ -121,8 +121,8 @@ bash scripts/three_stage_qwen.sh
 单任务可用 `OUTPUT_DIR` 覆盖最终路径；批量模式仅使用 `QWEN_OUTPUT_ROOT` 分别派生路径。
 终端会打印每个任务的实际索引、结果路径和执行命令。
 
-输出沿用 Python 三阶段入口的各阶段 TREC/JSON、`recall_metrics.json/.xlsx`、
-`timing_metrics.json/.xlsx` 和 `pipeline_metadata.json`。
+输出沿用 Python 三阶段入口的各阶段 TREC/JSON、`recall_metrics.json/.csv`、
+`timing_metrics.json/.csv` 和 `pipeline_metadata.json`。
 `OVERWRITE` 默认 false；如需复用现有结果目录，显式设置 `OVERWRITE=true`。
 该开关只传递给 Python，启动脚本不会删除候选库或结果文件。
 
@@ -134,4 +134,4 @@ bash scripts/three_stage_qwen.sh
 启动器测试使用真实 Bash、临时路径和记录参数的 DeepSpeed 替身，命令交给真实三阶段参数解析器检查。
 覆盖三代模型、数据集方向、批量执行、参数与路径一致性、新旧索引、固定/自动 alpha、验证输入、
 失败停止及覆盖参数；不会加载完整模型或启动 Java。
-实际运行仍需要项目的 GPU、DeepSpeed、Transformers、Pyserini/Java 和报告依赖 pandas/openpyxl 环境。
+实际运行仍需要项目的 GPU、DeepSpeed、Transformers、Pyserini/Java 和报告依赖 pandas 环境；CSV 输出无需 openpyxl。

@@ -48,9 +48,15 @@ The estimate is **not** obtained by truncating upstream candidates or multiplyin
 one GPU's throughput by the process count. Early-finished/empty workers remain
 in small control collectives until every worker finishes. Sampling control/wait
 time is excluded, and the maximum rank duration is used for each parallel stage.
-No partial retrieval files, Recall, normal pipeline metadata or Excel files are
+No partial retrieval files, Recall, normal pipeline metadata or metrics CSV files are
 exported, even if all queries happen to finish before stability is established.
 The existing full-run launchers retain their original behavior.
+
+Full runs of `three_stage_retrieval_pipeline.py` and its adaptive-views counterpart
+write `recall_metrics.csv` and `timing_metrics.csv` alongside their JSON reports.
+The CSV tables replace XLSX output and can be read directly with
+`pandas.read_csv(path)` in Jupyter. They retain stage metrics, timing components
+and incremental saves; writing these reports no longer requires `openpyxl`.
 
 ## GPU processes and overrides
 

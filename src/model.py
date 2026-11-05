@@ -1,3 +1,5 @@
+import freeret_prompt_constraints as prompt_constraints
+from dense_representation import configure_model as configure_dense_model, enabled as dense_enabled, forward as dense_forward
 import sys
 from typing import Dict
 
@@ -83,38 +85,40 @@ class MLLMRetrievalModel(nn.Module):
         :param device: 指定数据所在的硬件设备
         :return:
         '''
+        _freeret_templates = prompt_constraints.Templates(model_args, data_args, input_type=input_type)
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
-            prompt = text_prompt_no_special_llava_v1_5
+            prompt = _freeret_templates.text_prompt_no_special_llava_v1_5
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-            prompt = qwen2_5_text_prompt
+            prompt = _freeret_templates.qwen2_5_text_prompt
         elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-            prompt = qwen3_text_prompt
+            prompt = _freeret_templates.qwen3_text_prompt
         elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-            prompt = text_prompt_intern_vl_v2_5
+            prompt = _freeret_templates.text_prompt_intern_vl_v2_5
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
         elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-            prompt = mistral_text_prompt
+            prompt = _freeret_templates.mistral_text_prompt
         elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
-            prompt = vicuna_text_prompt
+            prompt = _freeret_templates.vicuna_text_prompt
         else:
-            prompt = text_prompt
+            prompt = _freeret_templates.text_prompt
 
         if 'disassembleeol' in model_args.eol_type:
             if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
             elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
             else:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
         else:
             if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
             elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
             else:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
         if input_type == 'text':
             if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
                 text_inputs = processor([prompt.replace('<sent>', text) for text in input], return_tensors='pt',
@@ -227,8 +231,8 @@ class MLLMRetrievalModel(nn.Module):
                             disassemble_batch_ids, disassemble_sequence_lengths]
                     disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
                 else:
-                    prompts = [llama3_template.format(task_text_prompt) for task_text_prompt in
-                               task_text_prompts_copy]
+                    prompts = [_freeret_templates.llama3_template.format(task_text_prompt) for task_text_prompt in
+                               _freeret_templates.task_text_prompts_copy]
                     # 输入text的顺序是，对于每个input中的text，按照task_text_prompts中的顺序组装成列表
                     text_inputs = processor(
                         text=[task_text_prompt.replace('<sent>', text) for text in input for task_text_prompt in
@@ -260,7 +264,7 @@ class MLLMRetrievalModel(nn.Module):
             return logits, embs
         elif input_type == 'image':
             if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                prompt = img_prompt_intern_vl_v2_5
+                prompt = _freeret_templates.img_prompt_intern_vl_v2_5
                 prompt = processor.apply_chat_template(
                     prompt, tokenize=False, add_generation_prompt=True
                 )
@@ -327,22 +331,24 @@ class MLLMRetrievalModel(nn.Module):
                 :return:
                 注意，如果input_type是image,image_input是processor处理后的字典，如果是composed，那么image_input是raw_images
                 '''
+        _freeret_templates = prompt_constraints.Templates(model_args, data_args, input_type=input_type)
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
-            prompt = text_prompt_no_special_llava_v1_5
+            prompt = _freeret_templates.text_prompt_no_special_llava_v1_5
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-            prompt = text_prompt_qwen_v2_5
+            prompt = _freeret_templates.text_prompt_qwen_v2_5
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
         elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-            prompt = text_prompt_intern_vl_v2_5
+            prompt = _freeret_templates.text_prompt_intern_vl_v2_5
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
         elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-            prompt = mistral_fashion_iq_composed_image_prompt
+            prompt = _freeret_templates.mistral_fashion_iq_composed_image_prompt
         else:
-            prompt = llama3_fashion_iq_composed_image_prompt
+            prompt = _freeret_templates.llama3_fashion_iq_composed_image_prompt
 
         if input_type == 'composed':
             # prompt = prompt.replace("{}", dress_type)
@@ -408,68 +414,70 @@ class MLLMRetrievalModel(nn.Module):
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
 
     def encode_data_for_tbpr(self, input, input_type, processor, device, model_args, data_args):
+        _freeret_templates = prompt_constraints.Templates(model_args, data_args, input_type=input_type)
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
-            prompt = text_prompt_no_special_llava_v1_5
+            prompt = _freeret_templates.text_prompt_no_special_llava_v1_5
         elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
             if data_args.tbpr_type == 'origin_type':
-                prompt = vicuna_text_prompt
+                prompt = _freeret_templates.vicuna_text_prompt
             elif data_args.tbpr_type == 'type':
-                prompt = vicuna_person_retrieval_text_prompt
+                prompt = _freeret_templates.vicuna_person_retrieval_text_prompt
             elif data_args.tbpr_type == 'type_1':
-                prompt = vicuna_person_retrieval_text_prompt_1
+                prompt = _freeret_templates.vicuna_person_retrieval_text_prompt_1
             elif data_args.tbpr_type == 'type_2':
-                prompt = vicuna_person_retrieval_text_prompt_2
+                prompt = _freeret_templates.vicuna_person_retrieval_text_prompt_2
             else:
-                prompt = vicuna_text_prompt
+                prompt = _freeret_templates.vicuna_text_prompt
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-            prompt = text_prompt_qwen_v2_5
+            prompt = _freeret_templates.text_prompt_qwen_v2_5
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
         elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-            prompt = qwen3_person_retrieval_text_prompt
+            prompt = _freeret_templates.qwen3_person_retrieval_text_prompt
         elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-            prompt = text_prompt_intern_vl_v2_5
+            prompt = _freeret_templates.text_prompt_intern_vl_v2_5
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
         elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
             if data_args.tbpr_type == 'origin_type':
-                prompt = mistral_text_prompt
+                prompt = _freeret_templates.mistral_text_prompt
             elif data_args.tbpr_type == 'type':
-                prompt = mistral_person_retrieval_text_prompt
+                prompt = _freeret_templates.mistral_person_retrieval_text_prompt
             elif data_args.tbpr_type == 'type_1':
-                prompt = mistral_person_retrieval_text_prompt_1
+                prompt = _freeret_templates.mistral_person_retrieval_text_prompt_1
             elif data_args.tbpr_type == 'type_2':
-                prompt = mistral_person_retrieval_text_prompt_2
+                prompt = _freeret_templates.mistral_person_retrieval_text_prompt_2
             else:
-                prompt = mistral_text_prompt
+                prompt = _freeret_templates.mistral_text_prompt
         else:
             if data_args.tbpr_type == 'origin_type':
-                prompt = text_prompt
+                prompt = _freeret_templates.text_prompt
             elif data_args.tbpr_type == 'type':
-                prompt = person_retrieval_text_prompt
+                prompt = _freeret_templates.person_retrieval_text_prompt
             elif data_args.tbpr_type == 'type_1':
-                prompt = person_retrieval_text_prompt_1
+                prompt = _freeret_templates.person_retrieval_text_prompt_1
             elif data_args.tbpr_type == 'type_2':
-                prompt = person_retrieval_text_prompt_2
+                prompt = _freeret_templates.person_retrieval_text_prompt_2
             else:
-                prompt = mistral_text_prompt
+                prompt = _freeret_templates.mistral_text_prompt
 
         if 'disassembleeol' in model_args.eol_type:
             if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
             elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
             else:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
         else:
             if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
             elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
             else:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
 
         if input_type == 'text':
             text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
@@ -523,35 +531,37 @@ class MLLMRetrievalModel(nn.Module):
 
 
     def encode_data_for_t2it(self, input, input_type, processor, device, model_args, data_args):
+        _freeret_templates = prompt_constraints.Templates(model_args, data_args, input_type=input_type)
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
-            prompt = text_prompt_no_special_llava_v1_5
+            prompt = _freeret_templates.text_prompt_no_special_llava_v1_5
         elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
             if data_args.tbpr_type == 'origin_type':
-                prompt = vicuna_text_prompt
+                prompt = _freeret_templates.vicuna_text_prompt
             elif data_args.tbpr_type == 'type':
-                prompt = vicuna_person_retrieval_text_prompt
+                prompt = _freeret_templates.vicuna_person_retrieval_text_prompt
             elif data_args.tbpr_type == 'type_1':
-                prompt = vicuna_person_retrieval_text_prompt_1
+                prompt = _freeret_templates.vicuna_person_retrieval_text_prompt_1
             elif data_args.tbpr_type == 'type_2':
-                prompt = vicuna_person_retrieval_text_prompt_2
+                prompt = _freeret_templates.vicuna_person_retrieval_text_prompt_2
             else:
-                prompt = vicuna_text_prompt
+                prompt = _freeret_templates.vicuna_text_prompt
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-            prompt = text_prompt_qwen_v2_5
+            prompt = _freeret_templates.text_prompt_qwen_v2_5
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
         elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-            prompt = qwen3_person_retrieval_text_prompt
+            prompt = _freeret_templates.qwen3_person_retrieval_text_prompt
         elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-            prompt = text_prompt_intern_vl_v2_5
+            prompt = _freeret_templates.text_prompt_intern_vl_v2_5
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
         elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-            prompt = mistral_t2it_query_prompt
+            prompt = _freeret_templates.mistral_t2it_query_prompt
         else:
-            prompt = t2it_query_prompt
+            prompt = _freeret_templates.t2it_query_prompt
         if input_type == 'query':
             text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
                                     return_tensors="pt",
@@ -604,35 +614,37 @@ class MLLMRetrievalModel(nn.Module):
 
 
     def encode_data_for_it2t(self, input, input_type, processor, device, model_args, data_args):
+        _freeret_templates = prompt_constraints.Templates(model_args, data_args, input_type=input_type)
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
-            prompt = text_prompt_no_special_llava_v1_5
+            prompt = _freeret_templates.text_prompt_no_special_llava_v1_5
         elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
             if data_args.tbpr_type == 'origin_type':
-                prompt = vicuna_text_prompt
+                prompt = _freeret_templates.vicuna_text_prompt
             elif data_args.tbpr_type == 'type':
-                prompt = vicuna_person_retrieval_text_prompt
+                prompt = _freeret_templates.vicuna_person_retrieval_text_prompt
             elif data_args.tbpr_type == 'type_1':
-                prompt = vicuna_person_retrieval_text_prompt_1
+                prompt = _freeret_templates.vicuna_person_retrieval_text_prompt_1
             elif data_args.tbpr_type == 'type_2':
-                prompt = vicuna_person_retrieval_text_prompt_2
+                prompt = _freeret_templates.vicuna_person_retrieval_text_prompt_2
             else:
-                prompt = vicuna_text_prompt
+                prompt = _freeret_templates.vicuna_text_prompt
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-            prompt = text_prompt_qwen_v2_5
+            prompt = _freeret_templates.text_prompt_qwen_v2_5
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
         elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-            prompt = qwen3_person_retrieval_text_prompt
+            prompt = _freeret_templates.qwen3_person_retrieval_text_prompt
         elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-            prompt = text_prompt_intern_vl_v2_5
+            prompt = _freeret_templates.text_prompt_intern_vl_v2_5
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
         elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-            prompt = mistral_it2t_corpus_prompt
+            prompt = _freeret_templates.mistral_it2t_corpus_prompt
         else:
-            prompt = it2t_corpus_prompt
+            prompt = _freeret_templates.it2t_corpus_prompt
 
         if input_type == 'corpus':
             text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input],
@@ -693,10 +705,12 @@ class MLLMRetrievalModel(nn.Module):
                 :param device: 指定数据所在的硬件设备
                 :return:
                 '''
+        _freeret_templates = prompt_constraints.Templates(model_args, data_args, input_type=input_type)
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
-            prompt = text_prompt_no_special_llava_v1_5
+            prompt = _freeret_templates.text_prompt_no_special_llava_v1_5
         else:
-            prompt = text_prompt
+            prompt = _freeret_templates.text_prompt
         if input_type == 'text':
             text_inputs = processor(text=[prompt.replace('<sent>', text) for text in input], return_tensors="pt",
                                     padding=True, ).to(device)
@@ -746,28 +760,30 @@ class MLLMRetrievalModel(nn.Module):
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
 
     def encode_data_for_logit_information_analysis(self, input, input_type, processor, device, model_args, data_args):
+        _freeret_templates = prompt_constraints.Templates(model_args, data_args, input_type=input_type)
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
-            prompt = text_prompt_no_special_llava_v1_5
+            prompt = _freeret_templates.text_prompt_no_special_llava_v1_5
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-            prompt = text_prompt_qwen_v2_5
+            prompt = _freeret_templates.text_prompt_qwen_v2_5
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
         elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-            prompt = text_prompt_intern_vl_v2_5
+            prompt = _freeret_templates.text_prompt_intern_vl_v2_5
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
         else:
-            prompt = text_prompt
+            prompt = _freeret_templates.text_prompt
 
         if 'disassembleeol' in model_args.eol_type:
             if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
             else:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
         else:
-            prompts = llama3_retrieval_disassemble_text_prompts
+            prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
         if input_type == 'text':
             if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
                 disassemble_text_inputs = processor(
@@ -864,8 +880,8 @@ class MLLMRetrievalModel(nn.Module):
                 raw_disassemble_logits = disassemble_logits
                 disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
             else:
-                prompts = [llama3_template.format(task_text_prompt) for task_text_prompt in
-                           task_text_prompts_copy]
+                prompts = [_freeret_templates.llama3_template.format(task_text_prompt) for task_text_prompt in
+                           _freeret_templates.task_text_prompts_copy]
                 # 输入text的顺序是，对于每个input中的text，按照task_text_prompts中的顺序组装成列表
                 text_inputs = processor(
                     text=[task_text_prompt.replace('<sent>', text) for text in input for task_text_prompt in
@@ -900,7 +916,7 @@ class MLLMRetrievalModel(nn.Module):
             return logits, raw_logits
         elif input_type == 'image':
             if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-                prompt = img_prompt_intern_vl_v2_5
+                prompt = _freeret_templates.img_prompt_intern_vl_v2_5
                 prompt = processor.apply_chat_template(
                     prompt, tokenize=False, add_generation_prompt=True
                 )
@@ -957,31 +973,34 @@ class MLLMRetrievalModel(nn.Module):
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
 
     def encode_data_at_same_time(self, text_input, image_input, processor, device, model_args, data_args):
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         pass
 
     def encode_data_for_interface(self, input, input_type, embedding_type, processor, device, model_args, data_args):
+        _freeret_templates = prompt_constraints.Templates(model_args, data_args, input_type=input_type)
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
-            prompt = text_prompt_no_special_llava_v1_5
+            prompt = _freeret_templates.text_prompt_no_special_llava_v1_5
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
-            prompt = text_prompt_qwen_v2_5
+            prompt = _freeret_templates.text_prompt_qwen_v2_5
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
         elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
-            prompt = text_prompt_intern_vl_v2_5
+            prompt = _freeret_templates.text_prompt_intern_vl_v2_5
             prompt = processor.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             )
         else:
-            prompt = text_prompt
+            prompt = _freeret_templates.text_prompt
 
         if 'disassembleeol' in model_args.eol_type:
             if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
             else:
-                prompts = llama3_retrieval_disassemble_text_prompts
+                prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
         else:
-            prompts = llama3_retrieval_disassemble_text_prompts
+            prompts = _freeret_templates.llama3_retrieval_disassemble_text_prompts
         if input_type == 'text':
             if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text':
                 disassemble_text_inputs = processor(
@@ -1060,8 +1079,8 @@ class MLLMRetrievalModel(nn.Module):
                     # 这里对应原文的log+relu操作
                     disassemble_logits = torch.log(1 + torch.relu(disassemble_logits))
             else:
-                prompts = [llama3_template.format(task_text_prompt) for task_text_prompt in
-                           task_text_prompts_copy]
+                prompts = [_freeret_templates.llama3_template.format(task_text_prompt) for task_text_prompt in
+                           _freeret_templates.task_text_prompts_copy]
                 # 输入text的顺序是，对于每个input中的text，按照task_text_prompts中的顺序组装成列表
                 text_inputs = processor(
                     text=[task_text_prompt.replace('<sent>', text) for text in input for task_text_prompt in
@@ -1175,274 +1194,276 @@ class MLLMRetrievalModel(nn.Module):
             return ValueError('Parameter input_type must be text or image, but the input is not either of them.')
 
     def encode_data_concat(self, input, input_type, processor, device, model_args, data_args):
+        _freeret_templates = prompt_constraints.Templates(model_args, data_args, input_type=input_type)
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-            prompt_template = llava_mistral_template_text_prefix
-            if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
-                _, random_text_prompts, _ = build_random_view_prompts(
+            prompt_template = _freeret_templates.llava_mistral_template_text_prefix
+            if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
+                _, random_text_prompts, _ = _freeret_templates.build_random_view_prompts(
                     processor.tokenizer,
                     data_args.random_view_seed,
                 )
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
+                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.text_prompt_for_concat)
                 for random_text_prompt in random_text_prompts:
-                    prompt_template += llava_mistral_template_content_element.format(random_text_prompt)
+                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(random_text_prompt)
             elif data_args.prompt_type == 'prompt_5':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
-                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
-                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_for_concat:
+                    content_element = _freeret_templates.llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_1':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
-                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_1_for_concat:
-                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_1_for_concat:
+                    content_element = _freeret_templates.llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_3':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
-                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_3_for_concat:
-                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_3_for_concat:
+                    content_element = _freeret_templates.llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_4':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
-                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_4_for_concat:
-                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_4_for_concat:
+                    content_element = _freeret_templates.llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_6':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
-                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_6_for_concat:
-                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_6_for_concat:
+                    content_element = _freeret_templates.llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_7':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
+                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.text_prompt_for_concat)
                 if data_args.prompt_generation:
                     if data_args.prompt_generation_model == 'llama':
-                        for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat_llama_generation:
-                            content_element = llava_mistral_template_content_element.format(
+                        for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_for_concat_llama_generation:
+                            content_element = _freeret_templates.llava_mistral_template_content_element.format(
                                 llava_mistral_retrieval_disassemble_text_prompt)
                             prompt_template += content_element
                     else:
-                        for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat_mistral_generation:
-                            content_element = llava_mistral_template_content_element.format(
+                        for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_for_concat_mistral_generation:
+                            content_element = _freeret_templates.llava_mistral_template_content_element.format(
                                 llava_mistral_retrieval_disassemble_text_prompt)
                             prompt_template += content_element
                 else:
-                    for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
-                        content_element = llava_mistral_template_content_element.format(
+                    for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_7_for_concat:
+                        content_element = _freeret_templates.llava_mistral_template_content_element.format(
                             llava_mistral_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
             else:
                 pass
 
         elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
-            prompt_template = llava_vicuna_template_text_prefix
+            prompt_template = _freeret_templates.llava_vicuna_template_text_prefix
             if data_args.prompt_type == 'prompt_5':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_vicuna_template_content_element.format(text_prompt_for_concat)
-                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
-                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_for_concat:
+                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_1':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_vicuna_template_content_element.format(text_prompt_for_concat)
-                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_1_for_concat:
-                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_1_for_concat:
+                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_3':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_vicuna_template_content_element.format(text_prompt_for_concat)
-                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_3_for_concat:
-                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_3_for_concat:
+                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_4':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_vicuna_template_content_element.format(text_prompt_for_concat)
-                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_4_for_concat:
-                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_4_for_concat:
+                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_6':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_vicuna_template_content_element.format(text_prompt_for_concat)
-                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_6_for_concat:
-                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_6_for_concat:
+                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_7':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_vicuna_template_content_element.format(text_prompt_for_concat)
+                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(_freeret_templates.text_prompt_for_concat)
                 if data_args.prompt_generation:
                     if data_args.prompt_generation_model == 'llama':
-                        for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat_llama_generation:
-                            content_element = llava_vicuna_template_content_element.format(
+                        for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_for_concat_llama_generation:
+                            content_element = _freeret_templates.llava_vicuna_template_content_element.format(
                                 llava_vicuna_retrieval_disassemble_text_prompt)
                             prompt_template += content_element
                     else:
-                        for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat_mistral_generation:
-                            content_element = llava_vicuna_template_content_element.format(
+                        for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_for_concat_mistral_generation:
+                            content_element = _freeret_templates.llava_vicuna_template_content_element.format(
                                 llava_vicuna_retrieval_disassemble_text_prompt)
                             prompt_template += content_element
                 else:
-                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
-                        content_element = llava_vicuna_template_content_element.format(
+                    for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_7_for_concat:
+                        content_element = _freeret_templates.llava_vicuna_template_content_element.format(
                             llava_vicuna_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
             else:
                 pass
         elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
             if data_args.prompt_type == 'prompt_5':
-                prompt_template = llava_34b_template_text_prefix
+                prompt_template = _freeret_templates.llava_34b_template_text_prefix
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_34b_template_content_element.format(
-                        text_prompt_for_concat)
-                for llava_34b_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
-                    content_element = llava_34b_template_content_element.format(
+                    prompt_template += _freeret_templates.llava_34b_template_content_element.format(
+                        _freeret_templates.text_prompt_for_concat)
+                for llava_34b_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_for_concat:
+                    content_element = _freeret_templates.llava_34b_template_content_element.format(
                         llava_34b_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_3':
-                prompt_template = llava_34b_template_text_prefix
+                prompt_template = _freeret_templates.llava_34b_template_text_prefix
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_34b_template_content_element.format(
-                        text_prompt_for_concat)
-                for llava_34b_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_3_for_concat:
-                    content_element = llava_34b_template_content_element.format(
+                    prompt_template += _freeret_templates.llava_34b_template_content_element.format(
+                        _freeret_templates.text_prompt_for_concat)
+                for llava_34b_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_3_for_concat:
+                    content_element = _freeret_templates.llava_34b_template_content_element.format(
                         llava_34b_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_7':
-                prompt_template = llava_34b_template_text_prefix
+                prompt_template = _freeret_templates.llava_34b_template_text_prefix
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_34b_template_content_element.format(
-                        text_prompt_for_concat)
-                for llava_34b_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
-                    content_element = llava_34b_template_content_element.format(
+                    prompt_template += _freeret_templates.llava_34b_template_content_element.format(
+                        _freeret_templates.text_prompt_for_concat)
+                for llava_34b_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_7_for_concat:
+                    content_element = _freeret_templates.llava_34b_template_content_element.format(
                         llava_34b_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             else:
                 pass
         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
             if data_args.prompt_type == 'prompt_5':
-                prompt_template = qwen2_5_template_text_prefix
+                prompt_template = _freeret_templates.qwen2_5_template_text_prefix
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += qwen2_5_template_content_element.format(
-                        text_prompt_for_concat)
-                for qwen2_5_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
-                    content_element = qwen2_5_template_content_element.format(
+                    prompt_template += _freeret_templates.qwen2_5_template_content_element.format(
+                        _freeret_templates.text_prompt_for_concat)
+                for qwen2_5_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_for_concat:
+                    content_element = _freeret_templates.qwen2_5_template_content_element.format(
                         qwen2_5_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_3':
-                prompt_template = qwen2_5_template_text_prefix
+                prompt_template = _freeret_templates.qwen2_5_template_text_prefix
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += qwen2_5_template_content_element.format(
-                        text_prompt_for_concat)
-                for qwen2_5_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_3_for_concat:
-                    content_element = qwen2_5_template_content_element.format(
+                    prompt_template += _freeret_templates.qwen2_5_template_content_element.format(
+                        _freeret_templates.text_prompt_for_concat)
+                for qwen2_5_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_3_for_concat:
+                    content_element = _freeret_templates.qwen2_5_template_content_element.format(
                         qwen2_5_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_7':
-                prompt_template = qwen2_5_template_text_prefix
+                prompt_template = _freeret_templates.qwen2_5_template_text_prefix
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += qwen2_5_template_content_element.format(
-                        text_prompt_for_concat)
-                for qwen2_5_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
-                    content_element = qwen2_5_template_content_element.format(
+                    prompt_template += _freeret_templates.qwen2_5_template_content_element.format(
+                        _freeret_templates.text_prompt_for_concat)
+                for qwen2_5_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_7_for_concat:
+                    content_element = _freeret_templates.qwen2_5_template_content_element.format(
                         qwen2_5_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
         elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
             if data_args.prompt_type == 'prompt_5':
-                prompt_template = qwen3_template_text_prefix
+                prompt_template = _freeret_templates.qwen3_template_text_prefix
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += qwen3_template_content_element.format(
-                        text_prompt_for_concat)
-                for qwen3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
-                    content_element = qwen3_template_content_element.format(
+                    prompt_template += _freeret_templates.qwen3_template_content_element.format(
+                        _freeret_templates.text_prompt_for_concat)
+                for qwen3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_for_concat:
+                    content_element = _freeret_templates.qwen3_template_content_element.format(
                         qwen3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_3':
-                prompt_template = qwen3_template_text_prefix
+                prompt_template = _freeret_templates.qwen3_template_text_prefix
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += qwen3_template_content_element.format(
-                        text_prompt_for_concat)
-                for qwen3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_3_for_concat:
-                    content_element = qwen3_template_content_element.format(
+                    prompt_template += _freeret_templates.qwen3_template_content_element.format(
+                        _freeret_templates.text_prompt_for_concat)
+                for qwen3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_3_for_concat:
+                    content_element = _freeret_templates.qwen3_template_content_element.format(
                         qwen3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_7':
-                prompt_template = qwen3_template_text_prefix
+                prompt_template = _freeret_templates.qwen3_template_text_prefix
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += qwen3_template_content_element.format(
-                        text_prompt_for_concat)
-                for qwen3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
-                    content_element = qwen3_template_content_element.format(
+                    prompt_template += _freeret_templates.qwen3_template_content_element.format(
+                        _freeret_templates.text_prompt_for_concat)
+                for qwen3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_7_for_concat:
+                    content_element = _freeret_templates.qwen3_template_content_element.format(
                         qwen3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             else:
                 pass
         else:
-            prompt_template = llama3_template_text_prefix
-            if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
-                _, random_text_prompts, _ = build_random_view_prompts(
+            prompt_template = _freeret_templates.llama3_template_text_prefix
+            if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
+                _, random_text_prompts, _ = _freeret_templates.build_random_view_prompts(
                     processor.tokenizer,
                     data_args.random_view_seed,
                 )
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.text_prompt_for_concat)
                 for random_text_prompt in random_text_prompts:
-                    prompt_template += llama3_template_content_element.format(random_text_prompt)
+                    prompt_template += _freeret_templates.llama3_template_content_element.format(random_text_prompt)
             elif data_args.prompt_type == 'prompt_5':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
-                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat:
-                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_for_concat:
+                    content_element = _freeret_templates.llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_1':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
-                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_1_for_concat:
-                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_1_for_concat:
+                    content_element = _freeret_templates.llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_2':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
-                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_2_for_concat:
-                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_2_for_concat:
+                    content_element = _freeret_templates.llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_3':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
-                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_3_for_concat:
-                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_3_for_concat:
+                    content_element = _freeret_templates.llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_4':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
-                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_4_for_concat:
-                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_4_for_concat:
+                    content_element = _freeret_templates.llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_6':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
-                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_6_for_concat:
-                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_6_for_concat:
+                    content_element = _freeret_templates.llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.prompt_type == 'prompt_7':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.text_prompt_for_concat)
                 if data_args.prompt_generation:
                     if data_args.prompt_generation_model == 'llama':
-                        for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat_llama_generation:
-                            content_element = llama3_template_content_element.format(
+                        for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_for_concat_llama_generation:
+                            content_element = _freeret_templates.llama3_template_content_element.format(
                                 llava_mistral_retrieval_disassemble_text_prompt)
                             prompt_template += content_element
                     else:
-                        for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_for_concat_mistral_generation:
-                            content_element = llama3_template_content_element.format(
+                        for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_for_concat_mistral_generation:
+                            content_element = _freeret_templates.llama3_template_content_element.format(
                                 llava_mistral_retrieval_disassemble_text_prompt)
                             prompt_template += content_element
                 else:
-                    for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_7_for_concat:
-                        content_element = llama3_template_content_element.format(
+                    for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_7_for_concat:
+                        content_element = _freeret_templates.llama3_template_content_element.format(
                             llama3_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
             else:
@@ -1477,60 +1498,60 @@ class MLLMRetrievalModel(nn.Module):
                     begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                        if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
                             if i % (len(random_text_prompts) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_5':
-                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_1':
-                            if i % (len(retrieval_disassemble_text_prompts_1_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_1_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_2':
-                            if i % (len(retrieval_disassemble_text_prompts_2_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_2_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_3':
-                            if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_3_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_4':
-                            if i % (len(retrieval_disassemble_text_prompts_4_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_4_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_6':
-                            if i % (len(retrieval_disassemble_text_prompts_6_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_6_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_7':
-                            if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         else:
-                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
-                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                        if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
                             if i % (len(random_text_prompts) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_5':
-                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_1':
-                            if i % (len(retrieval_disassemble_text_prompts_1_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_1_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_2':
-                            if i % (len(retrieval_disassemble_text_prompts_2_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_2_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_3':
-                            if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_4':
-                            if i % (len(retrieval_disassemble_text_prompts_4_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_4_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_6':
-                            if i % (len(retrieval_disassemble_text_prompts_6_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_6_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_7':
-                            if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         else:
-                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
@@ -1626,60 +1647,60 @@ class MLLMRetrievalModel(nn.Module):
                     begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                        if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
                             if i % (len(random_text_prompts) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_5':
-                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_1':
-                            if i % (len(retrieval_disassemble_text_prompts_1_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_1_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_2':
-                            if i % (len(retrieval_disassemble_text_prompts_2_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_2_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_3':
-                            if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_3_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_4':
-                            if i % (len(retrieval_disassemble_text_prompts_4_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_4_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_6':
-                            if i % (len(retrieval_disassemble_text_prompts_6_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_6_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_7':
-                            if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_7_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         else:
-                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
-                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                        if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
                             if i % (len(random_text_prompts) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_5':
-                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_1':
-                            if i % (len(retrieval_disassemble_text_prompts_1_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_1_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_2':
-                            if i % (len(retrieval_disassemble_text_prompts_2_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_2_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_3':
-                            if i % (len(retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_3_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_4':
-                            if i % (len(retrieval_disassemble_text_prompts_4_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_4_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_6':
-                            if i % (len(retrieval_disassemble_text_prompts_6_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_6_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_7':
-                            if i % (len(retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_7_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         else:
-                            if i % (len(retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
@@ -1798,7 +1819,7 @@ class MLLMRetrievalModel(nn.Module):
 
         try:
             try:
-                outputs = self.encoder(**forward_inputs)
+                outputs = dense_forward(self.encoder, **forward_inputs)
             except TypeError as error:
                 # Older Transformers releases do not expose logits_to_keep.
                 # Keep the memory-safe hidden-state/cache settings and fall
@@ -1806,12 +1827,12 @@ class MLLMRetrievalModel(nn.Module):
                 if 'logits_to_keep' not in str(error):
                     raise
                 forward_inputs.pop('logits_to_keep', None)
-                outputs = self.encoder(**forward_inputs)
+                outputs = dense_forward(self.encoder, **forward_inputs)
         finally:
             if hook is not None:
                 hook.remove()
 
-        hidden_states = captured.get('last_hidden_state')
+        hidden_states = getattr(outputs, '_freeret_dense_hidden', captured.get('last_hidden_state'))
         if hidden_states is None:
             # This is only for wrappers that do not expose a backbone output
             # compatible with the hook.  It preserves the old behavior while
@@ -1822,12 +1843,13 @@ class MLLMRetrievalModel(nn.Module):
                 return_dict=True,
                 use_cache=False,
             )
-            outputs = self.encoder(**fallback_inputs)
+            outputs = dense_forward(self.encoder, **fallback_inputs)
             hidden_states = outputs.hidden_states[-1]
 
         return outputs, hidden_states
 
     def encode_data_concat_dspy(self, dspy_input, dspy_generated_prompt_template, aspects_prompt_list, input_type, processor, device, model_args, data_args):
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         if input_type == 'text':
             text_inputs = processor(text=[dspy_generated_prompt_template.replace('<sent>', text) for text in dspy_input],
                                     return_tensors="pt", padding=True).to(device)
@@ -2002,6 +2024,7 @@ class MLLMRetrievalModel(nn.Module):
 
 
     def encode_data_concat_for_tbpr_dspy(self, dspy_input, dspy_generated_prompt_template, aspects_prompt_list, input_type, processor, device, model_args, data_args):
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         if input_type == 'text':
             text_inputs = processor(text=[dspy_generated_prompt_template.replace('<sent>', text) for text in dspy_input],
                                     return_tensors="pt", padding=True).to(device)
@@ -2161,13 +2184,15 @@ class MLLMRetrievalModel(nn.Module):
         return None
 
     def encode_data_concat_for_cir(self, text_input, image_input, dress_type, input_type, processor, device, model_args, data_args):
+        _freeret_templates = prompt_constraints.Templates(model_args, data_args, input_type=input_type)
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         if data_args.cir_type == 'classify_type':
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-                classify_prompt = mistral_fashion_iq_modify_class_prompt
+                classify_prompt = _freeret_templates.mistral_fashion_iq_modify_class_prompt
             else:
-                classify_prompt = fashion_iq_modify_class_prompt
+                classify_prompt = _freeret_templates.fashion_iq_modify_class_prompt
 
-            classify_prompt = classify_prompt.format(fashion_iq_perspective_1)
+            classify_prompt = classify_prompt.format(_freeret_templates.fashion_iq_perspective_1)
 
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                 color_id = self.vocab_dict['color']
@@ -2212,53 +2237,53 @@ class MLLMRetrievalModel(nn.Module):
 
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
                 if data_args.composed_top_type == 'text':
-                    composed_prompt_template = llava_mistral_template_fashion_iq_text_prefix
+                    composed_prompt_template = _freeret_templates.llava_mistral_template_fashion_iq_text_prefix
                 else:
-                    composed_prompt_template = llava_mistral_template_fashion_iq_composed_image_prefix
+                    composed_prompt_template = _freeret_templates.llava_mistral_template_fashion_iq_composed_image_prefix
 
-                image_prompt_template = llava_mistral_template_fashion_iq_image_prefix
+                image_prompt_template = _freeret_templates.llava_mistral_template_fashion_iq_image_prefix
 
                 for indice_list in indice_lists:
                     item_prompt_template = composed_prompt_template
                     for indice in indice_list.tolist():
                         if data_args.composed_top_type == 'text':
-                            item_prompt_template += llava_mistral_template_content_element.format(retrieval_disassemble_text_prompts_fashion_iq_for_concat_1[int(indice)+1])
+                            item_prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.retrieval_disassemble_text_prompts_fashion_iq_for_concat_1[int(indice)+1])
                         else:
-                            item_prompt_template += llava_mistral_template_content_element.format(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1[int(indice)+1])
+                            item_prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1[int(indice)+1])
 
                     composed_prompt_list.append(item_prompt_template)
 
                     item_prompt_template = image_prompt_template
-                    for indice in range(len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1)):
+                    for indice in range(len(_freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1)):
                         if indice - 1 not in indice_list.tolist():
-                            item_prompt_template += llava_mistral_template_content_element.format(retrieval_disassemble_image_prompts_fashion_iq_for_concat_1[indice-1])
+                            item_prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.retrieval_disassemble_image_prompts_fashion_iq_for_concat_1[indice-1])
 
                     image_prompt_list.append(item_prompt_template)
             else:
                 if data_args.composed_top_type == 'text':
-                    composed_prompt_template = llama3_template_fashion_iq_text_prefix
+                    composed_prompt_template = _freeret_templates.llama3_template_fashion_iq_text_prefix
                 else:
-                    composed_prompt_template = llama3_template_fashion_iq_composed_image_prefix
+                    composed_prompt_template = _freeret_templates.llama3_template_fashion_iq_composed_image_prefix
 
-                image_prompt_template = llama3_template_fashion_iq_image_prefix
+                image_prompt_template = _freeret_templates.llama3_template_fashion_iq_image_prefix
 
                 for indice_list in indice_lists:
                     item_prompt_template = composed_prompt_template
                     for indice in indice_list.tolist():
                         if data_args.composed_top_type == 'text':
-                            item_prompt_template += llama3_template_content_element.format(
-                                retrieval_disassemble_text_prompts_fashion_iq_for_concat_1[int(indice) + 1])
+                            item_prompt_template += _freeret_templates.llama3_template_content_element.format(
+                                _freeret_templates.retrieval_disassemble_text_prompts_fashion_iq_for_concat_1[int(indice) + 1])
                         else:
-                            item_prompt_template += llama3_template_content_element.format(
-                                retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1[int(indice) + 1])
+                            item_prompt_template += _freeret_templates.llama3_template_content_element.format(
+                                _freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1[int(indice) + 1])
 
                     composed_prompt_list.append(item_prompt_template)
 
                     item_prompt_template = image_prompt_template
-                    for indice in range(len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1)):
+                    for indice in range(len(_freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1)):
                         if indice - 1 not in indice_list.tolist():
-                            item_prompt_template += llama3_template_content_element.format(
-                                retrieval_disassemble_image_prompts_fashion_iq_for_concat_1[indice])
+                            item_prompt_template += _freeret_templates.llama3_template_content_element.format(
+                                _freeret_templates.retrieval_disassemble_image_prompts_fashion_iq_for_concat_1[indice])
 
                     image_prompt_list.append(item_prompt_template)
 
@@ -2461,32 +2486,32 @@ class MLLMRetrievalModel(nn.Module):
 
         else:
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-                prompt_template = llava_mistral_template_fashion_iq_composed_image_prefix
+                prompt_template = _freeret_templates.llava_mistral_template_fashion_iq_composed_image_prefix
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_mistral_template_content_element.format(
-                        fashion_iq_composed_image_for_concat)
+                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
+                        _freeret_templates.fashion_iq_composed_image_for_concat)
                 if data_args.cir_type == 'type':
-                    for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat:
-                        content_element = llava_mistral_template_content_element.format(
+                    for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat:
+                        content_element = _freeret_templates.llava_mistral_template_content_element.format(
                             llava_mistral_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 else:
-                    for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1:
-                        content_element = llava_mistral_template_content_element.format(
+                    for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1:
+                        content_element = _freeret_templates.llava_mistral_template_content_element.format(
                             llava_mistral_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
             else:
-                prompt_template = llama3_template_fashion_iq_composed_image_prefix
+                prompt_template = _freeret_templates.llama3_template_fashion_iq_composed_image_prefix
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(fashion_iq_composed_image_for_concat)
+                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.fashion_iq_composed_image_for_concat)
                 if data_args.cir_type == 'type':
-                    for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat:
-                        content_element = llama3_template_content_element.format(
+                    for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat:
+                        content_element = _freeret_templates.llama3_template_content_element.format(
                             llama3_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 else:
-                    for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1:
-                        content_element = llama3_template_content_element.format(
+                    for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1:
+                        content_element = _freeret_templates.llama3_template_content_element.format(
                             llama3_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
             prompt_list = [prompt_template.replace("{}", dress_type_item) for dress_type_item in dress_type]
@@ -2514,17 +2539,17 @@ class MLLMRetrievalModel(nn.Module):
                 for i in range(len(begin_of_text_indices[1])):
                     if data_args.cir_type == 'type':
                         if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                            if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         else:
-                            if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
                         if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                            if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         else:
-                            if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                 begin_col_list = sorted(list(set(begin_col_list)))
                 end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
@@ -2631,17 +2656,17 @@ class MLLMRetrievalModel(nn.Module):
                 for i in range(len(begin_of_text_indices[1])):
                     if data_args.cir_type == 'type':
                         if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                            if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         else:
-                            if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
                         if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                            if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         else:
-                            if i % (len(retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_composed_image_prompts_fashion_iq_for_concat_1) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                 begin_col_list = sorted(list(set(begin_col_list)))
                 end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
@@ -2723,247 +2748,249 @@ class MLLMRetrievalModel(nn.Module):
 
 
     def encode_data_concat_for_tbpr(self, input, input_type, processor, device, model_args, data_args):
+        _freeret_templates = prompt_constraints.Templates(model_args, data_args, input_type=input_type)
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         random_text_prompts = []
-        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+        if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
             person_retrieval = data_args.tbpr_type == 'type'
-            _, random_text_prompts, _ = build_random_view_prompts(
+            _, random_text_prompts, _ = _freeret_templates.build_random_view_prompts(
                 processor.tokenizer,
                 data_args.random_view_seed,
                 person_retrieval=person_retrieval,
             )
             if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-                prompt_template = llava_mistral_template_text_prefix
-                content_element_template = llava_mistral_template_content_element
+                prompt_template = _freeret_templates.llava_mistral_template_text_prefix
+                content_element_template = _freeret_templates.llava_mistral_template_content_element
             else:
-                prompt_template = llama3_template_text_prefix
-                content_element_template = llama3_template_content_element
+                prompt_template = _freeret_templates.llama3_template_text_prefix
+                content_element_template = _freeret_templates.llama3_template_content_element
             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                base_prompt = person_retrieval_text_prompt_for_concat if person_retrieval else text_prompt_for_concat
+                base_prompt = _freeret_templates.person_retrieval_text_prompt_for_concat if person_retrieval else _freeret_templates.text_prompt_for_concat
                 prompt_template += content_element_template.format(base_prompt)
             for random_text_prompt in random_text_prompts:
                 prompt_template += content_element_template.format(random_text_prompt)
         elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-            prompt_template = llava_mistral_template_text_prefix
+            prompt_template = _freeret_templates.llava_mistral_template_text_prefix
             if data_args.tbpr_type == 'origin_type':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
-                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat:
-                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat:
+                    content_element = _freeret_templates.llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.tbpr_type == 'type':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_mistral_template_content_element.format(person_retrieval_text_prompt_for_concat)
+                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.person_retrieval_text_prompt_for_concat)
                 if data_args.prompt_type == 'prompt_5':
                     if data_args.prompt_generation:
-                        for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_llama_generation:
-                            content_element = llava_mistral_template_content_element.format(
+                        for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_for_concat_llama_generation:
+                            content_element = _freeret_templates.llava_mistral_template_content_element.format(
                                 llava_mistral_retrieval_disassemble_text_prompt)
                             prompt_template += content_element
                     else:
-                        for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat:
-                            content_element = llava_mistral_template_content_element.format(
+                        for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_for_concat:
+                            content_element = _freeret_templates.llava_mistral_template_content_element.format(
                                 llava_mistral_retrieval_disassemble_text_prompt)
                             prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_1':
-                    for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_1_for_concat:
-                        content_element = llava_mistral_template_content_element.format(
+                    for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_1_for_concat:
+                        content_element = _freeret_templates.llava_mistral_template_content_element.format(
                             llava_mistral_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_2':
-                    for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_2_for_concat:
-                        content_element = llava_mistral_template_content_element.format(
+                    for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_2_for_concat:
+                        content_element = _freeret_templates.llava_mistral_template_content_element.format(
                             llava_mistral_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_3':
-                    for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_3_for_concat:
-                        content_element = llava_mistral_template_content_element.format(
+                    for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_3_for_concat:
+                        content_element = _freeret_templates.llava_mistral_template_content_element.format(
                             llava_mistral_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_4':
-                    for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_4_for_concat:
-                        content_element = llava_mistral_template_content_element.format(
+                    for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_4_for_concat:
+                        content_element = _freeret_templates.llava_mistral_template_content_element.format(
                             llava_mistral_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_6':
                     if data_args.prompt_generation:
-                        for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_mistral_generation:
-                            content_element = llava_mistral_template_content_element.format(
+                        for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_for_concat_mistral_generation:
+                            content_element = _freeret_templates.llava_mistral_template_content_element.format(
                                 llava_mistral_retrieval_disassemble_text_prompt)
                             prompt_template += content_element
                     else:
-                        for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_6_for_concat:
-                            content_element = llava_mistral_template_content_element.format(
+                        for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_6_for_concat:
+                            content_element = _freeret_templates.llava_mistral_template_content_element.format(
                                 llava_mistral_retrieval_disassemble_text_prompt)
                             prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_7':
-                    for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_7_for_concat:
-                        content_element = llava_mistral_template_content_element.format(
+                    for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_7_for_concat:
+                        content_element = _freeret_templates.llava_mistral_template_content_element.format(
                             llava_mistral_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
             elif data_args.tbpr_type == 'type_1':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_mistral_template_content_element.format(person_retrieval_text_prompt_for_concat_1)
-                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
-                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.person_retrieval_text_prompt_for_concat_1)
+                for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
+                    content_element = _freeret_templates.llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.tbpr_type == 'type_2':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_mistral_template_content_element.format(person_retrieval_text_prompt_for_concat_2)
-                for llava_mistral_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
-                    content_element = llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.person_retrieval_text_prompt_for_concat_2)
+                for llava_mistral_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
+                    content_element = _freeret_templates.llava_mistral_template_content_element.format(llava_mistral_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             else:
                 pass
 
         elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
-            prompt_template = llava_vicuna_template_text_prefix
+            prompt_template = _freeret_templates.llava_vicuna_template_text_prefix
             if data_args.tbpr_type == 'origin_type':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_vicuna_template_content_element.format(text_prompt_for_concat)
-                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat:
-                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat:
+                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.tbpr_type == 'type':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_vicuna_template_content_element.format(person_retrieval_text_prompt_for_concat)
+                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(_freeret_templates.person_retrieval_text_prompt_for_concat)
                 if data_args.prompt_type == 'prompt_5':
-                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat:
-                        content_element = llava_vicuna_template_content_element.format(
+                    for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_for_concat:
+                        content_element = _freeret_templates.llava_vicuna_template_content_element.format(
                             llava_vicuna_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_1':
-                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_1_for_concat:
-                        content_element = llava_vicuna_template_content_element.format(
+                    for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_1_for_concat:
+                        content_element = _freeret_templates.llava_vicuna_template_content_element.format(
                             llava_vicuna_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_2':
-                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_2_for_concat:
-                        content_element = llava_vicuna_template_content_element.format(
+                    for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_2_for_concat:
+                        content_element = _freeret_templates.llava_vicuna_template_content_element.format(
                             llava_vicuna_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_3':
-                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_3_for_concat:
-                        content_element = llava_vicuna_template_content_element.format(
+                    for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_3_for_concat:
+                        content_element = _freeret_templates.llava_vicuna_template_content_element.format(
                             llava_vicuna_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_4':
-                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_4_for_concat:
-                        content_element = llava_vicuna_template_content_element.format(
+                    for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_4_for_concat:
+                        content_element = _freeret_templates.llava_vicuna_template_content_element.format(
                             llava_vicuna_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_6':
-                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_6_for_concat:
-                        content_element = llava_vicuna_template_content_element.format(
+                    for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_6_for_concat:
+                        content_element = _freeret_templates.llava_vicuna_template_content_element.format(
                             llava_vicuna_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_7':
-                    for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_7_for_concat:
-                        content_element = llava_vicuna_template_content_element.format(
+                    for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_7_for_concat:
+                        content_element = _freeret_templates.llava_vicuna_template_content_element.format(
                             llava_vicuna_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
             elif data_args.tbpr_type == 'type_1':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_vicuna_template_content_element.format(person_retrieval_text_prompt_for_concat_1)
-                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
-                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(_freeret_templates.person_retrieval_text_prompt_for_concat_1)
+                for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
+                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.tbpr_type == 'type_2':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llava_vicuna_template_content_element.format(person_retrieval_text_prompt_for_concat_2)
-                for llava_vicuna_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
-                    content_element = llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(_freeret_templates.person_retrieval_text_prompt_for_concat_2)
+                for llava_vicuna_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
+                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(llava_vicuna_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             else:
                 pass
 
         elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
-            prompt_template = llava_34b_template_text_prefix
+            prompt_template = _freeret_templates.llava_34b_template_text_prefix
             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                prompt_template += llava_34b_template_content_element.format(
-                    person_retrieval_text_prompt_for_concat)
-            for llava_34b_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat:
-                content_element = llava_34b_template_content_element.format(
+                prompt_template += _freeret_templates.llava_34b_template_content_element.format(
+                    _freeret_templates.person_retrieval_text_prompt_for_concat)
+            for llava_34b_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_for_concat:
+                content_element = _freeret_templates.llava_34b_template_content_element.format(
                     llava_34b_retrieval_disassemble_text_prompt)
                 prompt_template += content_element
 
         elif 'Qwen-Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-            prompt_template = qwen3_template_text_prefix
+            prompt_template = _freeret_templates.qwen3_template_text_prefix
             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                prompt_template += qwen3_template_content_element.format(
-                    person_retrieval_text_prompt_for_concat)
-            for qwen3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat:
-                content_element = qwen3_template_content_element.format(
+                prompt_template += _freeret_templates.qwen3_template_content_element.format(
+                    _freeret_templates.person_retrieval_text_prompt_for_concat)
+            for qwen3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_for_concat:
+                content_element = _freeret_templates.qwen3_template_content_element.format(
                     qwen3_retrieval_disassemble_text_prompt)
                 prompt_template += content_element
         else:
-            prompt_template = llama3_template_text_prefix
+            prompt_template = _freeret_templates.llama3_template_text_prefix
             if data_args.tbpr_type == 'origin_type':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
-                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat:
-                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+                for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat:
+                    content_element = _freeret_templates.llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.tbpr_type == 'type':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(person_retrieval_text_prompt_for_concat)
+                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.person_retrieval_text_prompt_for_concat)
                 if data_args.prompt_type == 'prompt_5':
                     if data_args.prompt_generation:
-                        for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_llama_generation:
-                            content_element = llama3_template_content_element.format(
+                        for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_for_concat_llama_generation:
+                            content_element = _freeret_templates.llama3_template_content_element.format(
                                 llama3_retrieval_disassemble_text_prompt)
                             prompt_template += content_element
                     else:
-                        for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat:
-                            content_element = llama3_template_content_element.format(
+                        for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_for_concat:
+                            content_element = _freeret_templates.llama3_template_content_element.format(
                                 llama3_retrieval_disassemble_text_prompt)
                             prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_1':
-                    for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_1_for_concat:
-                        content_element = llama3_template_content_element.format(
+                    for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_1_for_concat:
+                        content_element = _freeret_templates.llama3_template_content_element.format(
                             llama3_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_2':
-                    for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_2_for_concat:
-                        content_element = llama3_template_content_element.format(
+                    for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_2_for_concat:
+                        content_element = _freeret_templates.llama3_template_content_element.format(
                             llama3_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_3':
-                    for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_3_for_concat:
-                        content_element = llama3_template_content_element.format(
+                    for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_3_for_concat:
+                        content_element = _freeret_templates.llama3_template_content_element.format(
                             llama3_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_4':
-                    for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_4_for_concat:
-                        content_element = llama3_template_content_element.format(
+                    for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_4_for_concat:
+                        content_element = _freeret_templates.llama3_template_content_element.format(
                             llama3_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_6':
                     if data_args.prompt_generation:
-                        for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_mistral_generation:
-                            content_element = llama3_template_content_element.format(
+                        for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_for_concat_mistral_generation:
+                            content_element = _freeret_templates.llama3_template_content_element.format(
                                 llama3_retrieval_disassemble_text_prompt)
                             prompt_template += content_element
                     else:
-                        for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_6_for_concat:
-                            content_element = llama3_template_content_element.format(
+                        for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_6_for_concat:
+                            content_element = _freeret_templates.llama3_template_content_element.format(
                                 llama3_retrieval_disassemble_text_prompt)
                             prompt_template += content_element
                 elif data_args.prompt_type == 'prompt_7':
-                    for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_7_for_concat:
-                        content_element = llama3_template_content_element.format(
+                    for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_7_for_concat:
+                        content_element = _freeret_templates.llama3_template_content_element.format(
                             llama3_retrieval_disassemble_text_prompt)
                         prompt_template += content_element
             elif data_args.tbpr_type == 'type_1':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(person_retrieval_text_prompt_for_concat_1)
-                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
-                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.person_retrieval_text_prompt_for_concat_1)
+                for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
+                    content_element = _freeret_templates.llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             elif data_args.tbpr_type == 'type_2':
                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                    prompt_template += llama3_template_content_element.format(person_retrieval_text_prompt_for_concat_2)
-                for llama3_retrieval_disassemble_text_prompt in retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
-                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
+                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.person_retrieval_text_prompt_for_concat_2)
+                for llama3_retrieval_disassemble_text_prompt in _freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_for_concat_1:
+                    content_element = _freeret_templates.llama3_template_content_element.format(llama3_retrieval_disassemble_text_prompt)
                     prompt_template += content_element
             else:
                 pass
@@ -2995,56 +3022,56 @@ class MLLMRetrievalModel(nn.Module):
                     begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                        if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
                             if i % (len(random_text_prompts) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_5':
                             if i % (
-                                    len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 2) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_1':
-                            if i % (len(retrieval_disassemble_text_prompts_person_retrieval_1_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_1_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_2':
-                            if i % (len(retrieval_disassemble_text_prompts_person_retrieval_2_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_2_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_3':
-                            if i % (len(retrieval_disassemble_text_prompts_person_retrieval_3_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_3_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_4':
-                            if i % (len(retrieval_disassemble_text_prompts_person_retrieval_4_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_4_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_6':
-                            if i % (len(retrieval_disassemble_text_prompts_person_retrieval_6_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_6_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         else:
-                            if i % (len(retrieval_disassemble_text_prompts_person_retrieval_7_for_concat) + 2) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_7_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
-                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                        if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
                             if i % (len(random_text_prompts) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_5':
                             if i % (
-                                    len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 1) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_1':
-                            if i % (len(retrieval_disassemble_text_prompts_person_retrieval_1_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_1_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_2':
-                            if i % (len(retrieval_disassemble_text_prompts_person_retrieval_2_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_2_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_3':
-                            if i % (len(retrieval_disassemble_text_prompts_person_retrieval_3_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_3_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_4':
-                            if i % (len(retrieval_disassemble_text_prompts_person_retrieval_4_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_4_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_6':
-                            if i % (len(retrieval_disassemble_text_prompts_person_retrieval_6_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_6_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         else:
-                            if i % (len(retrieval_disassemble_text_prompts_person_retrieval_7_for_concat) + 1) != 0:
+                            if i % (len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_7_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
@@ -3155,68 +3182,68 @@ class MLLMRetrievalModel(nn.Module):
                     begin_col_list.append(begin_of_text_indices[1][i].item())
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                        if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
                             if i % (len(random_text_prompts) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_5':
                             if i % (
-                                    len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 2) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_1':
                             if i % (
-                                    len(retrieval_disassemble_text_prompts_person_retrieval_1_for_concat) + 2) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_1_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_2':
                             if i % (
-                                    len(retrieval_disassemble_text_prompts_person_retrieval_2_for_concat) + 2) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_2_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_3':
                             if i % (
-                                    len(retrieval_disassemble_text_prompts_person_retrieval_3_for_concat) + 2) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_3_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_4':
                             if i % (
-                                    len(retrieval_disassemble_text_prompts_person_retrieval_4_for_concat) + 2) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_4_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_6':
                             if i % (
-                                    len(retrieval_disassemble_text_prompts_person_retrieval_6_for_concat) + 2) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_6_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         else:
                             if i % (
-                                    len(retrieval_disassemble_text_prompts_person_retrieval_7_for_concat) + 2) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_7_for_concat) + 2) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
-                        if data_args.prompt_type == RANDOM_VIEW_PROMPT_TYPE:
+                        if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
                             if i % (len(random_text_prompts) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_5':
                             if i % (
-                                    len(retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 1) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_origin_prompts_person_retrieval_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_1':
                             if i % (
-                                    len(retrieval_disassemble_text_prompts_person_retrieval_1_for_concat) + 1) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_1_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_2':
                             if i % (
-                                    len(retrieval_disassemble_text_prompts_person_retrieval_2_for_concat) + 1) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_2_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_3':
                             if i % (
-                                    len(retrieval_disassemble_text_prompts_person_retrieval_3_for_concat) + 1) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_3_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_4':
                             if i % (
-                                    len(retrieval_disassemble_text_prompts_person_retrieval_4_for_concat) + 1) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_4_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         elif data_args.prompt_type == 'prompt_6':
                             if i % (
-                                    len(retrieval_disassemble_text_prompts_person_retrieval_6_for_concat) + 1) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_6_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
                         else:
                             if i % (
-                                    len(retrieval_disassemble_text_prompts_person_retrieval_7_for_concat) + 1) != 0:
+                                    len(_freeret_templates.retrieval_disassemble_text_prompts_person_retrieval_7_for_concat) + 1) != 0:
                                 begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
@@ -3292,22 +3319,24 @@ class MLLMRetrievalModel(nn.Module):
 
 
     def encode_data_concat_for_t2it(self, input, input_type, processor, device, model_args, data_args):
+        _freeret_templates = prompt_constraints.Templates(model_args, data_args, input_type=input_type)
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-            prompt_template = llava_mistral_template_text_prefix
+            prompt_template = _freeret_templates.llava_mistral_template_text_prefix
             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
-            for llava_mistral_retrieval_disassemble_query_prompt in retrieval_disassemble_query_prompts_t2it_retrieval_for_concat:
-                content_element = llava_mistral_template_content_element.format(
+                prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+            for llava_mistral_retrieval_disassemble_query_prompt in _freeret_templates.retrieval_disassemble_query_prompts_t2it_retrieval_for_concat:
+                content_element = _freeret_templates.llava_mistral_template_content_element.format(
                     llava_mistral_retrieval_disassemble_query_prompt)
                 prompt_template += content_element
 
         else:
-            prompt_template = llama3_template_text_prefix
+            prompt_template = _freeret_templates.llama3_template_text_prefix
 
             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
-            for llama3_retrieval_disassemble_query_prompt in retrieval_disassemble_query_prompts_t2it_retrieval_for_concat:
-                content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_query_prompt)
+                prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.text_prompt_for_concat)
+            for llama3_retrieval_disassemble_query_prompt in _freeret_templates.retrieval_disassemble_query_prompts_t2it_retrieval_for_concat:
+                content_element = _freeret_templates.llama3_template_content_element.format(llama3_retrieval_disassemble_query_prompt)
                 prompt_template += content_element
         if input_type == 'query':
             text_inputs = processor(text=[prompt_template.replace('<sent>', text) for text in input],
@@ -3337,11 +3366,11 @@ class MLLMRetrievalModel(nn.Module):
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                         if i % (
-                                len(retrieval_disassemble_query_prompts_t2it_retrieval_for_concat) + 2) != 0:
+                                len(_freeret_templates.retrieval_disassemble_query_prompts_t2it_retrieval_for_concat) + 2) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
                         if i % (
-                                len(retrieval_disassemble_query_prompts_t2it_retrieval_for_concat) + 1) != 0:
+                                len(_freeret_templates.retrieval_disassemble_query_prompts_t2it_retrieval_for_concat) + 1) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
@@ -3453,11 +3482,11 @@ class MLLMRetrievalModel(nn.Module):
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                         if i % (
-                                len(retrieval_disassemble_query_prompts_t2it_retrieval_for_concat) + 2) != 0:
+                                len(_freeret_templates.retrieval_disassemble_query_prompts_t2it_retrieval_for_concat) + 2) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
                         if i % (
-                                len(retrieval_disassemble_query_prompts_t2it_retrieval_for_concat) + 1) != 0:
+                                len(_freeret_templates.retrieval_disassemble_query_prompts_t2it_retrieval_for_concat) + 1) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
@@ -3532,33 +3561,35 @@ class MLLMRetrievalModel(nn.Module):
             return logits, embs
 
     def encode_data_concat_for_it2t(self, input, input_type, processor, device, model_args, data_args):
+        _freeret_templates = prompt_constraints.Templates(model_args, data_args, input_type=input_type)
+        configure_dense_model(self.encoder, dense_enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
-            prompt_template = llava_mistral_template_text_prefix
+            prompt_template = _freeret_templates.llava_mistral_template_text_prefix
             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                prompt_template += llava_mistral_template_content_element.format(text_prompt_for_concat)
+                prompt_template += _freeret_templates.llava_mistral_template_content_element.format(_freeret_templates.text_prompt_for_concat)
             if data_args.dataset_name == 'llava':
-                for llava_mistral_retrieval_disassemble_corpus_prompt in retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat:
-                    content_element = llava_mistral_template_content_element.format(
+                for llava_mistral_retrieval_disassemble_corpus_prompt in _freeret_templates.retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat:
+                    content_element = _freeret_templates.llava_mistral_template_content_element.format(
                         llava_mistral_retrieval_disassemble_corpus_prompt)
                     prompt_template += content_element
             else:
-                for llava_mistral_retrieval_disassemble_corpus_prompt in retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat:
-                    content_element = llava_mistral_template_content_element.format(
+                for llava_mistral_retrieval_disassemble_corpus_prompt in _freeret_templates.retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat:
+                    content_element = _freeret_templates.llava_mistral_template_content_element.format(
                         llava_mistral_retrieval_disassemble_corpus_prompt)
                     prompt_template += content_element
 
         else:
-            prompt_template = llama3_template_text_prefix
+            prompt_template = _freeret_templates.llama3_template_text_prefix
 
             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
-                prompt_template += llama3_template_content_element.format(text_prompt_for_concat)
+                prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.text_prompt_for_concat)
             if data_args.dataset_name == 'llava':
-                for llama3_retrieval_disassemble_corpus_prompt in retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat:
-                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_corpus_prompt)
+                for llama3_retrieval_disassemble_corpus_prompt in _freeret_templates.retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat:
+                    content_element = _freeret_templates.llama3_template_content_element.format(llama3_retrieval_disassemble_corpus_prompt)
                     prompt_template += content_element
             else:
-                for llama3_retrieval_disassemble_corpus_prompt in retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat:
-                    content_element = llama3_template_content_element.format(llama3_retrieval_disassemble_corpus_prompt)
+                for llama3_retrieval_disassemble_corpus_prompt in _freeret_templates.retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat:
+                    content_element = _freeret_templates.llama3_template_content_element.format(llama3_retrieval_disassemble_corpus_prompt)
                     prompt_template += content_element
         if input_type == 'corpus':
             text_inputs = processor(text=[prompt_template.replace('<sent>', text) for text in input],
@@ -3588,11 +3619,11 @@ class MLLMRetrievalModel(nn.Module):
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                         if i % (
-                                len(retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat) + 2) != 0:
+                                len(_freeret_templates.retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat) + 2) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
                         if i % (
-                                len(retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat) + 1) != 0:
+                                len(_freeret_templates.retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat) + 1) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))
@@ -3704,11 +3735,11 @@ class MLLMRetrievalModel(nn.Module):
                 else:
                     if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                         if i % (
-                                len(retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat) + 2) != 0:
+                                len(_freeret_templates.retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat) + 2) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
                     else:
                         if i % (
-                                len(retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat) + 1) != 0:
+                                len(_freeret_templates.retrieval_disassemble_corpus_prompts_it2t_retrieval_for_concat) + 1) != 0:
                             begin_col_list.append(begin_of_text_indices[1][i].item())
             begin_col_list = sorted(list(set(begin_col_list)))
             end_col_list = sorted(list(set(end_of_text_indices[1].tolist())))

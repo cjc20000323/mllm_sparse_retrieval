@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"  # true: FreeRet pre-MLP dense; prompts/sparse unchanged
+USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"  # Complete FreeRet dense/sparse prompts; requires FreeRet dense
+USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prepend FreeRet constraints to all representation views
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.sh" || exit $?
 # Standalone Qwen launcher: sparse_concat -> hybrid retrieval -> pointwise rerank.
 # Prepare matching encode_qwen.sh artifacts and sparse_index_qwen.sh indexes first.
 # Examples (run from any directory):
@@ -12,6 +16,8 @@ die() { printf 'Error: %s\n' "$*" >&2; exit 2; }
 usage() {
     cat <<'USAGE'
 Usage: bash scripts/three_stage_qwen.sh [-h|--help]
+Default result paths end in stage1_<STAGE1_DEPTH>_stage2_<STAGE2_DEPTH>.
+Explicit OUTPUT_DIR stays unchanged.
 Edit this script's configuration block or set environment variables.
 This standalone script directly launches src/three_stage_retrieval_pipeline.py.
 Defaults: Qwen2.5-VL-7B-Instruct, Flickr image->text, test, 1 GPU, float16,
@@ -273,9 +279,10 @@ resolve_job() {
             ALPHA_LABEL=alpha_val
         fi
     fi
-    JOB_OUTPUT="${OUTPUT_DIR:-${QWEN_OUTPUT_ROOT}/${RELATIVE}/${DIRECTION}/three_stage/${ALPHA_LABEL}}"
+    JOB_OUTPUT="${OUTPUT_DIR:-${QWEN_OUTPUT_ROOT}/${RELATIVE}/${DIRECTION}/three_stage/${ALPHA_LABEL}/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}}"
 }
 preflight_job() {
+    dense_mode_paths
     require_dataset "${JOB_DATASET}" "${DATASET_SPLIT}"
     require_corpus "${JOB_DATASET} Stage 2" "${JOB_DENSE}" "${JOB_SPARSE}"
     local first="$(resolve_index "${JOB_FIRST}")"
@@ -292,7 +299,8 @@ preflight_job() {
     fi
 }
 build_command() {
-    COMMAND=("${DEEPSPEED_BIN}" --num_gpus "${GPUS}" --num_nodes "${NUM_NODES}" src/three_stage_retrieval_pipeline.py
+    dense_mode_paths
+    COMMAND=("${DEEPSPEED_BIN}" --num_gpus "${GPUS}" --num_nodes "${NUM_NODES}" src/three_stage_retrieval_pipeline.py --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}"
         --dataset-name "${JOB_DATASET}" --dataset-split "${DATASET_SPLIT}" --task-type "${TASK_TYPE}" --query-type "${QUERY_TYPE}"
         --tbpr-type "${TBPR_TYPE}" --data-root "${DATA_ROOT}" --stage1-method sparse_concat
         --stage1-sparse-index "${JOB_FIRST}" --stage1-depth "${STAGE1_DEPTH}"

@@ -1,0 +1,3824 @@
+
+import freeret_full_prompt as full_prompt
+import freeret_prompt_constraints as prompt_constraints
+import json
+import os
+import pickle
+import string
+import sys
+from contextlib import nullcontext
+
+import numpy as np
+import torch
+import torch.distributed as dist
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.utils.data as Data
+
+torch.set_printoptions(threshold=sys.maxsize)
+from PIL import Image
+from nltk import word_tokenize
+from nltk.corpus import stopwords
+from peft import PeftModel
+from tqdm import tqdm
+from transformers import (
+    HfArgumentParser,
+)
+from transformers import LlavaProcessor, LlavaForConditionalGeneration, LlavaNextProcessor, \
+    LlavaNextForConditionalGeneration, Qwen2_5_VLProcessor, Qwen2_5_VLForConditionalGeneration, AutoModel, \
+    AutoProcessor
+
+from arguments import PromptRepsLLMDataArguments, ModelArguments
+from arguments import TrainingArguments
+from dataset import CrossModalRetrievalDataset, ComposedTextImageRetrievalDataset, TextPersonRetrievalDataset, \
+    Text2ImagetextRetrievalDataset, Imagetext2TextRetrievalDataset
+from model import MLLMRetrievalModel
+from template import img_prompt, img_prompt_no_special_llava_v1_5, img_prompt_qwen_v2_5, \
+    img_prompt_intern_vl_v2_5, llama3_template, task_text_prompts_copy, task_image_prompts_copy, \
+    llama3_retrieval_disassemble_image_prompts, llama3_template_image_prefix, llama3_template_content_element, \
+    retrieval_disassemble_image_prompts_3_for_concat, \
+    retrieval_disassemble_image_prompts_for_concat, img_prompt_for_concat, \
+    retrieval_disassemble_image_prompts_7_for_concat, mistral_img_prompt, llava_mistral_template_image_prefix, \
+    llava_mistral_template_content_element, \
+    llava_mistral_template_fashion_iq_image_prefix, llama3_template_fashion_iq_image_prefix, \
+    retrieval_disassemble_image_prompts_fashion_iq_for_concat, fashion_iq_img_prompt_for_concat, \
+    llama3_fashion_iq_image_prompt, mistral_fashion_iq_image_prompt, \
+    person_retrieval_img_prompt, mistral_person_retrieval_img_prompt, \
+    person_retrieval_img_prompt_1, mistral_person_retrieval_img_prompt_1, \
+    person_retrieval_img_prompt_for_concat, person_retrieval_img_prompt_for_concat_1, \
+    retrieval_disassemble_image_prompts_person_retrieval_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_for_concat_1, \
+    retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat, mistral_person_retrieval_img_prompt_2, \
+    person_retrieval_img_prompt_2, person_retrieval_img_prompt_for_concat_2, \
+    retrieval_disassemble_image_prompts_fashion_iq_for_concat_1, img_prompt_qwen_v3, qwen3_img_prompt, \
+    qwen2_5_img_prompt, qwen2_5_template_image_prefix, qwen3_template_image_prefix, qwen3_template_content_element, \
+    qwen2_5_template_content_element, qwen3_person_retrieval_img_prompt, \
+    retrieval_disassemble_image_prompts_1_for_concat, retrieval_disassemble_image_prompts_2_for_concat, \
+    retrieval_disassemble_image_prompts_4_for_concat, retrieval_disassemble_image_prompts_6_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_1_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_2_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_3_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_4_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_6_for_concat, \
+    retrieval_disassemble_image_prompts_person_retrieval_7_for_concat, \
+    retrieval_disassemble_image_prompts_for_concat_llama_generation, \
+    retrieval_disassemble_image_prompts_for_concat_mistral_generation, vicuna_img_prompt,\
+    llava_vicuna_template_image_prefix, llava_vicuna_template_content_element, vicuna_person_retrieval_img_prompt, \
+    vicuna_person_retrieval_img_prompt_1, vicuna_person_retrieval_img_prompt_2, \
+    retrieval_disassemble_image_prompts_person_retrieval_for_concat_llama_generation, \
+    retrieval_disassemble_image_prompts_person_retrieval_for_concat_mistral_generation, llava_34b_template, \
+    llava_34b_template_image_prefix, llava_34b_template_content_element, t2it_corpus_prompt, mistral_t2it_corpus_prompt, \
+    llava_mistral_template_fusion_prefix, llama3_template_fusion_prefix, \
+    retrieval_disassemble_corpus_prompts_t2it_retrieval_for_concat, fusion_prompt_for_concat, it2t_query_prompt, \
+    mistral_it2t_query_prompt, retrieval_disassemble_query_prompts_it2t_retrieval_for_concat, \
+    retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat, RANDOM_VIEW_PROMPT_TYPE, \
+    build_random_view_prompts
+from utils import load_image
+from io import BytesIO
+
+
+# from fast_pytorch_kmeans import KMeans
+# from faiss import Kmeans
+
+model_begin_indice = 28
+path_prefix = '/root/autodl-fs/'
+SPARSE_LOGIT_X5_MODELS = (
+    'llava-hf-llama3-llava-next-8b-hf',
+    'llava-hf-llava-v1.6-mistral-7b-hf',
+)
+RANDOM_VIEW_SUPPORTED_MODELS = SPARSE_LOGIT_X5_MODELS
+
+
+def validate_sparse_logits_multiply_view_count(model_args, data_args):
+    if not data_args.sparse_logits_multiply_view_count:
+        return
+
+    if not any(model_name in model_args.model_name_or_path for model_name in SPARSE_LOGIT_X5_MODELS):
+        raise ValueError(
+            'sparse_logits_multiply_view_count only supports '
+            'llava-hf-llama3-llava-next-8b-hf and llava-hf-llava-v1.6-mistral-7b-hf.'
+        )
+    if model_args.calculate_type != 'separate':
+        raise ValueError('sparse_logits_multiply_view_count requires calculate_type=separate.')
+    if model_args.eol_type != 'prompteol':
+        raise ValueError('sparse_logits_multiply_view_count requires eol_type=prompteol.')
+    if data_args.sparse_value_mean:
+        raise ValueError(
+            'sparse_logits_multiply_view_count requires sparse_value_mean=false; '
+            'otherwise the five-times sparse weight would be divided out.'
+        )
+
+
+def get_sparse_logit_multiplier(model_args=None, data_args=None):
+    """Return the optional sparse-logit multiplier (fixed at 5 for prompteol)."""
+    if not data_args.sparse_logits_multiply_view_count:
+        return 1
+
+    if model_args is not None:
+        validate_sparse_logits_multiply_view_count(model_args, data_args)
+    return 5
+
+
+def validate_random_view_prompt(model_args, data_args, training_args):
+    if data_args.prompt_type != RANDOM_VIEW_PROMPT_TYPE:
+        return
+
+    if not any(model_name in model_args.model_name_or_path for model_name in RANDOM_VIEW_SUPPORTED_MODELS):
+        raise ValueError(
+            f'{RANDOM_VIEW_PROMPT_TYPE} only supports '
+            'llava-hf-llama3-llava-next-8b-hf and llava-hf-llava-v1.6-mistral-7b-hf.'
+        )
+    if model_args.calculate_type != 'concat':
+        raise ValueError(f'{RANDOM_VIEW_PROMPT_TYPE} requires calculate_type=concat.')
+    if training_args.task_type in {'cir', 't2it', 'it2t'}:
+        raise ValueError(
+            f'{RANDOM_VIEW_PROMPT_TYPE} supports the standard image-text retrieval and TBPR branches only.'
+        )
+
+
+def build_random_view_image_prompt_template(processor, model_args, data_args, person_retrieval=False):
+    _, _, random_image_prompts = build_random_view_prompts(
+        processor.tokenizer,
+        data_args.random_view_seed,
+        person_retrieval=person_retrieval,
+    )
+
+    if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+        prompt_template = llava_mistral_template_image_prefix
+        content_template = llava_mistral_template_content_element
+    else:
+        prompt_template = llama3_template_image_prefix
+        content_template = llama3_template_content_element
+
+    if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+        base_prompt = person_retrieval_img_prompt_for_concat if person_retrieval else img_prompt_for_concat
+        prompt_template += content_template.format(base_prompt)
+    for random_image_prompt in random_image_prompts:
+        prompt_template += content_template.format(random_image_prompt)
+    return prompt_template
+
+
+def get_filtered_ids(tokenizer):
+    filtered_ids = set()
+    for token, id in tokenizer.get_vocab().items():
+        if token[0] == '▁' or token[0] == ' ':
+            token = token[1:]
+        if not token.isalpha() and not token.isdigit():
+            continue
+        if ord('a') <= ord(token[0]) <= ord('z'):
+            filtered_ids.add(id)
+    return filtered_ids
+
+
+def filter_token(token):
+    if token[0] == 'Ġ' or token[0] == 'ġ':
+        token = token[1:]
+    '''
+    if ord(token[0]) < ord('a') or ord(token[0]) > ord('z'):
+        token = token[1:]
+    '''
+    return token
+
+
+def get_img_valid_tokens_values(tokenizer, logits, vocab_dict, data_args, filtered_ids, model_args=None, text=None):
+    sparse_logit_multiplier = get_sparse_logit_multiplier(model_args, data_args)
+    # 这里是想获得图像的离散值，但是图像是没有文本的，所以不能像原来那样获得对应的token_id，那么是取top 10还是最多128呢，我们先最多128吧
+
+    # if len(token_ids_in_text) == 0:  # if no tokens in the text (rare case), we use top 10 tokens
+    #     top_k_values, top_k_indices = logits.topk(10, dim=-1)
+    #     values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+    #     tokens = [vocab_dict[i.item()] for i in top_k_indices.cpu().detach().float().numpy()]
+    # else:
+    # 根据原文，他们遵循了SPLADE设置，为了加强logit离散性，只保留最多128个值
+    # 这里应该是先获得了logit，然后再来筛选哪些值，正常来说词表所有位置上的logit都很难是0，
+    # 但是这里就默认那些没有的单词还有排名128名之后的单词logit为0了
+    # TODO： 这里默认选128个了，但是文本大多数是没有128那么长的，不知道会不会对最终结果有影响
+    if text is not None:
+        words = [i for i in word_tokenize(text.lower()) if
+                 i not in set(stopwords.words('english') + list(string.punctuation))]
+        token_ids = set()
+        for word in words:
+            token_ids.update(tokenizer.encode(word, add_special_tokens=False))
+        token_ids_in_text = torch.tensor(list(token_ids))
+        top_k = min(len(token_ids_in_text), 128)
+        top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
+    elif data_args.sparse_manual:
+        top_k_values, top_k_indices = logits.topk(data_args.image_sparse_length, dim=-1)
+    elif model_args is not None and (
+            model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate'):
+        top_k = 30
+        top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
+    else:
+        top_k = data_args.sparse_length
+        top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
+        if dist.get_rank() == 0:
+            if data_args.print_sparse:
+                print()
+                print([{vocab_dict[indice]: value} for value, indice in
+                       zip(top_k_values.tolist(), top_k_indices.tolist())])
+    # print(top_k_indices)
+    # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
+    values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
+    # 把token id换成对应的单词，保存在tokens中
+    # e5-v模型会预测出超过词表长度的id，所以过滤一下，这个现象很普遍，目前不知道为什么会预测出这样的结果
+    if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+        tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy() if
+                  i < len(vocab_dict)]
+    elif data_args.sparse_lower_or_upper == 'lower':
+        tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy() if
+                  i < len(vocab_dict)]
+    else:
+        tokens = [vocab_dict[i.item()] for i in top_k_indices.cpu().detach().float().numpy() if
+                  i < len(vocab_dict)]
+
+    # top tokens not in the text for expansion.
+    if data_args.num_expended_tokens > 0:
+        token_ids_out_text = torch.tensor(list(filtered_ids - set(top_k_indices)))
+        top_k = min(data_args.num_expended_tokens, len(token_ids_out_text))
+        top_k_values, top_k_indices = logits[token_ids_out_text].topk(top_k, dim=-1)
+        values = np.append(values, np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int))
+        for i in token_ids_out_text[top_k_indices.cpu().detach().float().numpy()]:
+            tokens.append(vocab_dict[i.item()].lower())
+    return tokens, values
+
+
+def get_img_valid_tokens_values_with_cluster(tokenizer, logits, vocab_dict, origin_to_centroids_dict, data_args,
+                                             filtered_ids):
+    sparse_logit_multiplier = get_sparse_logit_multiplier(data_args=data_args)
+    # 这里是想获得图像的离散值，但是图像是没有文本的，所以不能像原来那样获得对应的token_id，那么是取top 10还是最多128呢，我们先最多128吧
+
+    # if len(token_ids_in_text) == 0:  # if no tokens in the text (rare case), we use top 10 tokens
+    #     top_k_values, top_k_indices = logits.topk(10, dim=-1)
+    #     values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+    #     tokens = [vocab_dict[i.item()] for i in top_k_indices.cpu().detach().float().numpy()]
+    # else:
+    # 根据原文，他们遵循了SPLADE设置，为了加强logit离散性，只保留最多128个值
+    # 这里应该是先获得了logit，然后再来筛选哪些值，正常来说词表所有位置上的logit都很难是0，
+    # 但是这里就默认那些没有的单词还有排名128名之后的单词logit为0了
+    # TODO： 这里默认选128个了，但是文本大多数是没有128那么长的，不知道会不会对最终结果有影响
+    if data_args.sparse_manual:
+        top_k_values, top_k_indices = logits.topk(data_args.sparse_length, dim=-1)
+    else:
+        top_k = 128
+        top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
+    # print(top_k_indices)
+    # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
+    values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
+    # 把token id换成对应的单词，保存在tokens中
+    tokens = [str(i.item()) for i in top_k_indices.cpu().detach().int().numpy() if
+              i < len(vocab_dict)]
+    return tokens, values
+
+
+def get_img_valid_disassemble_tokens_values(tokenizer, disassemble_logits, vocab_dict, data_args, filtered_ids,
+                                            logits=None, model_args=None):
+    word_set = set()
+    word_values = dict()
+    if data_args.sparse_manual:
+        top_k = data_args.sparse_length
+    else:
+        top_k = data_args.sparse_length
+
+    top_k_values, top_k_indices = disassemble_logits.topk(top_k, dim=-1)
+    for top_k_indice_list in top_k_indices:
+        word_set.update(top_k_indice_list.tolist())
+    if data_args.print_sparse:
+        for top_k_indice_list, top_k_value_list in zip(top_k_indices, top_k_values):
+            if dist.get_rank() == 0:
+                print(
+                    [{vocab_dict[i]: value} for i, value in zip(top_k_indice_list.tolist(), top_k_value_list.tolist())])
+    if model_args is not None and (
+            model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'
+            or model_args.eol_type == 'disassembleeol_separate_origin_text'
+            or model_args.eol_type == 'all_disassembleeol_origin_text'):
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        # 下面这里，是通过循环，将五个prompt预测logit结果给拿出来，保存到word_value字典里，先区分大小写，、
+        # 在下面构造token和value时会统一转成小写，并在main中的json构造循环里面再次计算sparse_value_type
+        for indice_list, value_list in zip(top_k_indices.cpu().detach().float().numpy(), values):
+            for indice, value in zip(indice_list, value_list):
+                if int(indice.item()) < len(vocab_dict):
+                    if vocab_dict[int(indice.item())] in word_values.keys():
+                        if int(indice.item()) < len(vocab_dict):
+                            if data_args.sparse_value_type == 'replace':
+                                word_values[vocab_dict[int(indice.item())]] = value
+                            elif data_args.sparse_value_type == 'sum':
+                                word_values[vocab_dict[int(indice.item())]] += value
+                            else:
+                                if value > word_values[vocab_dict[int(indice.item())]]:
+                                    word_values[vocab_dict[int(indice.item())]] = value
+                    else:
+                        if int(indice.item()) < len(vocab_dict):
+                            word_values[vocab_dict[int(indice.item())]] = value
+
+    '''
+    for disassemble_logit in disassemble_logits:
+        top_k_values, top_k_indices = disassemble_logit.topk(top_k, dim=-1)
+        word_set.update(top_k_indices.tolist())
+        if model_args is not None and (
+                model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'
+                or model_args.eol_type == 'disassembleeol_separate_origin_text'
+                or model_args.eol_type == 'all_disassembleeol_origin_text'):
+            values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+            # 下面这里，是通过循环，将五个prompt预测logit结果给拿出来，保存到word_value字典里，先区分大小写，、
+            # 在下面构造token和value时会统一转成小写，并在main中的json构造循环里面再次计算sparse_value_type
+            for indice, value in zip(top_k_indices.cpu().detach().float().numpy(), values):
+                if vocab_dict[int(indice.item())] in word_values.keys():
+                    if int(indice.item()) < len(vocab_dict):
+                        if data_args.sparse_value_type == 'replace':
+                            word_values[vocab_dict[int(indice.item())]] = value
+                        elif data_args.sparse_value_type == 'sum':
+                            word_values[vocab_dict[int(indice.item())]] += value
+                        else:
+                            if disassemble_logit[int(indice.item())].cpu().detach() > value:
+                                word_values[vocab_dict[int(indice.item())]] = value
+                else:
+                    if int(indice.item()) < len(vocab_dict):
+                        word_values[vocab_dict[int(indice.item())]] = value
+    '''
+
+    if model_args is not None and (
+            model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'
+            or model_args.eol_type == 'disassembleeol_separate_origin_text'
+            or model_args.eol_type == 'all_disassembleeol_origin_text'):
+        values = [word_values[key] for key in word_values.keys()]
+        if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+            tokens = [filter_token(key.lower()) for key in word_values.keys()]
+        elif data_args.sparse_lower_or_upper == 'lower':
+            tokens = [key.lower() for key in word_values.keys()]
+        else:
+            tokens = [key for key in word_values.keys()]
+    else:
+        values = [logits[indice].cpu().detach() for indice in word_set if indice < len(vocab_dict)]
+        values = np.rint(np.array(values) * 100).astype(int)
+
+        if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+            tokens = [filter_token(vocab_dict[i].lower()) for i in word_set if i < len(vocab_dict)]
+        elif data_args.sparse_lower_or_upper == 'lower':
+            tokens = [vocab_dict[i].lower() for i in word_set if i < len(vocab_dict)]
+        else:
+            tokens = [vocab_dict[i] for i in word_set if i < len(vocab_dict)]
+    return tokens, values
+
+
+def get_img_disassemble_tokens_values_for_information_analysis(tokenizer, disassemble_logits, vocab_dict, data_args,
+                                                               filtered_ids,
+                                                               logits=None, model_args=None):
+    word_set = set()
+    word_values = dict()
+    if data_args.sparse_manual:
+        top_k = data_args.sparse_length
+    else:
+        top_k = data_args.sparse_length
+
+    top_k_values, top_k_indices = disassemble_logits.topk(top_k, dim=-1)
+    for top_k_indice_list in top_k_indices:
+        word_set.update(top_k_indice_list.tolist())
+    values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+    # 下面这里，是通过循环，将五个prompt预测logit结果给拿出来，保存到word_value字典里，先区分大小写，、
+    # 在下面构造token和value时会统一转成小写，并在main中的json构造循环里面再次计算sparse_value_type
+    for disassemble_logit in disassemble_logits:
+        top_k_values, top_k_indices = disassemble_logit.topk(top_k, dim=-1)
+        word_set.update(top_k_indices.tolist())
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        vocabs = []
+        for indice in top_k_indices.cpu().detach().float().numpy():
+            vocabs.append(vocab_dict[int(indice.item())])
+
+
+def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args, filtered_ids, model_args=None):
+    sparse_logit_multiplier = get_sparse_logit_multiplier(model_args, data_args)
+    words = [i for i in word_tokenize(text.lower()) if
+             i not in set(stopwords.words('english') + list(string.punctuation))]
+    token_ids = set()
+    for word in words:
+        token_ids.update(tokenizer.encode(word, add_special_tokens=False))
+
+    # top tokens in the text
+    token_ids_in_text = torch.tensor(list(token_ids))
+    if len(token_ids_in_text) == 0:  # if no tokens in the text (rare case), we use top 10 tokens
+        top_k_values, top_k_indices = logits.topk(10, dim=-1)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
+        if data_args.is_filtered:
+            tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
+                      if
+                      i < len(vocab_dict)]
+        else:
+            tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy() if
+                      i < len(vocab_dict)]
+    elif data_args.sparse_manual:
+        # top_k_values, top_k_indices = logits.topk(len(token_ids_in_text), dim=-1)
+        top_k_values, top_k_indices = logits.topk(data_args.text_sparse_length, dim=-1)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
+        if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+            tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
+                      if
+                      i < len(vocab_dict)]
+        elif data_args.sparse_lower_or_upper == 'lower':
+            tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy() if
+                      i < len(vocab_dict)]
+        else:
+            tokens = [vocab_dict[i.item()] for i in top_k_indices.cpu().detach().float().numpy() if
+                      i < len(vocab_dict)]
+    elif model_args is not None and (
+            model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_separate'):
+        top_k = 30
+        top_k_values, top_k_indices = logits.topk(top_k, dim=-1)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
+        if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+            tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
+                      if
+                      i < len(vocab_dict)]
+        elif data_args.sparse_lower_or_upper == 'lower':
+            tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy() if
+                      i < len(vocab_dict)]
+        else:
+            tokens = [vocab_dict[i.item()] for i in top_k_indices.cpu().detach().float().numpy() if
+                      i < len(vocab_dict)]
+    else:
+        # 根据原文，他们遵循了SPLADE设置，为了加强logit离散性，只保留最多128个值
+        # 这里应该是先获得了logit，然后再来筛选哪些值，正常来说词表所有位置上的logit都很难是0，
+        # 但是这里就默认那些没有的单词还有排名128名之后的单词logit为0了
+        top_k = min(len(token_ids_in_text), 128)
+        top_k_values, top_k_indices = logits[token_ids_in_text].topk(top_k, dim=-1)
+        # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
+        # 把token id换成对应的单词，保存在tokens中
+        if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+            tokens = [filter_token(vocab_dict[i.item()].lower()) for i in
+                      token_ids_in_text[top_k_indices.cpu().detach().float().numpy()] if
+                      i < len(vocab_dict)]
+        elif data_args.sparse_lower_or_upper == 'lower':
+            tokens = [vocab_dict[i.item()].lower() for i in
+                      token_ids_in_text[top_k_indices.cpu().detach().float().numpy()] if
+                      i < len(vocab_dict)]
+        else:
+            tokens = [vocab_dict[i.item()] for i in
+                      token_ids_in_text[top_k_indices.cpu().detach().float().numpy()] if
+                      i < len(vocab_dict)]
+
+    # top tokens not in the text for expansion.
+    if data_args.num_expended_tokens > 0:
+        token_ids_out_text = torch.tensor(list(filtered_ids - token_ids))
+        top_k = min(data_args.num_expended_tokens, len(token_ids_out_text))
+        top_k_values, top_k_indices = logits[token_ids_out_text].topk(top_k, dim=-1)
+        values = np.append(values, np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int))
+        for i in token_ids_out_text[top_k_indices.cpu().detach().float().numpy()]:
+            if data_args.is_filtered:
+                tokens.append(filter_token(vocab_dict[i.item()].lower()))
+            else:
+                tokens.append(vocab_dict[i.item()].lower())
+    return tokens, values
+
+
+def get_text_valid_tokens_values_fusion(text, tokenizer, logits, vocab_dict, data_args, filtered_ids, sparse_type):
+    sparse_logit_multiplier = get_sparse_logit_multiplier(data_args=data_args)
+    words = [i for i in word_tokenize(text.lower()) if
+             i not in set(stopwords.words('english') + list(string.punctuation))]
+    token_ids = set()
+    for word in words:
+        token_ids.update(tokenizer.encode(word, add_special_tokens=False))
+
+    # top tokens in the text
+    token_ids_in_text = torch.tensor(list(token_ids))
+    if len(token_ids_in_text) == 0:  # if no tokens in the text (rare case), we use top 10 tokens
+        top_k_values, top_k_indices = logits.topk(10, dim=-1)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
+        if data_args.is_filtered:
+            tokens = [filter_token(vocab_dict[i.item()].lower()) for i in top_k_indices.cpu().detach().float().numpy()
+                      if
+                      i < len(vocab_dict)]
+        else:
+            tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy() if
+                      i < len(vocab_dict)]
+    else:
+        if sparse_type == 'guess':
+            # top_k_values, top_k_indices = logits.topk(len(token_ids_in_text), dim=-1)
+            top_k_values, top_k_indices = logits.topk(data_args.text_sparse_length, dim=-1)
+            values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
+            if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+                tokens = [filter_token(vocab_dict[i.item()].lower()) for i in
+                          top_k_indices.cpu().detach().float().numpy()
+                          if
+                          i < len(vocab_dict)]
+            elif data_args.sparse_lower_or_upper == 'lower':
+                tokens = [vocab_dict[i.item()].lower() for i in top_k_indices.cpu().detach().float().numpy() if
+                          i < len(vocab_dict)]
+            else:
+                tokens = [vocab_dict[i.item()] for i in top_k_indices.cpu().detach().float().numpy() if
+                          i < len(vocab_dict)]
+        else:
+            # 根据原文，他们遵循了SPLADE设置，为了加强logit离散性，只保留最多128个值
+            # 这里应该是先获得了logit，然后再来筛选哪些值，正常来说词表所有位置上的logit都很难是0，
+            # 但是这里就默认那些没有的单词还有排名128名之后的单词logit为0了
+            top_k = min(len(token_ids_in_text), 128)
+            top_k_values, top_k_indices = logits[token_ids_in_text].topk(top_k, dim=-1)
+            # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
+            values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
+            # 把token id换成对应的单词，保存在tokens中
+            if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+                tokens = [filter_token(vocab_dict[i.item()].lower()) for i in
+                          token_ids_in_text[top_k_indices.cpu().detach().float().numpy()] if
+                          i < len(vocab_dict)]
+            elif data_args.sparse_lower_or_upper == 'lower':
+                tokens = [vocab_dict[i.item()].lower() for i in
+                          token_ids_in_text[top_k_indices.cpu().detach().float().numpy()] if
+                          i < len(vocab_dict)]
+            else:
+                tokens = [vocab_dict[i.item()] for i in
+                          token_ids_in_text[top_k_indices.cpu().detach().float().numpy()] if
+                          i < len(vocab_dict)]
+
+    # top tokens not in the text for expansion.
+    if data_args.num_expended_tokens > 0:
+        token_ids_out_text = torch.tensor(list(filtered_ids - token_ids))
+        top_k = min(data_args.num_expended_tokens, len(token_ids_out_text))
+        top_k_values, top_k_indices = logits[token_ids_out_text].topk(top_k, dim=-1)
+        values = np.append(values, np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int))
+        for i in token_ids_out_text[top_k_indices.cpu().detach().float().numpy()]:
+            if data_args.is_filtered:
+                tokens.append(filter_token(vocab_dict[i.item()].lower()))
+            else:
+                tokens.append(vocab_dict[i.item()].lower())
+    return tokens, values
+
+
+def get_text_valid_tokens_values_with_cluster(text, tokenizer, logits, vocab_dict, origin_to_centroids_dict, data_args,
+                                              filtered_ids):
+    sparse_logit_multiplier = get_sparse_logit_multiplier(data_args=data_args)
+    words = [i for i in word_tokenize(text.lower()) if
+             i not in set(stopwords.words('english') + list(string.punctuation))]
+    token_ids = set()
+    for word in words:
+        token_encode_ids = tokenizer.encode(word, add_special_tokens=False)
+        centroid_ids = [origin_to_centroids_dict[i] for i in token_encode_ids]
+        token_ids.update(centroid_ids)
+
+    # top tokens in the text
+    token_ids_in_text = torch.tensor(list(token_ids))
+    if len(token_ids_in_text) == 0:  # if no tokens in the text (rare case), we use top 10 tokens
+        top_k_values, top_k_indices = logits.topk(10, dim=-1)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
+        tokens = [str(i.item()) for i in top_k_indices.cpu().detach().int().numpy() if
+                  i < len(vocab_dict)]
+    elif data_args.sparse_manual:
+        top_k_values, top_k_indices = logits.topk(data_args.sparse_length, dim=-1)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
+        tokens = [str(i.item()) for i in top_k_indices.cpu().detach().int().numpy() if
+                  i < len(vocab_dict)]
+    else:
+        # 根据原文，他们遵循了SPLADE设置，为了加强logit离散性，只保留最多128个值
+        # 这里应该是先获得了logit，然后再来筛选哪些值，正常来说词表所有位置上的logit都很难是0，
+        # 但是这里就默认那些没有的单词还有排名128名之后的单词logit为0了
+        top_k = min(len(token_ids_in_text), 128)
+        top_k_values, top_k_indices = logits[token_ids_in_text].topk(top_k, dim=-1)
+        # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
+        # 把token id换成对应的单词，保存在tokens中
+        tokens = [str(int(i.item())) for i in
+                  token_ids_in_text[top_k_indices.cpu().detach().float().numpy()] if
+                  i < len(vocab_dict)]
+
+    return tokens, values
+
+
+def get_text_valid_disassemble_tokens_values(text, tokenizer, disassemble_logits, vocab_dict, data_args,
+                                             filtered_ids, logits=None, model_args=None):
+    word_set = set()
+    word_values = dict()
+    if data_args.sparse_manual:
+        top_k = data_args.sparse_length
+    else:
+        top_k = data_args.sparse_length
+    if model_args is not None and (
+            model_args.eol_type == 'disassembleeol_separate_origin_text' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text'):
+        words = [i for i in word_tokenize(text.lower()) if
+                 i not in set(stopwords.words('english') + list(string.punctuation))]
+        token_ids = set()
+        for word in words:
+            token_ids.update(tokenizer.encode(word, add_special_tokens=False))
+
+        # top tokens in the text
+        token_ids_in_text = torch.tensor(list(token_ids))
+        top_k = min(len(token_ids_in_text), 128)
+
+    if model_args is not None and (
+            model_args.eol_type == 'disassembleeol_separate_origin_text' or model_args.eol_type == 'all_disassembleeol_origin_text'):
+        top_k_values, top_k_indices = disassemble_logits[:, token_ids_in_text].topk(top_k, dim=-1)
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        for indice_list, value_list in zip(token_ids_in_text[top_k_indices.cpu().detach().float().numpy()], values):
+            for indice, value in zip(indice_list, value_list):
+                if int(indice.item()) < len(vocab_dict):
+                    if vocab_dict[int(indice.item())] in word_values.keys():
+                        if int(indice.item()) < len(vocab_dict):
+                            if data_args.sparse_value_type == 'replace':
+                                word_values[vocab_dict[int(indice.item())]] = value
+                            elif data_args.sparse_value_type == 'sum':
+                                word_values[vocab_dict[int(indice.item())]] += value
+                            else:
+                                if value > word_values[vocab_dict[int(indice.item())]]:
+                                    word_values[vocab_dict[int(indice.item())]] = value
+                    else:
+                        if int(indice.item()) < len(vocab_dict):
+                            word_values[vocab_dict[int(indice.item())]] = value
+    else:
+        top_k_values, top_k_indices = disassemble_logits.topk(top_k, dim=-1)
+        for top_k_indice_list in top_k_indices:
+            word_set.update(top_k_indice_list.tolist())
+        if model_args is not None and (
+                model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'):
+            values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+            for indice_list, value_list in zip(top_k_indices.cpu().detach().float().numpy(), values):
+                for indice, value in zip(indice_list, value_list):
+                    if int(indice.item()) < len(vocab_dict):
+                        if vocab_dict[int(indice.item())] in word_values.keys():
+                            if int(indice.item()) < len(vocab_dict):
+                                if data_args.sparse_value_type == 'replace':
+                                    word_values[vocab_dict[int(indice.item())]] = value
+                                elif data_args.sparse_value_type == 'sum':
+                                    word_values[vocab_dict[int(indice.item())]] += value
+                                else:
+                                    if value > word_values[vocab_dict[int(indice.item())]]:
+                                        word_values[vocab_dict[int(indice.item())]] = value
+                        else:
+                            if int(indice.item()) < len(vocab_dict):
+                                word_values[vocab_dict[int(indice.item())]] = value
+
+    if data_args.print_sparse:
+        for top_k_indice_list, top_k_value_list in zip(top_k_indices, top_k_values):
+            if dist.get_rank() == 2:
+                print(
+                    [{vocab_dict[i]: value} for i, value in zip(top_k_indice_list.tolist(), top_k_value_list.tolist())])
+
+    '''
+    for disassemble_logit in disassemble_logits:
+        if model_args is not None and (
+                model_args.eol_type == 'disassembleeol_separate_origin_text' or model_args.eol_type == 'all_disassembleeol_origin_text'):
+            top_k_values, top_k_indices = disassemble_logit[token_ids_in_text].topk(top_k, dim=-1)
+            # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
+            values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+            for indice, value in zip(token_ids_in_text[top_k_indices.cpu().detach().float().numpy()], values):
+                if vocab_dict[int(indice.item())] in word_values.keys():
+                    if int(indice.item()) < len(vocab_dict):
+                        if data_args.sparse_value_type == 'replace':
+                            word_values[vocab_dict[int(indice.item())]] = value
+                        elif data_args.sparse_value_type == 'sum':
+                            word_values[vocab_dict[int(indice.item())]] += value
+                        else:
+                            if value > word_values[vocab_dict[int(indice.item())]]:
+                                word_values[vocab_dict[int(indice.item())]] = value
+                else:
+                    if int(indice.item()) < len(vocab_dict):
+                        word_values[vocab_dict[int(indice.item())]] = value
+        else:
+            top_k_values, top_k_indices = disassemble_logit.topk(top_k, dim=-1)
+            word_set.update(top_k_indices.tolist())
+            if model_args is not None and (
+                    model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'):
+                values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+                for indice, value in zip(top_k_indices.cpu().detach().float().numpy(), values):
+                    if vocab_dict[int(indice.item())] in word_values.keys():
+                        if int(indice.item()) < len(vocab_dict):
+                            if data_args.sparse_value_type == 'replace':
+                                word_values[vocab_dict[int(indice.item())]] = value
+                            elif data_args.sparse_value_type == 'sum':
+                                word_values[vocab_dict[int(indice.item())]] += value
+                            else:
+                                if value > word_values[vocab_dict[int(indice.item())]]:
+                                    word_values[vocab_dict[int(indice.item())]] = value
+                    else:
+                        if int(indice.item()) < len(vocab_dict):
+                            word_values[vocab_dict[int(indice.item())]] = value
+    '''
+
+    if model_args is not None and (
+            model_args.eol_type == 'disassembleeol_separate' or model_args.eol_type == 'all_disassembleeol'
+            or model_args.eol_type == 'disassembleeol_separate_origin_text'
+            or model_args.eol_type == 'all_disassembleeol_origin_text'):
+        values = [word_values[key] for key in word_values.keys()]
+        if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+            tokens = [filter_token(key.lower()) for key in word_values.keys()]
+        elif data_args.sparse_lower_or_upper == 'lower':
+            tokens = [key.lower() for key in word_values.keys()]
+        else:
+            tokens = [key for key in word_values.keys()]
+    else:
+        if model_args is not None and (
+                model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text'):
+            word_set = set(token_ids_in_text.tolist())
+        values = [logits[indice].cpu().detach() for indice in word_set if indice < len(vocab_dict)]
+        values = np.rint(np.array(values) * 100).astype(int)
+
+        if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+            tokens = [filter_token(vocab_dict[i].lower()) for i in word_set if i < len(vocab_dict)]
+        elif data_args.sparse_lower_or_upper == 'lower':
+            tokens = [vocab_dict[i].lower() for i in word_set if i < len(vocab_dict)]
+        else:
+            tokens = [vocab_dict[i] for i in word_set if i < len(vocab_dict)]
+    return tokens, values
+
+
+def get_text_valid_disassemble_tokens_values_fusion(text, tokenizer, disassemble_logits, vocab_dict, data_args,
+                                                    filtered_ids, sparse_type, logits=None, model_args=None):
+    word_set = set()
+    word_values = dict()
+    if data_args.sparse_manual:
+        top_k = data_args.sparse_length
+    else:
+        top_k = data_args.sparse_length
+
+    if sparse_type == 'guess':
+        top_k_values, top_k_indices = disassemble_logits.topk(top_k, dim=-1)
+        for top_k_indice_list in top_k_indices:
+            word_set.update(top_k_indice_list.tolist())
+        if model_args is not None and ('disassembleeol_concrete' not in model_args.eol_type):
+            values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+            for indice_list, value_list in zip(top_k_indices.cpu().detach().float().numpy(), values):
+                for indice, value in zip(indice_list, value_list):
+                    if int(indice.item()) < len(vocab_dict):
+                        if vocab_dict[int(indice.item())] in word_values.keys():
+                            if int(indice.item()) < len(vocab_dict):
+                                if data_args.sparse_value_type == 'replace':
+                                    word_values[vocab_dict[int(indice.item())]] = value
+                                elif data_args.sparse_value_type == 'sum':
+                                    word_values[vocab_dict[int(indice.item())]] += value
+                                else:
+                                    if value > word_values[vocab_dict[int(indice.item())]]:
+                                        word_values[vocab_dict[int(indice.item())]] = value
+                        else:
+                            if int(indice.item()) < len(vocab_dict):
+                                word_values[vocab_dict[int(indice.item())]] = value
+
+        if model_args is not None and ('disassembleeol_concrete' not in model_args.eol_type):
+            values = [word_values[key] for key in word_values.keys()]
+            if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+                tokens = [filter_token(key.lower()) for key in word_values.keys()]
+            elif data_args.sparse_lower_or_upper == 'lower':
+                tokens = [key.lower() for key in word_values.keys()]
+            else:
+                tokens = [key for key in word_values.keys()]
+        else:
+            values = [logits[indice].cpu().detach() for indice in word_set if indice < len(vocab_dict)]
+            values = np.rint(np.array(values) * 100).astype(int)
+
+            if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+                tokens = [filter_token(vocab_dict[i].lower()) for i in word_set if i < len(vocab_dict)]
+            elif data_args.sparse_lower_or_upper == 'lower':
+                tokens = [vocab_dict[i].lower() for i in word_set if i < len(vocab_dict)]
+            else:
+                tokens = [vocab_dict[i] for i in word_set if i < len(vocab_dict)]
+        return tokens, values
+    else:
+        words = [i for i in word_tokenize(text.lower()) if
+                 i not in set(stopwords.words('english') + list(string.punctuation))]
+        token_ids = set()
+        for word in words:
+            token_ids.update(tokenizer.encode(word, add_special_tokens=False))
+
+        # top tokens in the text
+        token_ids_in_text = torch.tensor(list(token_ids))
+        top_k = min(len(token_ids_in_text), 128)
+
+        if model_args is not None and ('disassembleeol_concrete' not in model_args.eol_type):
+            top_k_values, top_k_indices = disassemble_logits[:, token_ids_in_text].topk(top_k, dim=-1)
+            values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+            for indice_list, value_list in zip(token_ids_in_text[top_k_indices.cpu().detach().float().numpy()], values):
+                for indice, value in zip(indice_list, value_list):
+                    if int(indice.item()) < len(vocab_dict):
+                        if vocab_dict[int(indice.item())] in word_values.keys():
+                            if int(indice.item()) < len(vocab_dict):
+                                if data_args.sparse_value_type == 'replace':
+                                    word_values[vocab_dict[int(indice.item())]] = value
+                                elif data_args.sparse_value_type == 'sum':
+                                    word_values[vocab_dict[int(indice.item())]] += value
+                                else:
+                                    if value > word_values[vocab_dict[int(indice.item())]]:
+                                        word_values[vocab_dict[int(indice.item())]] = value
+                        else:
+                            if int(indice.item()) < len(vocab_dict):
+                                word_values[vocab_dict[int(indice.item())]] = value
+
+        if model_args is not None and ('disassembleeol_concrete' not in model_args.eol_type):
+            values = [word_values[key] for key in word_values.keys()]
+            if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+                tokens = [filter_token(key.lower()) for key in word_values.keys()]
+            elif data_args.sparse_lower_or_upper == 'lower':
+                tokens = [key.lower() for key in word_values.keys()]
+            else:
+                tokens = [key for key in word_values.keys()]
+        else:
+            if model_args is not None and ('disassembleeol_concrete' in model_args.eol_type):
+                word_set = set(token_ids_in_text.tolist())
+            values = [logits[indice].cpu().detach() for indice in word_set if indice < len(vocab_dict)]
+            values = np.rint(np.array(values) * 100).astype(int)
+
+            if data_args.is_filtered and data_args.sparse_lower_or_upper == 'lower':
+                tokens = [filter_token(vocab_dict[i].lower()) for i in word_set if i < len(vocab_dict)]
+            elif data_args.sparse_lower_or_upper == 'lower':
+                tokens = [vocab_dict[i].lower() for i in word_set if i < len(vocab_dict)]
+            else:
+                tokens = [vocab_dict[i] for i in word_set if i < len(vocab_dict)]
+        return tokens, values
+
+
+def get_text_disassemble_tokens_values_for_information_analysis(text, tokenizer, disassemble_logits, vocab_dict,
+                                                                data_args,
+                                                                filtered_ids, logits=None, model_args=None):
+    word_set = set()
+    word_values = dict()
+    if data_args.sparse_manual:
+        top_k = data_args.sparse_length
+    else:
+        top_k = data_args.sparse_length
+    for disassemble_logit in disassemble_logits:
+        top_k_values, top_k_indices = disassemble_logit.topk(top_k, dim=-1)
+        word_set.update(top_k_indices.tolist())
+        values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
+        vocabs = []
+        for indice in top_k_indices.cpu().detach().float().numpy():
+            vocabs.append(vocab_dict[int(indice.item())])
+
+
+'''
+在官方PromptReps中，有一个指定参数是multi_reps，目测是改取最后一个特征和logit为取多个特征和logit，但我们先只考虑取最后一个看看什么情况
+有需要的时候再增加multi_reps
+'''
+
+
+def main():
+    import dense_representation as dense_mode
+    from adaptive_view_overlap import OverlapViewArguments, OverlapSelectionStrategy
+    parser = HfArgumentParser((ModelArguments, PromptRepsLLMDataArguments, TrainingArguments, OverlapViewArguments))
+
+    model_args, data_args, training_args, adaptive_args = parser.parse_args_into_dataclasses()
+    if adaptive_args.view_selection_hierarchical and not adaptive_args.adaptive_views:
+        raise ValueError("--view_selection_hierarchical requires --adaptive_views")
+    if adaptive_args.view_selection_shuffle and not adaptive_args.adaptive_views:
+        raise ValueError("--view_selection_shuffle requires --adaptive_views")
+    dense_mode.prepare_entry(model_args, data_args, training_args)
+    _freeret_templates = prompt_constraints.Templates(model_args, data_args, input_type=training_args.encode_type)
+    from llava_resolution import validate_checkpoint
+    validate_checkpoint(model_args.model_name_or_path, data_args.llava_image_mode)
+    if adaptive_args.view_overlap_selection and not adaptive_args.adaptive_views:
+        raise ValueError("--view_overlap_selection requires --adaptive_views")
+    if adaptive_args.adaptive_views:
+        from adaptive_view_encoding import run_encode
+        strategy = (OverlapSelectionStrategy(adaptive_args, model_args, data_args, training_args.task_type)
+                    if adaptive_args.view_overlap_selection else None)
+        try:
+            return run_encode(model_args, data_args, training_args, adaptive_args, selection_strategy=strategy)
+        finally:
+            if dist.is_initialized():
+                dist.destroy_process_group()
+    from llava_resolution import check_mode
+    check_mode(data_args.llava_image_mode)
+    from qwen_vl_prompts import is_native_qwen_checkpoint
+    if is_native_qwen_checkpoint(model_args.model_name_or_path) or full_prompt.enabled(model_args):
+        if is_native_qwen_checkpoint(model_args.model_name_or_path) and data_args.llava_image_mode != "anyres":
+            raise ValueError("llava_image_mode=base requires LLaVA-NeXT, not Qwen")
+        from qwen_vl_pipeline import run_encode
+        try:
+            return run_encode(model_args, data_args, training_args)
+        finally:
+            if dist.is_initialized():
+                dist.destroy_process_group()
+    model_args: ModelArguments
+    data_args: PromptRepsLLMDataArguments
+    training_args: TrainingArguments
+
+    # This entry point encodes one split at a time.  Enabling the switch means
+    # that the requested encoding job is specifically for the generated
+    # validation set; keep the split name aligned with the output directories.
+    if data_args.use_generated_validation_data:
+        if data_args.dataset_split != 'val':
+            print(
+                f'--use_generated_validation_data overrides dataset_split '
+                f'{data_args.dataset_split!r} with \'val\'.'
+            )
+        data_args.dataset_split = 'val'
+
+    if data_args.use_few_shot_examples:
+        if not data_args.use_generated_validation_data:
+            raise ValueError(
+                '--use_few_shot_examples is only valid together with '
+                '--use_generated_validation_data.'
+            )
+        if data_args.few_shot_num <= 0:
+            raise ValueError('--few_shot_num must be a positive integer.')
+        data_args.few_shot_split = data_args.few_shot_split.lower()
+        if data_args.few_shot_split not in {'val', 'test'}:
+            raise ValueError('--few_shot_split must be val or test.')
+
+    if data_args.use_source_dataset_subset:
+        if not data_args.use_generated_validation_data:
+            raise ValueError(
+                '--use_source_dataset_subset is only valid together with '
+                '--use_generated_validation_data.'
+            )
+        if data_args.dataset_name not in {'coco', 'flickr'}:
+            raise ValueError(
+                '--use_source_dataset_subset currently supports only coco and flickr.'
+            )
+
+    generated_validation_kwargs = {
+        'use_generated_validation_data': data_args.use_generated_validation_data,
+        'generated_validation_data_root': data_args.generated_validation_data_root,
+    }
+
+    validate_sparse_logits_multiply_view_count(model_args, data_args)
+    validate_random_view_prompt(model_args, data_args, training_args)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    device_map = "cuda"
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+    print(os.environ.get("WORLD_SIZE"))
+    ddp = world_size != 1
+    print(ddp)
+    # if ddp and False:
+    if ddp:
+        device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)}
+        # gradient_accumulation_steps = gradient_accumulation_steps // world_size
+        rank, world_size = torch.distributed.get_rank(), torch.distributed.get_world_size()
+        if not dist.is_initialized():
+            torch.distributed.init_process_group("nccl", rank=rank, device_id=rank)
+        rank, world_size = torch.distributed.get_rank(), torch.distributed.get_world_size()
+        device_id = rank % torch.cuda.device_count()
+        device = torch.device(device_id)
+        torch.cuda.set_device(device)
+
+        print(device)
+
+    # 下面这部分指定采用的模型精度
+    if training_args.bf16:
+        torch_type = torch.bfloat16
+    elif training_args.fp16:
+        torch_type = torch.float16
+    else:
+        torch_type = torch.float32
+
+    # 指定模型
+    if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
+        encoder = LlavaForConditionalGeneration.from_pretrained(model_args.model_name_or_path, device_map=device_map,
+                                                                torch_dtype=torch_type)
+        processor = LlavaProcessor.from_pretrained(model_args.model_name_or_path)
+
+    elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+        encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
+                                                                     device_map=device_map,
+                                                                     torch_dtype=torch_type)
+        processor = Qwen2_5_VLProcessor.from_pretrained(model_args.model_name_or_path)
+
+
+    #elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+    #    encoder = Qwen3VLForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
+    #                                                              device_map=device_map,
+    #                                                              attn_implementation="sdpa",
+    #                                                              torch_dtype=torch_type)
+    #    processor = Qwen3VLProcessor.from_pretrained(model_args.model_name_or_path)
+    elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+        # device_map = split_model('InternVL2_5-8B')
+        encoder = AutoModel.from_pretrained(model_args.model_name_or_path,
+                                            device_map=device_map,
+                                            torch_dtype=torch_type,
+                                            trust_remote_code=True,
+                                            low_cpu_mem_usage=True,
+                                            )
+        processor = AutoProcessor.from_pretrained(model_args.model_name_or_path,
+                                                  trust_remote_code=True, )
+    else:
+        encoder = LlavaNextForConditionalGeneration.from_pretrained(model_args.model_name_or_path,
+                                                                    device_map=device_map,
+                                                                    torch_dtype=torch_type)
+        processor = LlavaNextProcessor.from_pretrained(model_args.model_name_or_path)
+        if 'royokong-e5-v' in model_args.model_name_or_path:
+            setattr(processor, "patch_size", 14)  # hack for pass
+        conversation = [
+            {
+
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "\nSummary above image in one word: "},
+                    {"type": "image", "image": '{}'},
+                ],
+            },
+        ]
+        if 'royokong-e5-v' not in model_args.model_name_or_path:
+            prompt = processor.apply_chat_template(conversation, add_generation_prompt=True)
+            if dist.get_rank() == 0:
+                print(prompt)
+            input_id = processor(text=prompt,
+                                 return_tensors="pt",
+                                 padding=True).input_ids
+            if dist.get_rank() == 0:
+                print(input_id)
+
+    if data_args.reps_loc == 'after_pad':
+        processor.tokenizer.padding_side = "left"
+        processor.tokenizer.padding = True
+        if dist.get_rank() == 0:
+            print(processor.tokenizer.unk_token_id)
+            print(processor.tokenizer.eos_token_id)
+            print(processor.tokenizer.pad_token_id)
+
+    # 加载词表并获取过滤后的单词id，但目前尚不清楚filtered_ids是做什么的
+    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+        vocab_dict = processor.get_vocab()
+        filtered_ids = get_filtered_ids(processor)
+    else:
+        vocab_dict = processor.tokenizer.get_vocab()
+        filtered_ids = get_filtered_ids(processor.tokenizer)
+    vocab_dict = {v: k for k, v in vocab_dict.items()}
+    print(len(vocab_dict))
+    if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE and dist.get_rank() == 0:
+        random_view_tokens, _, _ = _freeret_templates.build_random_view_prompts(
+            processor.tokenizer,
+            data_args.random_view_seed,
+        )
+        print(f'Random view vocabulary tokens (seed={data_args.random_view_seed}): {random_view_tokens}')
+
+    input_token_embeddings = encoder.get_input_embeddings().weight
+    output_token_embeddings = encoder.get_output_embeddings().weight[:len(vocab_dict), :]
+    output_token_dim = output_token_embeddings.size(1)
+
+    if dist.get_rank() == 0:
+        print(input_token_embeddings.shape)
+        print(output_token_embeddings.shape)
+
+    centroids_dict = {}  # 这是用来保存各个centroids都有哪些单词
+    origin_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为token id，value为聚类中心索引
+    origin_word_to_centroids_dict = {}  # 这是用来保存各个原始单词对应哪个聚类中心，键值为单词字符串，value为聚类中心索引
+    if model_args.use_output_embedding_cluster:
+        if dist.get_rank() == 0:
+            print('kmeans will be initialized.')
+        output_token_embeddings_for_kmeans = output_token_embeddings.detach().cpu().numpy()
+        '''
+        kmeans = faiss.Kmeans(
+            d=output_token_dim,  # 特征维度
+            k=model_args.cluster_sum,  # 聚类数
+            gpu=True,  # 启用GPU加速
+            niter=100,  # 迭代次数
+            verbose=True
+        )
+
+        # 执行聚类
+        kmeans.train(output_token_embeddings_for_kmeans)
+
+        # 获取结果
+        centroids = torch.from_numpy(kmeans.centroids).to(dtype=torch_type).cuda()  # 聚类中心
+
+        centroids_dict = {index: [] for index in range(len(centroids))}
+
+        print(centroids)
+        print(centroids.shape)
+
+        _, labels = kmeans.index.search(output_token_embeddings_for_kmeans, 1)  # 标签
+        labels = torch.from_numpy(labels.squeeze()).cuda()
+        print(labels)
+        '''
+        # output_token_embeddings_for_kmeans = output_token_embeddings.clone()
+
+        '''
+        # 执行聚类
+        labels, centroids = kmeans(
+            X=output_token_embeddings_for_kmeans,
+            num_clusters=10,
+            distance='euclidean',  # 可选 'cosine'
+            device=torch.device('cuda')
+        )
+        '''
+        '''
+        # 初始化模型
+        kmeans = KMeans(
+            n_clusters=model_args.cluster_sum,
+            n_init=1,  # 减少初始化随机性
+            random_state=42,  # 固定随机种子
+            algorithm="elkan",  # 对密集数据更快
+            verbose=1,
+            init="k-means||"
+        )
+        '''
+        if dist.get_rank() == 0:
+            print('Now load kmeans model.')
+        with open(f"kmeans_model_{model_args.model_name_or_path[14:]}_{model_args.cluster_sum}.pkl", "rb") as f:
+            kmeans = pickle.load(f)
+
+        # 训练并预测
+        # kmeans.fit(output_token_embeddings_for_kmeans)
+        labels = kmeans.predict(output_token_embeddings_for_kmeans)
+        labels = torch.from_numpy(labels.squeeze()).cuda()
+        print(labels)
+
+        # 获取聚类中心
+        centroids = kmeans.cluster_centers_
+
+        centroids = torch.from_numpy(centroids).to(dtype=torch_type).cuda()  # 聚类中心
+        # centroids = centroids.to(dtype=torch_type).cuda()
+
+        centroids_dict = {index: [] for index in range(len(centroids))}
+        print(centroids)
+        print(centroids.shape)
+
+        for i, v in enumerate(labels):
+            if i < len(vocab_dict):
+                origin_to_centroids_dict[i] = int(v)
+                origin_word_to_centroids_dict[vocab_dict[i]] = int(v)
+
+        for k in origin_to_centroids_dict:
+            centroids_dict[origin_to_centroids_dict[k]].append(vocab_dict[k])
+
+        new_lm_head = nn.Linear(encoder.language_model.config.hidden_size, model_args.cluster_sum, bias=False,
+                                dtype=torch_type).to(device)
+        print(new_lm_head.weight.shape)
+        new_lm_head.weight.data = centroids
+        if dist.get_rank() == 0:
+            print(new_lm_head.weight)
+
+        encoder.language_model.lm_head = new_lm_head
+
+    if model_args.lora:
+        if dist.get_rank() == 0:
+            print('We use lora model trained few shot here.')
+        encoder = PeftModel.from_pretrained(
+            encoder,  # 原始模型
+            model_args.lora_model_path,  # LoRA 适配器目录
+        )
+        encoder = encoder.merge_and_unload()
+
+    from llava_resolution import configure as configure_llava_resolution
+    processor = configure_llava_resolution(encoder, processor, data_args.llava_image_mode)
+
+    if training_args.task_type == 'cir':
+        dataset = ComposedTextImageRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split,
+                                                    training_args.encode_type,
+                                                    **generated_validation_kwargs)
+    elif training_args.task_type == 'tbpr':
+        dataset = TextPersonRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'single',
+                                             **generated_validation_kwargs)
+    elif training_args.task_type == 't2it':
+        dataset = Text2ImagetextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'corpus',
+                                                 **generated_validation_kwargs)
+    elif training_args.task_type == 'it2t':
+        dataset = Imagetext2TextRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'corpus',
+                                                 **generated_validation_kwargs)
+    else:
+        if training_args.encode_type == 'text':
+            dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'full',
+                                                 **generated_validation_kwargs)
+        else:
+            dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'single',
+                                                 **generated_validation_kwargs)
+    sampler = Data.DistributedSampler(dataset, num_replicas=dist.get_world_size(), shuffle=True, rank=dist.get_rank())
+    test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, pin_memory=True,
+                                      batch_size=data_args.per_device_batch_size, shuffle=False)
+
+    model = MLLMRetrievalModel(encoder)
+    model = model.eval()
+    print(model.is_ddp)
+
+    encoded = []
+    jsonl_data = []
+    lookup_indices = []
+
+    with torch.no_grad():
+        sampler.set_epoch(0)
+        if training_args.task_type == 'cir':
+            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
+                prompt = _freeret_templates.img_prompt_no_special_llava_v1_5
+            elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                prompt = _freeret_templates.img_prompt_qwen_v2_5
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                prompt = _freeret_templates.img_prompt_qwen_v3
+            elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                prompt = _freeret_templates.img_prompt_intern_vl_v2_5
+                if dist.get_rank() == 0:
+                    print(prompt)
+            elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                prompt = _freeret_templates.mistral_fashion_iq_image_prompt
+            elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                pass
+            else:
+                prompt = _freeret_templates.llama3_fashion_iq_image_prompt
+
+            if dist.get_rank() == 0:
+                print(prompt)
+
+            if 'disassembleeol' in model_args.eol_type:
+                if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    pass
+                else:
+                    prompts = _freeret_templates.llama3_retrieval_disassemble_image_prompts
+            else:
+                if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    pass
+                else:
+                    prompts = _freeret_templates.llama3_retrieval_disassemble_image_prompts
+        elif training_args.task_type == 'tbpr':
+            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
+                prompt = _freeret_templates.img_prompt_no_special_llava_v1_5
+            elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                prompt = _freeret_templates.img_prompt_qwen_v2_5
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                prompt = _freeret_templates.qwen3_person_retrieval_img_prompt
+            elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                prompt = _freeret_templates.img_prompt_intern_vl_v2_5
+                if dist.get_rank() == 0:
+                    print(prompt)
+            elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                if data_args.tbpr_type == 'origin_type':
+                    prompt = _freeret_templates.mistral_img_prompt
+                elif data_args.tbpr_type == 'type':
+                    prompt = _freeret_templates.mistral_person_retrieval_img_prompt
+                elif data_args.tbpr_type == 'type_1':
+                    prompt = _freeret_templates.mistral_person_retrieval_img_prompt_1
+                elif data_args.tbpr_type == 'type_2':
+                    prompt = _freeret_templates.mistral_person_retrieval_img_prompt_2
+                else:
+                    prompt = _freeret_templates.mistral_img_prompt
+            elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                if data_args.tbpr_type == 'origin_type':
+                    prompt = _freeret_templates.vicuna_img_prompt
+                elif data_args.tbpr_type == 'type':
+                    prompt = _freeret_templates.vicuna_person_retrieval_img_prompt
+                elif data_args.tbpr_type == 'type_1':
+                    prompt = _freeret_templates.vicuna_person_retrieval_img_prompt_1
+                elif data_args.tbpr_type == 'type_2':
+                    prompt = _freeret_templates.vicuna_person_retrieval_img_prompt_2
+                else:
+                    prompt = _freeret_templates.mistral_img_prompt
+            else:
+                if data_args.tbpr_type == 'origin_type':
+                    prompt = _freeret_templates.img_prompt
+                elif data_args.tbpr_type == 'type':
+                    prompt = _freeret_templates.person_retrieval_img_prompt
+                elif data_args.tbpr_type == 'type_1':
+                    prompt = _freeret_templates.person_retrieval_img_prompt_1
+                elif data_args.tbpr_type == 'type_2':
+                    prompt = _freeret_templates.person_retrieval_img_prompt_2
+                else:
+                    prompt = _freeret_templates.mistral_img_prompt
+
+            if dist.get_rank() == 0:
+                print(prompt)
+
+            if 'disassembleeol' in model_args.eol_type:
+                if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    pass
+                else:
+                    prompts = _freeret_templates.llama3_retrieval_disassemble_image_prompts
+            else:
+                if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    pass
+                else:
+                    prompts = _freeret_templates.llama3_retrieval_disassemble_image_prompts
+        elif training_args.task_type == 't2it':
+            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
+                prompt = _freeret_templates.img_prompt_no_special_llava_v1_5
+            elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                prompt = _freeret_templates.img_prompt_qwen_v2_5
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                prompt = _freeret_templates.img_prompt_qwen_v3
+            elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                prompt = _freeret_templates.img_prompt_intern_vl_v2_5
+                if dist.get_rank() == 0:
+                    print(prompt)
+            elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                prompt = _freeret_templates.mistral_t2it_corpus_prompt
+            elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                pass
+            else:
+                prompt = _freeret_templates.t2it_corpus_prompt
+
+            if dist.get_rank() == 0:
+                print(prompt)
+
+            if 'disassembleeol' in model_args.eol_type:
+                if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    pass
+                else:
+                    prompts = _freeret_templates.llama3_retrieval_disassemble_image_prompts
+            else:
+                if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    pass
+                else:
+                    prompts = _freeret_templates.llama3_retrieval_disassemble_image_prompts
+        else:
+            if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
+                prompt = _freeret_templates.img_prompt_no_special_llava_v1_5
+            elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                prompt = _freeret_templates.qwen2_5_img_prompt
+            elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                prompt = _freeret_templates.qwen3_img_prompt
+            elif 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                prompt = _freeret_templates.img_prompt_intern_vl_v2_5
+                if dist.get_rank() == 0:
+                    print(prompt)
+            elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                prompt = _freeret_templates.mistral_img_prompt
+            elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                prompt = _freeret_templates.vicuna_img_prompt
+            else:
+                prompt = _freeret_templates.img_prompt
+
+            if dist.get_rank() == 0:
+                print(prompt)
+
+            if 'disassembleeol' in model_args.eol_type:
+                if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    pass
+                else:
+                    prompts = _freeret_templates.llama3_retrieval_disassemble_image_prompts
+            else:
+                if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                    pass
+                else:
+                    prompts = _freeret_templates.llama3_retrieval_disassemble_image_prompts
+
+        if training_args.task_type == 'cir':
+            for batch_idx, (texts, imgs_path, target_path, text_ids, img_ids, composed_ids, dress_type) in tqdm(
+                    enumerate(test_dataloader),
+                    total=len(test_dataloader)):
+                with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+                    if model_args.calculate_type == 'separate':
+                        prompt_list = [prompt.replace("{}", dress_type_item) for dress_type_item in dress_type]
+                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                        img_inputs = processor(images=raw_images, text=prompt_list,
+                                               return_tensors="pt",
+                                               padding=True)
+                        imgs = img_inputs.to(device)
+                        logits, reps = model.encode_data_for_cir(texts, imgs, dress_type, 'image', processor, device,
+                                                                 model_args,
+                                                                 data_args)
+                    else:
+                        if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+
+                            prompt_template = _freeret_templates.llava_mistral_template_fashion_iq_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
+                                    _freeret_templates.fashion_iq_img_prompt_for_concat)
+                            if data_args.cir_type == 'type':
+                                for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_fashion_iq_for_concat:
+                                    content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            else:
+                                for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_fashion_iq_for_concat_1:
+                                    content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                        else:
+                            prompt_template = _freeret_templates.llama3_template_fashion_iq_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llama3_template_content_element.format(
+                                    _freeret_templates.fashion_iq_img_prompt_for_concat)
+                            if data_args.cir_type == 'type':
+                                for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_fashion_iq_for_concat:
+                                    content_element = _freeret_templates.llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            else:
+                                for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_fashion_iq_for_concat_1:
+                                    content_element = _freeret_templates.llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+
+                        raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                        prompt_list = [prompt_template.replace("{}", dress_type_item) for dress_type_item in dress_type]
+                        if dist.get_rank() == 0:
+                            if data_args.print_sparse:
+                                print(prompt_list)
+                        img_inputs = processor(images=raw_images, text=prompt_list,
+                                               return_tensors="pt",
+                                               padding=True)
+                        imgs = img_inputs.to(device)
+                        logits, reps = model.encode_data_concat_for_cir(texts, imgs, dress_type, 'image', processor,
+                                                                        device,
+                                                                        model_args,
+                                                                        data_args)
+                        if 'disassembleeol_concrete' in model_args.eol_type:
+                            disassemble_logits = logits[data_args.per_device_batch_size:]
+                            logits = logits[:data_args.per_device_batch_size]
+                        elif 'disassembleeol' in model_args.eol_type:
+                            disassemble_logits = logits
+                    # print(logits.shape)
+                    reps = F.normalize(reps, dim=-1)
+                    if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                        if data_args.cir_type == 'type':
+                            prompt_length = 5
+                        else:
+                            prompt_length = 8
+                        reps = reps.reshape(-1, prompt_length, reps.shape[1]).mean(1)
+                    lookup_indices.extend(img_ids)
+                    encoded.append(reps.cpu().detach().float().numpy())
+                    ids = img_ids
+                    if 'disassembleeol' in model_args.eol_type:
+                        for img_indice in range(len(ids)):
+                            if dist.get_rank() == 0:
+                                if data_args.print_sparse:
+                                    print(ids[img_indice])
+                            id = ids[img_indice]
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                logit = logits[img_indice]
+
+                            if data_args.cir_type == 'type':
+                                length = 5
+                            else:
+                                length = 8
+                            disassemble_logit = disassemble_logits[
+                                                img_indice * length:(img_indice + 1) * length]
+                            vector = dict()
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                         disassemble_logit,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, logit,
+                                                                                         model_args)
+                            else:
+                                tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                         disassemble_logit,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, None,
+                                                                                         model_args)
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
+                                        vector[token] = int(v)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
+                            if data_args.sparse_value_mean:
+                                for token in vector.keys():
+                                    if data_args.cir_type == 'type':
+                                        vector[token] //= 5
+                                    else:
+                                        vector[token] //= 8
+
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
+                                )
+                            )
+                    else:
+                        for id, logit, text in zip(ids, logits, texts):
+                            vector = dict()
+                            if dist.get_rank() == 0:
+                                if data_args.print_sparse:
+                                    print(id)
+                            if model_args.use_output_embedding_cluster:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values_with_cluster(processor, logit,
+                                                                                              centroids_dict,
+                                                                                              origin_to_centroids_dict,
+                                                                                              data_args,
+                                                                                              filtered_ids)
+                                else:
+                                    tokens, values = get_img_valid_tokens_values_with_cluster(
+                                        processor.tokenizer,
+                                        logit,
+                                        centroids_dict,
+                                        origin_to_centroids_dict,
+                                        data_args,
+                                        filtered_ids)
+                            else:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values(processor, logit, vocab_dict,
+                                                                                 data_args, filtered_ids)
+                                else:
+                                    tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                 vocab_dict,
+                                                                                 data_args, filtered_ids)
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
+                                        vector[token] = int(v)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
+                                )
+                            )
+
+        elif training_args.task_type == 'tbpr':
+            for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
+                                                                         total=len(test_dataloader)):
+                if model_args.calculate_type == 'separate':
+                    raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                    img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                           return_tensors="pt",
+                                           padding=True)
+                    imgs = img_inputs.to(device)
+                    logits, reps = model.encode_data_for_tbpr(imgs, 'image', processor, device, model_args,
+                                                              data_args)
+                else:
+                    if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
+                        prompt_template = build_random_view_image_prompt_template(
+                            processor,
+                            model_args,
+                            data_args,
+                            person_retrieval=data_args.tbpr_type == 'type',
+                        )
+                    elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                        if data_args.tbpr_type == 'origin_type':
+                            prompt_template = _freeret_templates.llava_mistral_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
+                                    _freeret_templates.img_prompt_for_concat)
+                            for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat:
+                                content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                    llava_mistral_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        elif data_args.tbpr_type == 'type':
+                            prompt_template = _freeret_templates.llava_mistral_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
+                                    _freeret_templates.person_retrieval_img_prompt_for_concat)
+                            if data_args.prompt_type == 'prompt_5':
+                                if data_args.prompt_generation:
+                                    for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat_llama_generation:
+                                        content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                            llava_mistral_retrieval_disassemble_image_prompt)
+                                        prompt_template += content_element
+                                else:
+                                    for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat:
+                                        content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                            llava_mistral_retrieval_disassemble_image_prompt)
+                                        prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_1':
+                                for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_1_for_concat:
+                                    content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_2':
+                                for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_2_for_concat:
+                                    content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_3_for_concat:
+                                    content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_4':
+                                for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_4_for_concat:
+                                    content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_6':
+                                if data_args.prompt_generation:
+                                    for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat_mistral_generation:
+                                        content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                            llava_mistral_retrieval_disassemble_image_prompt)
+                                        prompt_template += content_element
+                                else:
+                                    for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_6_for_concat:
+                                        content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                            llava_mistral_retrieval_disassemble_image_prompt)
+                                        prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_7_for_concat:
+                                    content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                        elif data_args.tbpr_type == 'type_1':
+                            prompt_template = _freeret_templates.llava_mistral_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
+                                    _freeret_templates.person_retrieval_img_prompt_for_concat_1)
+                            for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
+                                content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                    llava_mistral_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        elif data_args.tbpr_type == 'type_2':
+                            prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
+                                _freeret_templates.person_retrieval_img_prompt_for_concat_2)
+                            for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
+                                content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                    llava_mistral_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        else:
+                            prompt_template = _freeret_templates.llava_mistral_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
+                                    _freeret_templates.img_prompt_for_concat)
+                            for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat:
+                                content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                    llava_mistral_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                    elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                        if data_args.tbpr_type == 'origin_type':
+                            prompt_template = _freeret_templates.llava_vicuna_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(
+                                    _freeret_templates.img_prompt_for_concat)
+                            for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat:
+                                content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                    llava_vicuna_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        elif data_args.tbpr_type == 'type':
+                            prompt_template = _freeret_templates.llava_vicuna_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(
+                                    _freeret_templates.person_retrieval_img_prompt_for_concat)
+                            if data_args.prompt_type == 'prompt_5':
+                                for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat:
+                                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_1':
+                                for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_1_for_concat:
+                                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_2':
+                                for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_2_for_concat:
+                                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_3_for_concat:
+                                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_4':
+                                for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_4_for_concat:
+                                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_6':
+                                for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_6_for_concat:
+                                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_7_for_concat:
+                                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                        elif data_args.tbpr_type == 'type_1':
+                            prompt_template = _freeret_templates.llava_vicuna_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(
+                                    _freeret_templates.person_retrieval_img_prompt_for_concat_1)
+                            for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
+                                content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                    llava_vicuna_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        elif data_args.tbpr_type == 'type_2':
+                            prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(
+                                _freeret_templates.person_retrieval_img_prompt_for_concat_2)
+                            for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
+                                content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                    llava_vicuna_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        else:
+                            prompt_template = _freeret_templates.llava_vicuna_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(
+                                    _freeret_templates.img_prompt_for_concat)
+                            for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat:
+                                content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                    llava_vicuna_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                    elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                        prompt_template = _freeret_templates.llava_34b_template_image_prefix
+                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                            prompt_template += _freeret_templates.llava_34b_template_content_element.format(
+                                _freeret_templates.person_retrieval_img_prompt_for_concat)
+                        for llava_34b_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat:
+                            content_element = _freeret_templates.llava_34b_template_content_element.format(
+                                llava_34b_retrieval_disassemble_image_prompt)
+                            prompt_template += content_element
+                    elif 'Qwen-Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                        prompt_template = _freeret_templates.qwen3_template_image_prefix
+                        if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                            prompt_template += _freeret_templates.qwen3_template_content_element.format(
+                                _freeret_templates.person_retrieval_img_prompt_for_concat)
+                        for qwen3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat:
+                            content_element = _freeret_templates.qwen3_template_content_element.format(
+                                qwen3_retrieval_disassemble_image_prompt)
+                            prompt_template += content_element
+                    else:
+                        if data_args.tbpr_type == 'origin_type':
+                            prompt_template = _freeret_templates.llama3_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.img_prompt_for_concat)
+                            for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat:
+                                content_element = _freeret_templates.llama3_template_content_element.format(
+                                    llama3_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        elif data_args.tbpr_type == 'type':
+                            prompt_template = _freeret_templates.llama3_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llama3_template_content_element.format(
+                                    _freeret_templates.person_retrieval_img_prompt_for_concat)
+                            if data_args.prompt_type == 'prompt_5':
+                                if data_args.prompt_generation:
+                                    for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat_llama_generation:
+                                        content_element = _freeret_templates.llama3_template_content_element.format(
+                                            llama3_retrieval_disassemble_image_prompt)
+                                        prompt_template += content_element
+                                else:
+                                    for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat:
+                                        content_element = _freeret_templates.llama3_template_content_element.format(
+                                            llama3_retrieval_disassemble_image_prompt)
+                                        prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_1':
+                                for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_1_for_concat:
+                                    content_element = _freeret_templates.llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_2':
+                                for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_2_for_concat:
+                                    content_element = _freeret_templates.llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_3_for_concat:
+                                    content_element = _freeret_templates.llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_4':
+                                for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_4_for_concat:
+                                    content_element = _freeret_templates.llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_6':
+                                if data_args.prompt_generation:
+                                    for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat_mistral_generation:
+                                        content_element = _freeret_templates.llama3_template_content_element.format(
+                                            llama3_retrieval_disassemble_image_prompt)
+                                        prompt_template += content_element
+                                else:
+                                    for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_6_for_concat:
+                                        content_element = _freeret_templates.llama3_template_content_element.format(
+                                            llama3_retrieval_disassemble_image_prompt)
+                                        prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_7_for_concat:
+                                    content_element = _freeret_templates.llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                        elif data_args.tbpr_type == 'type_1':
+                            prompt_template = _freeret_templates.llama3_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llama3_template_content_element.format(
+                                    _freeret_templates.person_retrieval_img_prompt_for_concat_1)
+                            for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
+                                content_element = _freeret_templates.llama3_template_content_element.format(
+                                    llama3_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        elif data_args.tbpr_type == 'type_2':
+                            prompt_template = _freeret_templates.llama3_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llama3_template_content_element.format(
+                                    _freeret_templates.person_retrieval_img_prompt_for_concat_2)
+                            for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat_1:
+                                content_element = _freeret_templates.llama3_template_content_element.format(
+                                    llama3_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+                        else:
+                            prompt_template = _freeret_templates.llama3_template_image_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.img_prompt_for_concat)
+                            for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_origin_prompts_person_retrieval_for_concat:
+                                content_element = _freeret_templates.llama3_template_content_element.format(
+                                    llama3_retrieval_disassemble_image_prompt)
+                                prompt_template += content_element
+
+                    raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                    img_inputs = processor(images=raw_images, text=[prompt_template] * len(imgs_path),
+                                           return_tensors="pt",
+                                           padding=True)
+                    imgs = img_inputs.to(device)
+                    logits, reps = model.encode_data_concat_for_tbpr(imgs, 'image', processor, device, model_args,
+                                                                     data_args)
+                    if 'disassembleeol_concrete' in model_args.eol_type:
+                        disassemble_logits = logits[data_args.per_device_batch_size:]
+                        logits = logits[:data_args.per_device_batch_size]
+                    elif 'disassembleeol' in model_args.eol_type:
+                        disassemble_logits = logits
+
+                reps = F.normalize(reps, dim=-1)
+
+                if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                    prompt_length = 5
+                    reps = reps.reshape(-1, prompt_length, reps.shape[1]).mean(1)
+                lookup_indices.extend(img_ids)
+
+                encoded.append(reps.cpu().detach().float().numpy())
+
+                ids = img_ids
+                if 'disassembleeol' in model_args.eol_type:
+                    for img_indice in range(len(ids)):
+                        id = ids[img_indice]
+                        if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                            logit = logits[img_indice]
+                        text = texts[img_indice]
+                        if data_args.prompt_type in {'prompt_5', _freeret_templates.RANDOM_VIEW_PROMPT_TYPE}:
+                            length = 5
+                        elif data_args.prompt_type == 'prompt_1':
+                            length = 1
+                        elif data_args.prompt_type == 'prompt_2':
+                            length = 2
+                        elif data_args.prompt_type == 'prompt_3':
+                            length = 3
+                        elif data_args.prompt_type == 'prompt_4':
+                            length = 4
+                        elif data_args.prompt_type == 'prompt_6':
+                            length = 6
+                        else:
+                            length = 7
+                        disassemble_logit = disassemble_logits[
+                                            img_indice * length:(img_indice + 1) * length]
+                        vector = dict()
+                        if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                            tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                     disassemble_logit,
+                                                                                     vocab_dict,
+                                                                                     data_args,
+                                                                                     filtered_ids, logit,
+                                                                                     model_args)
+                        else:
+                            tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                     disassemble_logit,
+                                                                                     vocab_dict,
+                                                                                     data_args,
+                                                                                     filtered_ids, None,
+                                                                                     model_args)
+                        for token, v in zip(tokens, values):
+                            if token in vector.keys():
+                                if data_args.sparse_value_type == 'replace':
+                                    vector[token] = int(v)
+                                elif data_args.sparse_value_type == 'sum':
+                                    vector[token] += int(v)
+                                else:
+                                    if int(v) > vector[token]:
+                                        vector[token] = int(v)
+                            else:
+                                vector[token] = int(v)
+                        if data_args.sparse_value_mean:
+                            for token in vector.keys():
+                                if data_args.prompt_type in {'prompt_5', _freeret_templates.RANDOM_VIEW_PROMPT_TYPE}:
+                                    vector[token] //= 5
+                                elif data_args.prompt_type == 'prompt_1':
+                                    vector[token] //= 1
+                                elif data_args.prompt_type == 'prompt_2':
+                                    vector[token] //= 2
+                                elif data_args.prompt_type == 'prompt_3':
+                                    vector[token] //= 3
+                                elif data_args.prompt_type == 'prompt_4':
+                                    vector[token] //= 4
+                                elif data_args.prompt_type == 'prompt_6':
+                                    vector[token] //= 6
+                                else:
+                                    vector[token] //= 7
+                        jsonl_data.append(
+                            dict(
+                                id=id,
+                                content="",
+                                vector=vector,
+                            )
+                        )
+
+                else:
+                    for id, logit, text in zip(ids, logits, texts):
+                        vector = dict()
+                        if model_args.use_output_embedding_cluster:
+                            if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                tokens, values = get_img_valid_tokens_values_with_cluster(processor, logit,
+                                                                                          centroids_dict,
+                                                                                          origin_to_centroids_dict,
+                                                                                          data_args,
+                                                                                          filtered_ids)
+                            else:
+                                tokens, values = get_img_valid_tokens_values_with_cluster(
+                                    processor.tokenizer,
+                                    logit,
+                                    centroids_dict,
+                                    origin_to_centroids_dict,
+                                    data_args,
+                                    filtered_ids)
+                        else:
+                            if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                tokens, values = get_img_valid_tokens_values(processor, logit, vocab_dict,
+                                                                             data_args, filtered_ids)
+                            else:
+                                if model_args.eol_type == 'prompteol_same_length':
+                                    tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                 vocab_dict,
+                                                                                 data_args, filtered_ids,
+                                                                                 text=text)
+                                else:
+                                    tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                 vocab_dict,
+                                                                                 data_args, filtered_ids)
+                        for token, v in zip(tokens, values):
+                            if token in vector.keys():
+                                if data_args.sparse_value_type == 'replace':
+                                    vector[token] = int(v)
+                                elif data_args.sparse_value_type == 'sum':
+                                    vector[token] += int(v)
+                                else:
+                                    if int(v) > vector[token]:
+                                        vector[token] = int(v)
+                            else:
+                                vector[token] = int(v)
+                        jsonl_data.append(
+                            dict(
+                                id=id,
+                                content="",
+                                vector=vector,
+                            )
+                        )
+        elif training_args.task_type == 't2it':
+            for batch_idx, (corpus_texts, corpus_images, corpus_ids) in tqdm(enumerate(test_dataloader),
+                                                                             total=len(test_dataloader)):
+                with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+                    if len(corpus_texts) != data_args.per_device_batch_size:
+                        print(len(corpus_texts))
+                        print(dist.get_rank())
+                    if model_args.calculate_type == 'separate':
+                        '''
+                        if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                            prompt = processor.apply_chat_template(
+                                img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
+                            )
+                        '''
+                        raw_images = [Image.open(BytesIO(corpus_image)).convert("RGB") for corpus_image in corpus_images]
+                        img_inputs = processor(images=raw_images, text=[prompt.replace('<sent>', corpus_text) for corpus_text in corpus_texts],
+                                               return_tensors="pt",
+                                               padding=True)
+                        imgs = img_inputs.to(device)
+                        logits, reps = model.encode_data_for_t2it(imgs, 'corpus', processor, device, model_args,
+                                                                  data_args)
+                    else:
+                        if 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+                            prompt_template = _freeret_templates.llava_mistral_template_fusion_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
+                                    _freeret_templates.fusion_prompt_for_concat)
+                            for llava_mistral_retrieval_disassemble_corpus_prompt in _freeret_templates.retrieval_disassemble_corpus_prompts_t2it_retrieval_for_concat:
+                                content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                    llava_mistral_retrieval_disassemble_corpus_prompt)
+                                prompt_template += content_element
+                        else:
+                            prompt_template = _freeret_templates.llama3_template_fusion_prefix
+                            if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.img_prompt_for_concat)
+                            for llama3_retrieval_disassemble_corpus_prompt in _freeret_templates.retrieval_disassemble_corpus_prompts_t2it_retrieval_for_concat:
+                                content_element = _freeret_templates.llama3_template_content_element.format(
+                                    llama3_retrieval_disassemble_corpus_prompt)
+                                prompt_template += content_element
+                        raw_images = [Image.open(BytesIO(corpus_image)).convert("RGB") for corpus_image in
+                                      corpus_images]
+                        img_inputs = processor(images=raw_images,
+                                               text=[prompt_template.replace('<sent>', corpus_text) for corpus_text in
+                                                     corpus_texts],
+                                               return_tensors="pt",
+                                               padding=True)
+                        imgs = img_inputs.to(device)
+                        logits, reps = model.encode_data_concat_for_t2it(imgs, 'corpus', processor, device, model_args,
+                                                                         data_args)
+                        if 'disassembleeol_concrete' in model_args.eol_type:
+                            disassemble_logits = logits[data_args.per_device_batch_size:]
+                            logits = logits[:data_args.per_device_batch_size]
+                        elif 'disassembleeol' in model_args.eol_type:
+                            disassemble_logits = logits
+                    # print(logits.shape)
+                    reps = F.normalize(reps, dim=-1)
+
+                    if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                        prompt_length = len(_freeret_templates.retrieval_disassemble_corpus_prompts_t2it_retrieval_for_concat)
+                        reps = reps.reshape(-1, prompt_length, reps.shape[1]).mean(1)
+                    lookup_indices.extend(corpus_ids)
+
+                    encoded.append(reps.cpu().detach().float().numpy())
+
+                    ids = corpus_ids
+                    if 'disassembleeol' in model_args.eol_type:
+                        for corpus_indice in range(len(ids)):
+                            id = ids[corpus_indice]
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                logit = logits[corpus_indice]
+                            text = corpus_texts[corpus_indice]
+                            length = len(_freeret_templates.retrieval_disassemble_corpus_prompts_t2it_retrieval_for_concat)
+                            disassemble_logit = disassemble_logits[
+                                                corpus_indice * length:(corpus_indice + 1) * length]
+                            vector = dict()
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                         disassemble_logit,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, logit,
+                                                                                         model_args)
+                            else:
+                                tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                         disassemble_logit,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, None,
+                                                                                         model_args)
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
+                                        vector[token] = int(v)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
+                            if data_args.sparse_value_mean:
+                                for token in vector.keys():
+                                    vector[token] //= length
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
+                                )
+                            )
+
+                    else:
+                        for id, logit, text in zip(ids, logits, corpus_texts):
+                            vector = dict()
+                            if model_args.use_output_embedding_cluster:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values_with_cluster(processor, logit,
+                                                                                              centroids_dict,
+                                                                                              origin_to_centroids_dict,
+                                                                                              data_args,
+                                                                                              filtered_ids)
+                                else:
+                                    tokens, values = get_img_valid_tokens_values_with_cluster(
+                                        processor.tokenizer,
+                                        logit,
+                                        centroids_dict,
+                                        origin_to_centroids_dict,
+                                        data_args,
+                                        filtered_ids)
+                            else:
+                                if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                    tokens, values = get_img_valid_tokens_values(processor, logit, vocab_dict,
+                                                                                 data_args, filtered_ids)
+                                else:
+                                    if model_args.eol_type == 'prompteol_same_length':
+                                        tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                     vocab_dict,
+                                                                                     data_args, filtered_ids,
+                                                                                     text=text)
+                                    else:
+                                        tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                     vocab_dict,
+                                                                                     data_args, filtered_ids)
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
+                                        vector[token] = int(v)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
+                                )
+                            )
+
+        elif training_args.task_type == 'it2t':
+            for batch_idx, (corpus_texts, corpus_ids) in tqdm(enumerate(test_dataloader),
+                                                                             total=len(test_dataloader)):
+                with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+                    if len(corpus_texts) != data_args.per_device_batch_size:
+                        print(len(corpus_texts))
+                        print(dist.get_rank())
+                    if model_args.calculate_type == 'separate':
+                        '''
+                        if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                            prompt = processor.apply_chat_template(
+                                img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
+                            )
+                        '''
+                        logits, reps = model.encode_data_for_it2t(corpus_texts, 'corpus', processor, device, model_args,
+                                                                  data_args)
+                    else:
+                        logits, reps = model.encode_data_concat_for_it2t(corpus_texts, 'corpus',
+                                                                                           processor,
+                                                                                           device,
+                                                                                           model_args, data_args)
+                        if 'disassembleeol_concrete' in model_args.eol_type:
+                            disassemble_logits = logits[data_args.per_device_batch_size:]
+                            logits = logits[:data_args.per_device_batch_size]
+                        elif 'disassembleeol' in model_args.eol_type:
+                            disassemble_logits = logits
+                    # print(logits.shape)
+                    reps = F.normalize(reps, dim=-1)
+                    if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                        if model_args.calculate_type == 'concat':
+                            if data_args.dataset_name == 'llava':
+                                prompt_length = len(_freeret_templates.retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat)
+                            else:
+                                prompt_length = len(_freeret_templates.retrieval_disassemble_query_prompts_it2t_retrieval_for_concat)
+                        else:
+                            prompt_length = len(_freeret_templates.retrieval_disassemble_query_prompts_it2t_retrieval_for_concat)
+                        reps = reps.reshape(-1, prompt_length, reps.shape[1]).mean(1)
+                    lookup_indices.extend(corpus_ids)
+
+                    encoded.append(reps.cpu().detach().float().numpy())
+                    ids = corpus_ids
+                    if 'disassembleeol' in model_args.eol_type:
+                        for corpus_indice in range(len(ids)):
+                            id = ids[corpus_indice]
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                logit = logits[corpus_indice]
+                            corpus_text = corpus_texts[corpus_indice]
+                            if data_args.dataset_name == 'llava':
+                                length = len(_freeret_templates.retrieval_disassemble_corpus_prompts_llava_it2t_retrieval_for_concat)
+                            else:
+                                length = len(_freeret_templates.retrieval_disassemble_query_prompts_it2t_retrieval_for_concat)
+                            disassemble_logit = disassemble_logits[
+                                                corpus_indice * length:(corpus_indice + 1) * length]
+                            vector = dict()
+                            if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                tokens, values = get_text_valid_disassemble_tokens_values(corpus_text,
+                                                                                          processor.tokenizer,
+                                                                                          disassemble_logit,
+                                                                                          vocab_dict,
+                                                                                          data_args,
+                                                                                          filtered_ids, logit,
+                                                                                          model_args)
+                            else:
+                                tokens, values = get_text_valid_disassemble_tokens_values(corpus_text,
+                                                                                          processor.tokenizer,
+                                                                                          disassemble_logit,
+                                                                                          vocab_dict,
+                                                                                          data_args,
+                                                                                          filtered_ids, None,
+                                                                                          model_args)
+
+                            for token, v in zip(tokens, values):
+                                if token in vector.keys():
+                                    if data_args.sparse_value_type == 'replace':
+                                        vector[token] = int(v)
+                                    elif data_args.sparse_value_type == 'sum':
+                                        vector[token] += int(v)
+                                    else:
+                                        if int(v) > vector[token]:
+                                            vector[token] = int(v)
+                                else:
+                                    vector[token] = int(v)
+                            if data_args.sparse_value_mean:
+                                for token in vector.keys():
+                                    vector[token] //= length
+                            jsonl_data.append(
+                                dict(
+                                    id=id,
+                                    content="",
+                                    vector=vector,
+                                )
+                            )
+
+        else:
+            for batch_idx, (texts, imgs_path, text_ids, img_ids) in tqdm(enumerate(test_dataloader),
+                                                                         total=len(test_dataloader)):
+                with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+                    if len(texts) != data_args.per_device_batch_size:
+                        print(len(texts))
+                        print(dist.get_rank())
+                    if model_args.calculate_type == 'separate':
+                        if training_args.encode_type == 'text':
+                            logits, reps = model.encode_data(texts, 'text', processor, device, model_args, data_args)
+                            if model_args.eol_type == 'metaeol':
+                                logits = logits.reshape(-1, len(_freeret_templates.task_text_prompts_copy), logits.shape[1]).mean(1)
+                                reps = reps.reshape(-1, len(_freeret_templates.task_text_prompts_copy), reps.shape[1]).mean(1)
+                            elif 'disassembleeol_concrete' in model_args.eol_type:
+                                disassemble_logits = logits[data_args.per_device_batch_size:]
+                                logits = logits[:data_args.per_device_batch_size]
+                            elif 'disassembleeol' in model_args.eol_type:
+                                disassemble_logits = logits
+                        else:
+                            # Preparation for inference
+                            if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                prompt = processor.apply_chat_template(
+                                    _freeret_templates.img_prompt_intern_vl_v2_5, tokenize=False, add_generation_prompt=True
+                                )
+                                imgs = [load_image(path, max_num=12).to(torch_type).cuda() for path in imgs_path]
+                                logits, reps = model.encode_data(imgs, 'image', processor, device, model_args,
+                                                                 data_args)
+                            else:
+                                if model_args.eol_type == 'prompteol' or model_args.eol_type == 'prompteol_same_length':
+                                    '''
+                                    if 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path or 'Qwen2.5-VL-3B-Instruct' in model_args.model_name_or_path:
+                                        prompt = processor.apply_chat_template(
+                                            img_prompt_qwen_v2_5, tokenize=False, add_generation_prompt=True
+                                        )
+                                        if dist.get_rank() == 0:
+                                            print(prompt)
+                                    elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                                        prompt = processor.apply_chat_template(
+                                            img_prompt_qwen_v3, tokenize=False, add_generation_prompt=True
+                                        )
+                                        if dist.get_rank() == 0:
+                                            print(prompt)
+                                    '''
+                                    raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                                    img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                                           return_tensors="pt",
+                                                           padding=True)
+                                    '''
+                                    if dist.get_rank() == 0:
+                                        print(prompt)
+                                        print(img_inputs['input_ids'])
+                                    '''
+                                    imgs = img_inputs.to(device)
+                                    logits, reps = model.encode_data(imgs, 'image', processor, device, model_args,
+                                                                     data_args)
+                                elif 'disassembleeol' in model_args.eol_type:
+                                    # 这是参考metaeol的思路，试图将图文中的不同元素拆解出来，目前先把这个处理放在稀疏检索上，然后再看看密集检索是否使用
+                                    # all_disassembleeol表示稀疏特征和密集特征都用各个子方面（角度）的结果
+                                    raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                                    if model_args.eol_type != 'all_disassembleeol' and model_args.eol_type != 'all_disassembleeol_origin_text':
+                                        img_inputs = processor(images=raw_images, text=[prompt] * len(imgs_path),
+                                                               return_tensors="pt",
+                                                               padding=True)
+                                        imgs = img_inputs.to(device)
+                                        if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text':
+                                            logits, reps = model.encode_data(imgs, 'image', processor, device,
+                                                                             model_args,
+                                                                             data_args)
+                                        elif model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                            logits, _ = model.encode_data(imgs, 'image', processor, device, model_args,
+                                                                          data_args)
+                                        else:
+                                            _, reps = model.encode_data(imgs, 'image', processor, device, model_args,
+                                                                        data_args)
+
+                                    disassemble_raw_images = [raw_image for raw_image in raw_images for _ in
+                                                              range(len(prompts))]
+                                    disassemble_img_inputs = processor(images=disassemble_raw_images,
+                                                                       text=prompts * len(imgs_path),
+                                                                       return_tensors="pt",
+                                                                       padding=True)
+                                    disassemble_imgs = disassemble_img_inputs.to(device)
+                                    if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                        disassemble_logits, disassemble_embs = model.encode_data(disassemble_imgs,
+                                                                                                 'image',
+                                                                                                 processor, device,
+                                                                                                 model_args, data_args)
+                                        reps = disassemble_embs
+                                    else:
+                                        disassemble_logits, _ = model.encode_data(disassemble_imgs, 'image', processor,
+                                                                                  device,
+                                                                                  model_args, data_args)
+                                else:
+                                    # 希望获得这样的列表[a,a,a,b,b,b,c,c,c......]
+                                    # 也就是说，对于批次中的每个图像，按照下面每次循环使用的prompt个数，加入到raw_images中
+                                    raw_images = [Image.open(path).convert('RGB') for
+                                                  path in imgs_path for _ in range(len(_freeret_templates.task_image_prompts_copy) // 4)]
+                                    # 将task_prompt添加到llama3_template中
+                                    prompts = [_freeret_templates.llama3_template.format(task_image_prompt) for task_image_prompt in
+                                               _freeret_templates.task_image_prompts_copy]
+
+                                    logits = [[] for _ in range(len(imgs_path))]
+                                    reps = [[] for _ in range(len(imgs_path))]
+
+                                    for i in range(4):
+                                        # 这个i是为了控制当前轮次使用哪些prompt编码
+                                        start = i * len(prompts) // 4
+                                        end = (i + 1) * len(prompts) // 4
+
+                                        img_inputs = processor(images=raw_images,
+                                                               text=prompts[start:end] * len(imgs_path),
+                                                               return_tensors="pt",
+                                                               padding=True)
+
+                                        imgs = img_inputs.to(device)
+
+                                        # 在metaeol模式下，reps应该是[batch_size * len(task_prompts) // 4, reps_dim]
+                                        logits_sub, reps_sub = model.encode_data(imgs, 'image', processor, device,
+                                                                                 model_args,
+                                                                                 data_args)
+
+                                        for j in range(len(imgs_path)):
+                                            # 这个j是为了控制要把第j个样本对应的数据存到对应索引下的列表中
+                                            logits[j].append(
+                                                logits_sub[j * len(prompts) // 4:(j + 1) * len(prompts) // 4])
+                                            reps[j].append(reps_sub[j * len(prompts) // 4:(j + 1) * len(prompts) // 4])
+
+                                    logits = [item for logit in logits for item in logit]
+                                    reps = [item for rep in reps for item in rep]
+
+                                    logits = torch.cat(logits, dim=0)
+                                    reps = torch.cat(reps, dim=0)
+
+                                    logits = logits.reshape(-1, len(_freeret_templates.task_image_prompts_copy), logits.shape[1]).mean(1)
+                                    reps = reps.reshape(-1, len(_freeret_templates.task_image_prompts_copy), reps.shape[1]).mean(1)
+
+                    else:
+                        if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
+                            prompt_template = build_random_view_image_prompt_template(
+                                processor,
+                                model_args,
+                                data_args,
+                            )
+                        elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
+
+                            if data_args.prompt_type == 'prompt_5':
+                                prompt_template = _freeret_templates.llava_mistral_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_for_concat:
+                                    content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_1':
+                                prompt_template = _freeret_templates.llava_mistral_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_1_for_concat:
+                                    content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_2':
+                                prompt_template = _freeret_templates.llava_mistral_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_2_for_concat:
+                                    content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                prompt_template = _freeret_templates.llava_mistral_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_3_for_concat:
+                                    content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_4':
+                                prompt_template = _freeret_templates.llava_mistral_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_4_for_concat:
+                                    content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_6':
+                                prompt_template = _freeret_templates.llava_mistral_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_6_for_concat:
+                                    content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                        llava_mistral_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                prompt_template = _freeret_templates.llava_mistral_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                if data_args.prompt_generation:
+                                    if data_args.prompt_generation_model == 'llama':
+                                        for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_for_concat_llama_generation:
+                                            content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                                llava_mistral_retrieval_disassemble_image_prompt)
+                                            prompt_template += content_element
+                                    else:
+                                        for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_for_concat_mistral_generation:
+                                            content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                                llava_mistral_retrieval_disassemble_image_prompt)
+                                            prompt_template += content_element
+                                else:
+                                    for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_7_for_concat:
+                                        content_element = _freeret_templates.llava_mistral_template_content_element.format(
+                                            llava_mistral_retrieval_disassemble_image_prompt)
+                                        prompt_template += content_element
+                            else:
+                                pass
+
+                        elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
+                            if data_args.prompt_type == 'prompt_5':
+                                prompt_template = _freeret_templates.llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_for_concat:
+                                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_1':
+                                prompt_template = _freeret_templates.llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_1_for_concat:
+                                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_2':
+                                prompt_template = _freeret_templates.llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_2_for_concat:
+                                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                prompt_template = _freeret_templates.llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_3_for_concat:
+                                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_4':
+                                prompt_template = _freeret_templates.llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_4_for_concat:
+                                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_6':
+                                prompt_template = _freeret_templates.llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_6_for_concat:
+                                    content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                        llava_vicuna_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                prompt_template = _freeret_templates.llava_vicuna_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                if data_args.prompt_generation:
+                                    if data_args.prompt_generation_model == 'llama':
+                                        for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_for_concat_llama_generation:
+                                            content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                                llava_vicuna_retrieval_disassemble_image_prompt)
+                                            prompt_template += content_element
+                                    else:
+                                        for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_for_concat_mistral_generation:
+                                            content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                                llava_vicuna_retrieval_disassemble_image_prompt)
+                                            prompt_template += content_element
+                                else:
+                                    for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_7_for_concat:
+                                        content_element = _freeret_templates.llava_vicuna_template_content_element.format(
+                                            llava_vicuna_retrieval_disassemble_image_prompt)
+                                        prompt_template += content_element
+                            else:
+                                pass
+                        elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
+                            if data_args.prompt_type == 'prompt_5':
+                                prompt_template = _freeret_templates.llava_34b_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_34b_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for llava_34b_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_for_concat:
+                                    content_element = _freeret_templates.llava_34b_template_content_element.format(
+                                        llava_34b_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                prompt_template = _freeret_templates.llava_34b_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_34b_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for llava_34b_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_3_for_concat:
+                                    content_element = _freeret_templates.llava_34b_template_content_element.format(
+                                        llava_34b_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                prompt_template = _freeret_templates.llava_34b_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llava_34b_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for llava_34b_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_7_for_concat:
+                                    content_element = _freeret_templates.llava_34b_template_content_element.format(
+                                        llava_34b_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            else:
+                                pass
+                        elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
+                            if data_args.prompt_type == 'prompt_5':
+                                prompt_template = _freeret_templates.qwen2_5_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.qwen2_5_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for qwen2_5_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_for_concat:
+                                    content_element = _freeret_templates.qwen2_5_template_content_element.format(
+                                        qwen2_5_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                prompt_template = _freeret_templates.qwen2_5_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.qwen2_5_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for qwen2_5_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_3_for_concat:
+                                    content_element = _freeret_templates.qwen2_5_template_content_element.format(
+                                        qwen2_5_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                prompt_template = _freeret_templates.qwen2_5_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.qwen2_5_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for qwen2_5_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_7_for_concat:
+                                    content_element = _freeret_templates.qwen2_5_template_content_element.format(
+                                        qwen2_5_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                        elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
+                            if data_args.prompt_type == 'prompt_5':
+                                prompt_template = _freeret_templates.qwen3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.qwen3_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for qwen3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_for_concat:
+                                    content_element = _freeret_templates.qwen3_template_content_element.format(
+                                        qwen3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                prompt_template = _freeret_templates.qwen3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.qwen3_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for qwen3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_3_for_concat:
+                                    content_element = _freeret_templates.qwen3_template_content_element.format(
+                                        qwen3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                prompt_template = _freeret_templates.qwen3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.qwen3_template_content_element.format(
+                                        _freeret_templates.img_prompt_for_concat)
+                                for qwen3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_7_for_concat:
+                                    content_element = _freeret_templates.qwen3_template_content_element.format(
+                                        qwen3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            else:
+                                pass
+                        else:
+                            if data_args.prompt_type == 'prompt_5':
+                                prompt_template = _freeret_templates.llama3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.img_prompt_for_concat)
+                                for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_for_concat:
+                                    content_element = _freeret_templates.llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_1':
+                                prompt_template = _freeret_templates.llama3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.img_prompt_for_concat)
+                                for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_1_for_concat:
+                                    content_element = _freeret_templates.llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_2':
+                                prompt_template = _freeret_templates.llama3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.img_prompt_for_concat)
+                                for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_2_for_concat:
+                                    content_element = _freeret_templates.llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_3':
+                                prompt_template = _freeret_templates.llama3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.img_prompt_for_concat)
+                                for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_3_for_concat:
+                                    content_element = _freeret_templates.llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_4':
+                                prompt_template = _freeret_templates.llama3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.img_prompt_for_concat)
+                                for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_4_for_concat:
+                                    content_element = _freeret_templates.llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_6':
+                                prompt_template = _freeret_templates.llama3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.img_prompt_for_concat)
+                                for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_6_for_concat:
+                                    content_element = _freeret_templates.llama3_template_content_element.format(
+                                        llama3_retrieval_disassemble_image_prompt)
+                                    prompt_template += content_element
+                            elif data_args.prompt_type == 'prompt_7':
+                                prompt_template = _freeret_templates.llama3_template_image_prefix
+                                if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
+                                    prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.img_prompt_for_concat)
+                                if data_args.prompt_generation:
+                                    if data_args.prompt_generation_model == 'llama':
+                                        for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_for_concat_llama_generation:
+                                            content_element = _freeret_templates.llama3_template_content_element.format(
+                                                llava_mistral_retrieval_disassemble_image_prompt)
+                                            prompt_template += content_element
+                                    else:
+                                        for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_for_concat_mistral_generation:
+                                            content_element = _freeret_templates.llama3_template_content_element.format(
+                                                llava_mistral_retrieval_disassemble_image_prompt)
+                                            prompt_template += content_element
+                                else:
+                                    for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_7_for_concat:
+                                        content_element = _freeret_templates.llama3_template_content_element.format(
+                                            llama3_retrieval_disassemble_image_prompt)
+                                        prompt_template += content_element
+                            else:
+                                pass
+                        if training_args.encode_type == 'text':
+                            logits, reps = model.encode_data_concat(texts, 'text', processor, device, model_args,
+                                                                    data_args)
+                            if 'disassembleeol_concrete' in model_args.eol_type:
+                                disassemble_logits = logits[data_args.per_device_batch_size:]
+                                logits = logits[:data_args.per_device_batch_size]
+                            elif 'disassembleeol' in model_args.eol_type:
+                                disassemble_logits = logits
+                        else:
+                            raw_images = [Image.open(path).convert('RGB') for path in imgs_path]
+                            img_inputs = processor(images=raw_images, text=[prompt_template] * len(imgs_path),
+                                                   return_tensors="pt",
+                                                   padding=True)
+                            imgs = img_inputs.to(device)
+                            logits, reps = model.encode_data_concat(imgs, 'image', processor, device, model_args,
+                                                                    data_args)
+                            if 'disassembleeol_concrete' in model_args.eol_type:
+                                disassemble_logits = logits[data_args.per_device_batch_size:]
+                                logits = logits[:data_args.per_device_batch_size]
+                            elif 'disassembleeol' in model_args.eol_type:
+                                disassemble_logits = logits
+
+                    # print(logits.shape)
+                    reps = F.normalize(reps, dim=-1)
+                    if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                        if model_args.calculate_type == 'concat':
+                            if data_args.prompt_type == 'prompt_5':
+                                prompt_length = 5
+                            elif data_args.prompt_type == 'prompt_1':
+                                prompt_length = 1
+                            elif data_args.prompt_type == 'prompt_2':
+                                prompt_length = 2
+                            elif data_args.prompt_type == 'prompt_3':
+                                prompt_length = 3
+                            elif data_args.prompt_type == 'prompt_4':
+                                prompt_length = 4
+                            elif data_args.prompt_type == 'prompt_6':
+                                prompt_length = 6
+                            elif data_args.prompt_type == 'prompt_7':
+                                prompt_length = 7
+                            else:
+                                prompt_length = 5
+                        else:
+                            prompt_length = 5
+                        reps = reps.reshape(-1, prompt_length, reps.shape[1]).mean(1)
+                    if training_args.encode_type == 'text':
+                        lookup_indices.extend(text_ids)
+                    else:
+                        lookup_indices.extend(img_ids)
+
+                    encoded.append(reps.cpu().detach().float().numpy())
+
+                    ids = text_ids if training_args.encode_type == 'text' else img_ids
+                    if dist.get_rank() == 2:
+                        print(ids)
+                    if 'disassembleeol' in model_args.eol_type:
+                        if training_args.encode_type == 'text':
+                            if data_args.sparse_type == 'fusion':
+                                for text_indice in range(len(ids)):
+                                    id = ids[text_indice]
+                                    if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                        logit = logits[text_indice]
+                                    text = texts[text_indice]
+                                    if data_args.prompt_type == 'prompt_5':
+                                        length = 5
+                                    elif data_args.prompt_type == 'prompt_1':
+                                        length = 1
+                                    elif data_args.prompt_type == 'prompt_2':
+                                        length = 2
+                                    elif data_args.prompt_type == 'prompt_3':
+                                        length = 3
+                                    elif data_args.prompt_type == 'prompt_4':
+                                        length = 4
+                                    elif data_args.prompt_type == 'prompt_6':
+                                        length = 6
+                                    elif data_args.prompt_type == 'prompt_7':
+                                        length = 7
+                                    else:
+                                        length = 5
+                                    disassemble_logit = disassemble_logits[
+                                                        text_indice * length:(text_indice + 1) * length]
+                                    vector = dict()
+                                    if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                        tokens, values = get_text_valid_disassemble_tokens_values_fusion(text,
+                                                                                                         processor.tokenizer,
+                                                                                                         disassemble_logit,
+                                                                                                         vocab_dict,
+                                                                                                         data_args,
+                                                                                                         filtered_ids,
+                                                                                                         'guess', logit,
+                                                                                                         model_args)
+                                    else:
+                                        tokens, values = get_text_valid_disassemble_tokens_values_fusion(text,
+                                                                                                         processor.tokenizer,
+                                                                                                         disassemble_logit,
+                                                                                                         vocab_dict,
+                                                                                                         data_args,
+                                                                                                         filtered_ids,
+                                                                                                         'guess', None,
+                                                                                                         model_args)
+
+                                    for token, v in zip(tokens, values):
+                                        if token in vector.keys():
+                                            if data_args.sparse_value_type == 'replace':
+                                                vector[token] = int(v)
+                                            elif data_args.sparse_value_type == 'sum':
+                                                vector[token] += int(v)
+                                            else:
+                                                if int(v) > vector[token]:
+                                                    vector[token] = int(v)
+                                        else:
+                                            vector[token] = int(v)
+                                    if data_args.sparse_value_mean:
+                                        for token in vector.keys():
+                                            if data_args.prompt_type == 'prompt_5':
+                                                vector[token] //= 5
+                                            elif data_args.prompt_type == 'prompt_1':
+                                                vector[token] //= 1
+                                            elif data_args.prompt_type == 'prompt_2':
+                                                vector[token] //= 2
+                                            elif data_args.prompt_type == 'prompt_3':
+                                                vector[token] //= 3
+                                            elif data_args.prompt_type == 'prompt_4':
+                                                vector[token] //= 4
+                                            elif data_args.prompt_type == 'prompt_6':
+                                                vector[token] //= 6
+                                            elif data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
+                                                vector[token] //= 5
+                                            else:
+                                                vector[token] //= 7
+                                    if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                        tokens, values = get_text_valid_disassemble_tokens_values_fusion(text,
+                                                                                                         processor.tokenizer,
+                                                                                                         disassemble_logit,
+                                                                                                         vocab_dict,
+                                                                                                         data_args,
+                                                                                                         filtered_ids,
+                                                                                                         'origin_text',
+                                                                                                         logit,
+                                                                                                         model_args)
+                                    else:
+                                        tokens, values = get_text_valid_disassemble_tokens_values_fusion(text,
+                                                                                                         processor.tokenizer,
+                                                                                                         disassemble_logit,
+                                                                                                         vocab_dict,
+                                                                                                         data_args,
+                                                                                                         filtered_ids,
+                                                                                                         'origin_text',
+                                                                                                         None,
+                                                                                                         model_args)
+                                    for token, v in zip(tokens, values):
+                                        if token in vector.keys():
+                                            if data_args.sparse_value_type == 'replace':
+                                                vector[token] = int(v)
+                                            elif data_args.sparse_value_type == 'sum':
+                                                vector[token] += int(v)
+                                            else:
+                                                if int(v) > vector[token]:
+                                                    vector[token] = int(v)
+                                        else:
+                                            vector[token] = int(v)
+                                    jsonl_data.append(
+                                        dict(
+                                            id=id,
+                                            content="",
+                                            vector=vector,
+                                        )
+                                    )
+                            else:
+                                for text_indice in range(len(ids)):
+                                    id = ids[text_indice]
+                                    if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                        logit = logits[text_indice]
+                                    text = texts[text_indice]
+                                    if data_args.prompt_type == 'prompt_5':
+                                        length = 5
+                                    elif data_args.prompt_type == 'prompt_1':
+                                        length = 1
+                                    elif data_args.prompt_type == 'prompt_2':
+                                        length = 2
+                                    elif data_args.prompt_type == 'prompt_3':
+                                        length = 3
+                                    elif data_args.prompt_type == 'prompt_4':
+                                        length = 4
+                                    elif data_args.prompt_type == 'prompt_6':
+                                        length = 6
+                                    elif data_args.prompt_type == 'prompt_7':
+                                        length = 7
+                                    else:
+                                        length = 5
+                                    disassemble_logit = disassemble_logits[
+                                                        text_indice * length:(text_indice + 1) * length]
+                                    vector = dict()
+                                    if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                        tokens, values = get_text_valid_disassemble_tokens_values(text,
+                                                                                                  processor.tokenizer,
+                                                                                                  disassemble_logit,
+                                                                                                  vocab_dict,
+                                                                                                  data_args,
+                                                                                                  filtered_ids, logit,
+                                                                                                  model_args)
+                                    else:
+                                        tokens, values = get_text_valid_disassemble_tokens_values(text,
+                                                                                                  processor.tokenizer,
+                                                                                                  disassemble_logit,
+                                                                                                  vocab_dict,
+                                                                                                  data_args,
+                                                                                                  filtered_ids, None,
+                                                                                                  model_args)
+
+                                    for token, v in zip(tokens, values):
+                                        if token in vector.keys():
+                                            if data_args.sparse_value_type == 'replace':
+                                                vector[token] = int(v)
+                                            elif data_args.sparse_value_type == 'sum':
+                                                vector[token] += int(v)
+                                            else:
+                                                if int(v) > vector[token]:
+                                                    vector[token] = int(v)
+                                        else:
+                                            vector[token] = int(v)
+                                    if data_args.sparse_value_mean:
+                                        for token in vector.keys():
+                                            if data_args.prompt_type == 'prompt_5':
+                                                vector[token] //= 5
+                                            elif data_args.prompt_type == 'prompt_1':
+                                                vector[token] //= 1
+                                            elif data_args.prompt_type == 'prompt_2':
+                                                vector[token] //= 2
+                                            elif data_args.prompt_type == 'prompt_3':
+                                                vector[token] //= 3
+                                            elif data_args.prompt_type == 'prompt_4':
+                                                vector[token] //= 4
+                                            elif data_args.prompt_type == 'prompt_6':
+                                                vector[token] //= 6
+                                            elif data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
+                                                vector[token] //= 5
+                                            else:
+                                                vector[token] //= 7
+                                    jsonl_data.append(
+                                        dict(
+                                            id=id,
+                                            content="",
+                                            vector=vector,
+                                        )
+                                    )
+                        else:
+                            for img_indice in range(len(ids)):
+                                id = ids[img_indice]
+                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                    logit = logits[img_indice]
+                                text = texts[img_indice]
+                                if data_args.prompt_type == 'prompt_5':
+                                    length = 5
+                                elif data_args.prompt_type == 'prompt_1':
+                                    length = 1
+                                elif data_args.prompt_type == 'prompt_2':
+                                    length = 2
+                                elif data_args.prompt_type == 'prompt_3':
+                                    length = 3
+                                elif data_args.prompt_type == 'prompt_4':
+                                    length = 4
+                                elif data_args.prompt_type == 'prompt_6':
+                                    length = 6
+                                elif data_args.prompt_type == 'prompt_7':
+                                    length = 7
+                                else:
+                                    length = 5
+                                disassemble_logit = disassemble_logits[
+                                                    img_indice * length:(img_indice + 1) * length]
+                                vector = dict()
+                                if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
+                                    tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                             disassemble_logit,
+                                                                                             vocab_dict,
+                                                                                             data_args,
+                                                                                             filtered_ids, logit,
+                                                                                             model_args)
+                                else:
+                                    tokens, values = get_img_valid_disassemble_tokens_values(processor,
+                                                                                             disassemble_logit,
+                                                                                             vocab_dict,
+                                                                                             data_args,
+                                                                                             filtered_ids, None,
+                                                                                             model_args)
+                                for token, v in zip(tokens, values):
+                                    if token in vector.keys():
+                                        if data_args.sparse_value_type == 'replace':
+                                            vector[token] = int(v)
+                                        elif data_args.sparse_value_type == 'sum':
+                                            vector[token] += int(v)
+                                        else:
+                                            if int(v) > vector[token]:
+                                                vector[token] = int(v)
+                                    else:
+                                        vector[token] = int(v)
+                                if data_args.sparse_value_mean:
+                                    for token in vector.keys():
+                                        if data_args.prompt_type == 'prompt_5':
+                                            vector[token] //= 5
+                                        elif data_args.prompt_type == 'prompt_1':
+                                            vector[token] //= 1
+                                        elif data_args.prompt_type == 'prompt_2':
+                                            vector[token] //= 2
+                                        elif data_args.prompt_type == 'prompt_3':
+                                            vector[token] //= 3
+                                        elif data_args.prompt_type == 'prompt_4':
+                                            vector[token] //= 4
+                                        elif data_args.prompt_type == 'prompt_6':
+                                            vector[token] //= 6
+                                        elif data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
+                                            vector[token] //= 5
+                                        else:
+                                            vector[token] //= 7
+                                jsonl_data.append(
+                                    dict(
+                                        id=id,
+                                        content="",
+                                        vector=vector,
+                                    )
+                                )
+                    else:
+                        if training_args.encode_type == 'text':
+                            if data_args.sparse_type == 'fusion':
+                                for id, logit, text in zip(ids, logits, texts):
+                                    vector = dict()
+                                    tokens, values = get_text_valid_tokens_values_fusion(text, processor.tokenizer,
+                                                                                         logit,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, 'guess')
+                                    for token, v in zip(tokens, values):
+                                        if token in vector.keys():
+                                            if data_args.sparse_value_type == 'replace':
+                                                vector[token] = int(v)
+                                            elif data_args.sparse_value_type == 'sum':
+                                                vector[token] += int(v)
+                                            else:
+                                                if int(v) > vector[token]:
+                                                    vector[token] = int(v)
+                                        else:
+                                            vector[token] = int(v)
+
+                                    tokens, values = get_text_valid_tokens_values_fusion(text, processor.tokenizer,
+                                                                                         logit,
+                                                                                         vocab_dict,
+                                                                                         data_args,
+                                                                                         filtered_ids, 'origin_text')
+                                    for token, v in zip(tokens, values):
+                                        if token in vector.keys():
+                                            if data_args.sparse_value_type == 'replace':
+                                                vector[token] = int(v)
+                                            elif data_args.sparse_value_type == 'sum':
+                                                vector[token] += int(v)
+                                            else:
+                                                if int(v) > vector[token]:
+                                                    vector[token] = int(v)
+                                        else:
+                                            vector[token] = int(v)
+                                    jsonl_data.append(
+                                        dict(
+                                            id=id,
+                                            content="",
+                                            vector=vector,
+                                        )
+                                    )
+                            else:
+                                for id, logit, text in zip(ids, logits, texts):
+                                    vector = dict()
+                                    if model_args.use_output_embedding_cluster:
+                                        if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                            tokens, values = get_text_valid_tokens_values_with_cluster(text, processor,
+                                                                                                       logit,
+                                                                                                       centroids_dict,
+                                                                                                       origin_to_centroids_dict,
+                                                                                                       data_args,
+                                                                                                       filtered_ids)
+                                        else:
+                                            tokens, values = get_text_valid_tokens_values_with_cluster(text,
+                                                                                                       processor.tokenizer,
+                                                                                                       logit,
+                                                                                                       centroids_dict,
+                                                                                                       origin_to_centroids_dict,
+                                                                                                       data_args,
+                                                                                                       filtered_ids)
+                                    else:
+                                        if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                            tokens, values = get_text_valid_tokens_values(text, processor, logit,
+                                                                                          vocab_dict,
+                                                                                          data_args,
+                                                                                          filtered_ids)
+                                        else:
+                                            tokens, values = get_text_valid_tokens_values(text, processor.tokenizer,
+                                                                                          logit,
+                                                                                          vocab_dict,
+                                                                                          data_args,
+                                                                                          filtered_ids)
+                                    for token, v in zip(tokens, values):
+                                        if token in vector.keys():
+                                            if data_args.sparse_value_type == 'replace':
+                                                vector[token] = int(v)
+                                            elif data_args.sparse_value_type == 'sum':
+                                                vector[token] += int(v)
+                                            else:
+                                                if int(v) > vector[token]:
+                                                    vector[token] = int(v)
+                                        else:
+                                            vector[token] = int(v)
+                                    jsonl_data.append(
+                                        dict(
+                                            id=id,
+                                            content="",
+                                            vector=vector,
+                                        )
+                                    )
+                        else:
+                            for id, logit, text in zip(ids, logits, texts):
+                                vector = dict()
+                                if model_args.use_output_embedding_cluster:
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                        tokens, values = get_img_valid_tokens_values_with_cluster(processor, logit,
+                                                                                                  centroids_dict,
+                                                                                                  origin_to_centroids_dict,
+                                                                                                  data_args,
+                                                                                                  filtered_ids)
+                                    else:
+                                        tokens, values = get_img_valid_tokens_values_with_cluster(
+                                            processor.tokenizer,
+                                            logit,
+                                            centroids_dict,
+                                            origin_to_centroids_dict,
+                                            data_args,
+                                            filtered_ids)
+                                else:
+                                    if 'InternVL2_5-8B' in model_args.model_name_or_path or 'InternVL2_5-4B' in model_args.model_name_or_path:
+                                        tokens, values = get_img_valid_tokens_values(processor, logit, vocab_dict,
+                                                                                     data_args, filtered_ids)
+                                    else:
+                                        if model_args.eol_type == 'prompteol_same_length':
+                                            tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                         vocab_dict,
+                                                                                         data_args, filtered_ids,
+                                                                                         text=text)
+                                        else:
+                                            tokens, values = get_img_valid_tokens_values(processor.tokenizer, logit,
+                                                                                         vocab_dict,
+                                                                                         data_args, filtered_ids)
+                                for token, v in zip(tokens, values):
+                                    if token in vector.keys():
+                                        if data_args.sparse_value_type == 'replace':
+                                            vector[token] = int(v)
+                                        elif data_args.sparse_value_type == 'sum':
+                                            vector[token] += int(v)
+                                        else:
+                                            if int(v) > vector[token]:
+                                                vector[token] = int(v)
+                                    else:
+                                        vector[token] = int(v)
+                                jsonl_data.append(
+                                    dict(
+                                        id=id,
+                                        content="",
+                                        vector=vector,
+                                    )
+                                )
+
+    encoded = np.concatenate(encoded)
+
+    print(f'rank:{dist.get_rank()}, encoded length:{len(encoded)}')
+    print(f'rank:{dist.get_rank()}, lookup_indices:{len(lookup_indices)}')
+    print(f'rank:{dist.get_rank()}, jsonl_data:{len(jsonl_data)}')
+
+    if data_args.is_filtered:
+        filtered = "filter"
+    else:
+        filtered = "no_filter"
+
+    if data_args.sparse_manual:
+        manual = 'manual'
+    else:
+        manual = "no_manual"
+
+    if model_args.use_output_embedding_cluster:
+        cluster = f'cluster_{model_args.cluster_sum}'
+    else:
+        cluster = 'no_cluster'
+
+    if data_args.sparse_value_mean:
+        use_sparse_value_mean = 'mean'
+    else:
+        use_sparse_value_mean = 'no_mean'
+    if data_args.sparse_logits_multiply_view_count:
+        use_sparse_value_mean += '_logits_x5'
+    if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
+        use_sparse_value_mean += f'_random_view_seed_{data_args.random_view_seed}'
+
+    from pathlib import Path
+    from llava_resolution import artifact_dir, corpus_has_images, resolution_metadata, write_manifest
+    llava_output_dirs = set()
+    llava_has_images = corpus_has_images(training_args.task_type, training_args.encode_type)
+    llava_output_mode = data_args.llava_image_mode if llava_has_images else "anyres"
+    llava_report = resolution_metadata(encoder.config, llava_output_mode)
+
+    def llava_output_dir(path):
+        resolved = artifact_dir(path, llava_output_mode) if llava_report else Path(path)
+        resolved = dense_mode.mode_path(resolved, dense_mode.enabled(model_args), prompt_constraints.enabled(model_args), full_prompt.enabled(model_args))
+        llava_output_dirs.add(resolved)
+        return str(resolved)
+
+    # Keep generated validation representations separate from the original
+    # validation representations.  The marker is appended to the final
+    # experiment-directory component so the existing directory hierarchy and
+    # all non-generated paths remain unchanged.
+    generated_validation_suffix = ''
+    if data_args.use_generated_validation_data:
+        generated_validation_suffix = '_generated_val'
+        if data_args.use_llava_next_training_prompts:
+            generated_validation_suffix += '_use_llava_next_training_prompts'
+        if data_args.use_few_shot_examples:
+            generated_validation_suffix += (
+                f'_few_shot_{data_args.few_shot_split}_{data_args.few_shot_num}'
+            )
+        if data_args.use_source_dataset_subset:
+            generated_validation_suffix += '_source_subset'
+    original_sparse_type = data_args.sparse_type
+    lora_output_suffix = f'_lora{generated_validation_suffix}'
+
+    if generated_validation_suffix and dist.get_rank() == 0:
+        print(f'generated_validation_output_suffix={generated_validation_suffix}')
+
+    if generated_validation_suffix:
+        # Fusion paths end in sparse_type; prompt-generation paths end in
+        # prompt_generation_model.  All remaining branches end in the
+        # sparse-value-mean label.
+        uses_prompt_generation_leaf = (
+            data_args.prompt_generation
+            and not data_args.sparse_manual
+            and model_args.calculate_type == 'concat'
+            and training_args.task_type not in {'cir', 't2it', 'it2t'}
+        )
+        if original_sparse_type == 'fusion':
+            data_args.sparse_type = f'{original_sparse_type}{generated_validation_suffix}'
+        elif uses_prompt_generation_leaf:
+            data_args.prompt_generation_model = (
+                f'{data_args.prompt_generation_model}{generated_validation_suffix}'
+            )
+        else:
+            use_sparse_value_mean += generated_validation_suffix
+
+    if model_args.lora:
+        os.makedirs(
+            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}{lora_output_suffix}'),
+            exist_ok=True)
+        os.makedirs(
+            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}{lora_output_suffix}'),
+            exist_ok=True)
+
+        with open(os.path.join(
+                llava_output_dir(f'{data_args.dense_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}{lora_output_suffix}'),
+                f'query.pkl') if data_args.encode_is_query else os.path.join(
+            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}{lora_output_suffix}'),
+            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+            pickle.dump((encoded, lookup_indices), f)
+
+        with open(os.path.join(
+                llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}{lora_output_suffix}'),
+                f'query.tsv') if data_args.encode_is_query else os.path.join(
+            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.lora_model_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}{lora_output_suffix}'),
+            f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+            for data in jsonl_data:
+                if data_args.encode_is_query:
+                    id = data['id']
+                    vector = data['vector']
+                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                    if len(query.strip()) == 0:
+                        continue
+                    f.write(f'{id}\t{query}\n')
+                else:
+                    f.write(json.dumps(data) + "\n")
+
+    if data_args.prompt_type == _freeret_templates.RANDOM_VIEW_PROMPT_TYPE:
+        # Keep random-view dense/sparse directories aligned with random_token_views.sh.
+        common_path = (
+            f'{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/'
+            f'{training_args.encode_type}/{filtered}/{model_args.calculate_type}/'
+            f'{data_args.prompt_type}'
+        )
+        if training_args.task_type == 'tbpr':
+            common_path += f'/{data_args.tbpr_type}'
+        common_path += f'/{data_args.dataset_split}'
+        if data_args.sparse_manual:
+            sparse_lengths = f'{data_args.text_sparse_length}_{data_args.image_sparse_length}'
+        else:
+            sparse_lengths = str(data_args.sparse_length)
+        path_suffix = (
+            f'{data_args.num_expended_tokens}_{manual}_{sparse_lengths}_'
+            f'{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_'
+            f'{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'
+        )
+        if original_sparse_type == 'fusion':
+            path_suffix += f'_{data_args.sparse_type}'
+
+        dense_dir = llava_output_dir(os.path.join(data_args.dense_output_dir, common_path, path_suffix))
+        sparse_dir = llava_output_dir(os.path.join(data_args.sparse_output_dir, common_path, path_suffix))
+        os.makedirs(dense_dir, exist_ok=True)
+        os.makedirs(sparse_dir, exist_ok=True)
+
+        dense_filename = 'query.pkl' if data_args.encode_is_query else f'corpus_{dist.get_rank()}.pkl'
+        sparse_filename = 'query.tsv' if data_args.encode_is_query else f'corpus_{dist.get_rank()}.jsonl'
+        with open(os.path.join(dense_dir, dense_filename), 'wb') as f:
+            pickle.dump((encoded, lookup_indices), f)
+        with open(os.path.join(sparse_dir, sparse_filename), 'w') as f:
+            for data in jsonl_data:
+                if data_args.encode_is_query:
+                    id = data['id']
+                    vector = data['vector']
+                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                    if len(query.strip()) == 0:
+                        continue
+                    f.write(f'{id}\t{query}\n')
+                else:
+                    f.write(json.dumps(data) + "\n")
+
+    elif model_args.calculate_type == 'concat':
+        if original_sparse_type == 'fusion':
+            if data_args.sparse_manual:
+                os.makedirs(
+                    llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    exist_ok=True)
+                os.makedirs(
+                    llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    exist_ok=True)
+
+                with open(os.path.join(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                        f'query.pkl') if data_args.encode_is_query else os.path.join(
+                    llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                    pickle.dump((encoded, lookup_indices), f)
+
+                with open(os.path.join(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                        f'query.tsv') if data_args.encode_is_query else os.path.join(
+                    llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                    for data in jsonl_data:
+                        if data_args.encode_is_query:
+                            id = data['id']
+                            vector = data['vector']
+                            query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                            if len(query.strip()) == 0:
+                                continue
+                            f.write(f'{id}\t{query}\n')
+                        else:
+                            f.write(json.dumps(data) + "\n")
+
+            else:
+                print(
+                    llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'))
+                os.makedirs(
+                    llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    exist_ok=True)
+                os.makedirs(
+                    llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    exist_ok=True)
+
+                with open(os.path.join(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                        f'query.pkl') if data_args.encode_is_query else os.path.join(
+                    llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                    pickle.dump((encoded, lookup_indices), f)
+
+                with open(os.path.join(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                        f'query.tsv') if data_args.encode_is_query else os.path.join(
+                    llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                    for data in jsonl_data:
+                        if data_args.encode_is_query:
+                            id = data['id']
+                            vector = data['vector']
+                            query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                            if len(query.strip()) == 0:
+                                continue
+                            f.write(f'{id}\t{query}\n')
+                        else:
+                            f.write(json.dumps(data) + "\n")
+
+        else:
+            if data_args.sparse_manual:
+                os.makedirs(
+                    llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                    exist_ok=True)
+                os.makedirs(
+                    llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                    exist_ok=True)
+
+                with open(os.path.join(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'query.pkl') if data_args.encode_is_query else os.path.join(
+                    llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                    f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                    pickle.dump((encoded, lookup_indices), f)
+
+                with open(os.path.join(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'query.tsv') if data_args.encode_is_query else os.path.join(
+                    llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                    f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                    for data in jsonl_data:
+                        if data_args.encode_is_query:
+                            id = data['id']
+                            vector = data['vector']
+                            query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                            if len(query.strip()) == 0:
+                                continue
+                            f.write(f'{id}\t{query}\n')
+                        else:
+                            f.write(json.dumps(data) + "\n")
+
+            else:
+                if training_args.task_type == 'cir':
+                    print(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'))
+                    os.makedirs(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        exist_ok=True)
+                    os.makedirs(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        exist_ok=True)
+
+                    with open(os.path.join(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'query.pkl') if data_args.encode_is_query else os.path.join(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                        pickle.dump((encoded, lookup_indices), f)
+
+                    with open(os.path.join(
+                            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'query.tsv') if data_args.encode_is_query else os.path.join(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                        for data in jsonl_data:
+                            if data_args.encode_is_query:
+                                id = data['id']
+                                vector = data['vector']
+                                query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                                if len(query.strip()) == 0:
+                                    continue
+                                f.write(f'{id}\t{query}\n')
+                            else:
+                                f.write(json.dumps(data) + "\n")
+                elif training_args.task_type == 'tbpr':
+                    if data_args.prompt_generation:
+                        print(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'))
+                        os.makedirs(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'),
+                            exist_ok=True)
+                        os.makedirs(
+                            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'),
+                            exist_ok=True)
+
+                        with open(os.path.join(
+                                llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'),
+                                f'query.pkl') if data_args.encode_is_query else os.path.join(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'),
+                            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                            pickle.dump((encoded, lookup_indices), f)
+
+                        with open(os.path.join(
+                                llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'),
+                                f'query.tsv') if data_args.encode_is_query else os.path.join(
+                            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'),
+                            f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                            for data in jsonl_data:
+                                if data_args.encode_is_query:
+                                    id = data['id']
+                                    vector = data['vector']
+                                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                                    if len(query.strip()) == 0:
+                                        continue
+                                    f.write(f'{id}\t{query}\n')
+                                else:
+                                    f.write(json.dumps(data) + "\n")
+                    else:
+                        print(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'))
+                        os.makedirs(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            exist_ok=True)
+                        os.makedirs(
+                            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            exist_ok=True)
+
+                        with open(os.path.join(
+                                llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                                f'query.pkl') if data_args.encode_is_query else os.path.join(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                            pickle.dump((encoded, lookup_indices), f)
+
+                        with open(os.path.join(
+                                llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                                f'query.tsv') if data_args.encode_is_query else os.path.join(
+                            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                            for data in jsonl_data:
+                                if data_args.encode_is_query:
+                                    id = data['id']
+                                    vector = data['vector']
+                                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                                    if len(query.strip()) == 0:
+                                        continue
+                                    f.write(f'{id}\t{query}\n')
+                                else:
+                                    f.write(json.dumps(data) + "\n")
+
+                elif training_args.task_type == 't2it':
+                    print(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'))
+                    os.makedirs(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        exist_ok=True)
+                    os.makedirs(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        exist_ok=True)
+
+                    with open(os.path.join(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'query.pkl') if data_args.encode_is_query else os.path.join(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                        pickle.dump((encoded, lookup_indices), f)
+
+                    with open(os.path.join(
+                            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'query.tsv') if data_args.encode_is_query else os.path.join(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                        for data in jsonl_data:
+                            if data_args.encode_is_query:
+                                id = data['id']
+                                vector = data['vector']
+                                query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                                if len(query.strip()) == 0:
+                                    continue
+                                f.write(f'{id}\t{query}\n')
+                            else:
+                                f.write(json.dumps(data) + "\n")
+                elif training_args.task_type == 'it2t':
+                    print(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'))
+                    os.makedirs(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        exist_ok=True)
+                    os.makedirs(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        exist_ok=True)
+
+                    with open(os.path.join(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'query.pkl') if data_args.encode_is_query else os.path.join(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                        pickle.dump((encoded, lookup_indices), f)
+
+                    with open(os.path.join(
+                            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'query.tsv') if data_args.encode_is_query else os.path.join(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                        for data in jsonl_data:
+                            if data_args.encode_is_query:
+                                id = data['id']
+                                vector = data['vector']
+                                query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                                if len(query.strip()) == 0:
+                                    continue
+                                f.write(f'{id}\t{query}\n')
+                            else:
+                                f.write(json.dumps(data) + "\n")
+                else:
+                    if data_args.prompt_generation:
+                        print(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'))
+                        os.makedirs(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'),
+                            exist_ok=True)
+                        os.makedirs(
+                            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'),
+                            exist_ok=True)
+
+                        with open(os.path.join(
+                                llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'),
+                                f'query.pkl') if data_args.encode_is_query else os.path.join(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'),
+                            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                            pickle.dump((encoded, lookup_indices), f)
+
+                        with open(os.path.join(
+                                llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'),
+                                f'query.tsv') if data_args.encode_is_query else os.path.join(
+                            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.prompt_generation_model}'),
+                            f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                            for data in jsonl_data:
+                                if data_args.encode_is_query:
+                                    id = data['id']
+                                    vector = data['vector']
+                                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                                    if len(query.strip()) == 0:
+                                        continue
+                                    f.write(f'{id}\t{query}\n')
+                                else:
+                                    f.write(json.dumps(data) + "\n")
+                    else:
+                        print(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'))
+                        os.makedirs(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            exist_ok=True)
+                        os.makedirs(
+                            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            exist_ok=True)
+
+                        with open(os.path.join(
+                                llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                                f'query.pkl') if data_args.encode_is_query else os.path.join(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                            pickle.dump((encoded, lookup_indices), f)
+
+                        with open(os.path.join(
+                                llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                                f'query.tsv') if data_args.encode_is_query else os.path.join(
+                            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                            for data in jsonl_data:
+                                if data_args.encode_is_query:
+                                    id = data['id']
+                                    vector = data['vector']
+                                    query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                                    if len(query.strip()) == 0:
+                                        continue
+                                    f.write(f'{id}\t{query}\n')
+                                else:
+                                    f.write(json.dumps(data) + "\n")
+
+    else:
+        if original_sparse_type == 'fusion':
+            if data_args.sparse_manual:
+                os.makedirs(
+                    llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    exist_ok=True)
+                os.makedirs(
+                    llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    exist_ok=True)
+
+                with open(os.path.join(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                        f'query.pkl') if data_args.encode_is_query else os.path.join(
+                    llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                    pickle.dump((encoded, lookup_indices), f)
+
+                with open(os.path.join(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                        f'query.tsv') if data_args.encode_is_query else os.path.join(
+                    llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                    for data in jsonl_data:
+                        if data_args.encode_is_query:
+                            id = data['id']
+                            vector = data['vector']
+                            query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                            if len(query.strip()) == 0:
+                                continue
+                            f.write(f'{id}\t{query}\n')
+                        else:
+                            f.write(json.dumps(data) + "\n")
+
+            else:
+                os.makedirs(
+                    llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    exist_ok=True)
+                os.makedirs(
+                    llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    exist_ok=True)
+
+                with open(os.path.join(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                        f'query.pkl') if data_args.encode_is_query else os.path.join(
+                    llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                    pickle.dump((encoded, lookup_indices), f)
+
+                with open(os.path.join(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                        f'query.tsv') if data_args.encode_is_query else os.path.join(
+                    llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
+                    f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                    for data in jsonl_data:
+                        if data_args.encode_is_query:
+                            id = data['id']
+                            vector = data['vector']
+                            query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                            if len(query.strip()) == 0:
+                                continue
+                            f.write(f'{id}\t{query}\n')
+                        else:
+                            f.write(json.dumps(data) + "\n")
+
+        else:
+            if data_args.sparse_manual:
+                os.makedirs(
+                    llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                    exist_ok=True)
+                os.makedirs(
+                    llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                    exist_ok=True)
+
+                with open(os.path.join(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'query.pkl') if data_args.encode_is_query else os.path.join(
+                    llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                    f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                    pickle.dump((encoded, lookup_indices), f)
+
+                with open(os.path.join(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'query.tsv') if data_args.encode_is_query else os.path.join(
+                    llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.text_sparse_length}_{data_args.image_sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                    f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                    for data in jsonl_data:
+                        if data_args.encode_is_query:
+                            id = data['id']
+                            vector = data['vector']
+                            query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                            if len(query.strip()) == 0:
+                                continue
+                            f.write(f'{id}\t{query}\n')
+                        else:
+                            f.write(json.dumps(data) + "\n")
+
+            else:
+                if training_args.task_type == 'cir':
+                    os.makedirs(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        exist_ok=True)
+                    os.makedirs(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        exist_ok=True)
+
+                    with open(os.path.join(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'query.pkl') if data_args.encode_is_query else os.path.join(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                        pickle.dump((encoded, lookup_indices), f)
+
+                    with open(os.path.join(
+                            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'query.tsv') if data_args.encode_is_query else os.path.join(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                        for data in jsonl_data:
+                            if data_args.encode_is_query:
+                                id = data['id']
+                                vector = data['vector']
+                                query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                                if len(query.strip()) == 0:
+                                    continue
+                                f.write(f'{id}\t{query}\n')
+                            else:
+                                f.write(json.dumps(data) + "\n")
+                elif training_args.task_type == 'tbpr':
+                    os.makedirs(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        exist_ok=True)
+                    os.makedirs(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        exist_ok=True)
+
+                    with open(os.path.join(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'query.pkl') if data_args.encode_is_query else os.path.join(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                        pickle.dump((encoded, lookup_indices), f)
+
+                    with open(os.path.join(
+                            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'query.tsv') if data_args.encode_is_query else os.path.join(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                        for data in jsonl_data:
+                            if data_args.encode_is_query:
+                                id = data['id']
+                                vector = data['vector']
+                                query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                                if len(query.strip()) == 0:
+                                    continue
+                                f.write(f'{id}\t{query}\n')
+                            else:
+                                f.write(json.dumps(data) + "\n")
+                else:
+                    os.makedirs(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        exist_ok=True)
+                    os.makedirs(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        exist_ok=True)
+
+                    with open(os.path.join(
+                            llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'query.pkl') if data_args.encode_is_query else os.path.join(
+                        llava_output_dir(f'{data_args.dense_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'corpus_{dist.get_rank()}.pkl'), 'wb') as f:
+                        pickle.dump((encoded, lookup_indices), f)
+
+                    with open(os.path.join(
+                            llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                            f'query.tsv') if data_args.encode_is_query else os.path.join(
+                        llava_output_dir(f'{data_args.sparse_output_dir}/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{training_args.encode_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.dataset_split}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}'),
+                        f'corpus_{dist.get_rank()}.jsonl'), 'w') as f:
+                        for data in jsonl_data:
+                            if data_args.encode_is_query:
+                                id = data['id']
+                                vector = data['vector']
+                                query = " ".join([" ".join([str(token)] * freq) for token, freq in vector.items()])
+                                if len(query.strip()) == 0:
+                                    continue
+                                f.write(f'{id}\t{query}\n')
+                            else:
+                                f.write(json.dumps(data) + "\n")
+
+    if model_args.use_output_embedding_cluster:
+        with open(f'{model_args.model_name_or_path[14:]}_{cluster}.json', 'w') as f:
+            json.dump(centroids_dict, f)
+
+    # 训练结束后添加同步屏障
+    dist.barrier()
+    if dist.get_rank() == 0:
+        for directory in llava_output_dirs:
+            write_manifest(directory, llava_report)
+            dense_mode.write_manifest(directory, dense_mode.enabled(model_args), prompt_constraints.enabled(model_args), full_prompt.enabled(model_args))
+            if dense_mode.enabled(model_args) and list(directory.glob("corpus_*.jsonl")):
+                dense_mode.reuse_sparse_index(directory)
+    dist.barrier()
+
+    # 确保所有进程同步退出
+    if dist.get_rank() == 0:
+        # 主进程最后退出
+        torch.distributed.destroy_process_group()
+    else:
+        torch.distributed.destroy_process_group()
+
+
+if __name__ == "__main__":
+    main()

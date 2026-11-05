@@ -1,4 +1,12 @@
 #!/bin/bash
+USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"  # true: FreeRet pre-MLP dense; prompts/sparse unchanged
+USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"  # Complete FreeRet dense/sparse prompts; requires FreeRet dense
+USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prepend FreeRet constraints to all representation views
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.sh" || exit $?
+
+LLAVA_IMAGE_MODE="${LLAVA_IMAGE_MODE:-anyres}"
+export LLAVA_IMAGE_MODE
+case "${LLAVA_IMAGE_MODE}" in anyres|base) ;; *) echo "LLAVA_IMAGE_MODE must be anyres or base" >&2; exit 2 ;; esac
 
 PROMPT_TYPE="${PROMPT_TYPE:-prompt_5}"
 DATASET_SPLIT="${DATASET_SPLIT:-test}"
@@ -15,12 +23,13 @@ fi
 if [[ "${PROMPT_TYPE}" == "prompt_random_5" ]]; then
     # Reuse the random-view settings and encode both validation and test splits.
     export PROMPT_TYPE USE_GENERATED_VALIDATION_DATA GENERATED_VALIDATION_DATA_ROOT
-    bash "$(dirname "$0")/random_token_views.sh" encode
+    env "USE_FREERET_DENSE=${USE_FREERET_DENSE}" "USE_FREERET_PROMPT_CONSTRAINTS=${USE_FREERET_PROMPT_CONSTRAINTS}" "USE_FREERET_FULL_PROMPT=${USE_FREERET_FULL_PROMPT}" bash "$(dirname "$0")/random_token_views.sh" encode
 else
     GPUS=4
     NUM_NODES=1
 
-    deepspeed --num_gpus=$GPUS --num_nodes=$NUM_NODES src/encode.py \
+    deepspeed --num_gpus=$GPUS --num_nodes=$NUM_NODES src/encode.py --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" \
+        --llava_image_mode "${LLAVA_IMAGE_MODE}" \
         --model_name_or_path ./checkpoints/llava-hf-llava-v1.6-mistral-7b-hf \
         --output_dir ./output \
         --fp16 \
