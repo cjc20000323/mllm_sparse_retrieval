@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 import adaptive_views as views
 import adaptive_view_shuffle as option_shuffle
+import adaptive_view_probability_mass as probability_mass
 from adaptive_encode_batch import (CHECKPOINTS, GROUPS, PROJECT, annotation_files, boolean,
                                    configured_list, encoding_controls, resolved_path, split_name)
 from qwen_vl_paths import resolve_sparse_index
@@ -23,11 +24,15 @@ from qwen_vl_paths import resolve_sparse_index
 FAMILIES = dict(qwen2="qwen2_vl", qwen25="qwen2_5_vl", qwen3="qwen3_vl",
                 llava_llama="llava_llama", llava_mistral="llava_mistral")
 RETRIEVAL_DEFAULTS = {
+    "STAGE2_METHOD": "hybrid",
     "STAGE1_DEPTH": "1000", "STAGE2_DEPTH": "1000", "SPARSE_THREADS": "16",
     "RETRIEVAL_BATCH_SIZE": "1", "RERANK_NUM": "5", "RERANK_BATCH_SIZE": "1",
     "HYBRID_ALPHA": "0.5", "SELECT_HYBRID_ALPHA": "false", "OVERWRITE": "true",
 }
-PIPELINE_NAMES = (
+from stc_sparse import NAMES as STC_NAMES
+
+PIPELINE_NAMES = (*STC_NAMES,
+    "USE_VIEW_PROBABILITY_MASS", "VIEW_PROBABILITY_MASS_THRESHOLD",
     "VIEW_EXAMPLE_MODE", "VIEW_EXAMPLE_MAX_TOKENS",
     "VIEW_SELECTION_RUN_ID",
     "USE_HIERARCHICAL_VIEWS",
@@ -45,6 +50,8 @@ def selection_options(env, controls):
     from adaptive_view_overlap import OverlapViewArguments
     options = OverlapViewArguments(
         adaptive_views=True, view_selection_modality=controls.get("VIEW_SELECTION_MODALITY", "both"),
+        view_probability_mass=boolean(controls["USE_VIEW_PROBABILITY_MASS"], "USE_VIEW_PROBABILITY_MASS"),
+        view_probability_mass_threshold=float(controls["VIEW_PROBABILITY_MASS_THRESHOLD"]) if controls["USE_VIEW_PROBABILITY_MASS"] == "true" else 0.9,
         view_example_mode=controls["VIEW_EXAMPLE_MODE"], view_example_max_tokens=int(controls["VIEW_EXAMPLE_MAX_TOKENS"]),
         view_selection_hierarchical=boolean(controls["USE_HIERARCHICAL_VIEWS"], "USE_HIERARCHICAL_VIEWS"),
         view_selection_pmi=boolean(env.get("USE_VIEW_PMI", "false"), "USE_VIEW_PMI"),
@@ -62,6 +69,7 @@ def selection_options(env, controls):
             except ValueError as exc:
                 raise ValueError(f"Invalid {name}: {env[name]!r}") from exc
     views.examples.validate_options(options)
+    probability_mass.enabled(options)
     if options.view_selection_rounds < 1:
         raise ValueError("VIEW_SELECTION_ROUNDS must be positive")
     if options.view_example_mode == "fixed":
@@ -77,6 +85,10 @@ def pipeline_controls(env):
     if controls["SHUFFLE_VIEW_OPTIONS"] == "true" and not controls["VIEW_SELECTION_RUN_ID"]:
         raise ValueError("Shuffled retrieval needs VIEW_SELECTION_RUN_ID from encoding; retrieval never generates a new permutation")
     controls.update({name: env.get(name) or default for name, default in RETRIEVAL_DEFAULTS.items()})
+    if controls["STAGE2_METHOD"] not in {"hybrid", "dense"}:
+        raise ValueError("STAGE2_METHOD must be hybrid or dense")
+    if controls["STAGE2_METHOD"] == "dense":
+        controls.update(SELECT_HYBRID_ALPHA="false", HYBRID_ALPHA="0.5")
     for role in ("RETRIEVAL", "RANKER"):
         name = f"{role}_DTYPE"
         controls[name] = env.get(name) or controls["DTYPE"]
@@ -99,7 +111,7 @@ def pipeline_controls(env):
     if not math.isfinite(alpha) or not 0 <= alpha <= 1:
         raise ValueError("HYBRID_ALPHA must be finite and in [0,1]")
     controls["HYBRID_ALPHA"] = "0.5" if controls["SELECT_HYBRID_ALPHA"] == "true" else str(alpha)
-    if any(env.get(name) for name in VALIDATION_INPUTS):
+    if controls["STAGE2_METHOD"] == "hybrid" and any(env.get(name) for name in VALIDATION_INPUTS):
         raise ValueError("Custom validation inputs require the single-job launcher; batch alpha scanning uses the current dataset")
     for prefix in ("", "RANKER_"):
         low, high = (int(controls[prefix + "QWEN_" + bound + "_PIXELS"]) for bound in ("MIN", "MAX"))
@@ -206,12 +218,17 @@ def namespaces(settings, family, dataset, task, kind):
         model.use_freeret_full_prompt = True
     if boolean(c["USE_FREERET_PROMPT_CONSTRAINTS"], "USE_FREERET_PROMPT_CONSTRAINTS"):
         model.use_freeret_prompt_constraints = True
+    from stc_sparse import copy_options
+    copy_options(SimpleNamespace(**{k.lower(): c[k] for k in STC_NAMES}), model,
+                 dtype=c.get("RETRIEVAL_DTYPE", c["DTYPE"]), root=settings.roots["sparse"] / "stc_vocab")
     return model, data, SimpleNamespace(task_type=task, encode_type=kind)
 
 
 def selection_location(settings, model, data, training, identity):
     strategy = None
-    if settings.options.view_overlap_selection:
+    if probability_mass.enabled(settings.options):
+        strategy = probability_mass.ProbabilityMassStrategy(settings.options, model, data, training.task_type)
+    elif settings.options.view_overlap_selection:
         from adaptive_view_overlap import OverlapSelectionStrategy
         strategy = OverlapSelectionStrategy(settings.options, model, data, training.task_type)
     mode = settings.options.view_selection_modality
@@ -237,8 +254,13 @@ def recover_selection_cache(settings, model, data, training, identity, expected_
     overlap = settings.options.view_overlap_selection
     version = (views.PMI_OVERLAP_VERSION if pmi else views.OVERLAP_VERSION) if overlap else (
         views.PMI_VERSION if pmi else views.VERSION)
+    if probability_mass.enabled(settings.options):
+        version = probability_mass.PMI_VERSION if pmi else probability_mass.VERSION
     candidate_mode = views.options_pool_mode(settings.options)
     probe = views.add_pool_mode(dict(version=version, selected=[], selection_modality=mode, views_fingerprint="0" * 64), candidate_mode)
+    if probability_mass.enabled(settings.options):
+        probe.update(selection_strategy=probability_mass.STRATEGY,
+                     probability_mass_configuration=probability_mass.configuration(settings.options.view_probability_mass_threshold))
     probe = views.examples.add_configuration(probe, views.examples.configuration_for_path(settings.options, model.model_name_or_path))
     shuffle = option_shuffle.for_options(settings.options,identity,data.dataset_name,views.view_pool(candidate_mode))
     probe = option_shuffle.add_metadata(probe,shuffle)
@@ -413,8 +435,18 @@ def prepare_jobs(settings, *, identity_loader=None, backend=None, auto_modify=Fa
                               views_fingerprint=selection["views_fingerprint"], selection_fingerprint=selection["fingerprint"],
                               selection_cache_fingerprint=views.digest(cache_key), ranker=views.checkpoint_identity(ranker),
                               parameters={k: v for k, v in variables.items() if k not in {
-                                  "VIEW_EXAMPLE_MODE", "VIEW_EXAMPLE_MAX_TOKENS",
-                                  "GPUS", "NUM_NODES", "DEEPSPEED_BIN", "OVERWRITE", "JOB_MODIFY_TYPE", "USE_FREERET_DENSE", "USE_FREERET_PROMPT_CONSTRAINTS", "USE_FREERET_FULL_PROMPT", "SHUFFLE_VIEW_OPTIONS", "VIEW_SELECTION_RUN_ID", "USE_HIERARCHICAL_VIEWS"}})
+                                   "VIEW_EXAMPLE_MODE", "VIEW_EXAMPLE_MAX_TOKENS", "USE_VIEW_PROBABILITY_MASS", "VIEW_PROBABILITY_MASS_THRESHOLD",
+                                  "GPUS", "NUM_NODES", "DEEPSPEED_BIN", "OVERWRITE", "JOB_MODIFY_TYPE", "USE_FREERET_DENSE", "USE_FREERET_PROMPT_CONSTRAINTS", "USE_FREERET_FULL_PROMPT", "SHUFFLE_VIEW_OPTIONS", "VIEW_SELECTION_RUN_ID", "USE_HIERARCHICAL_VIEWS", "STAGE2_METHOD"}})
+                # Cache location and inactive defaults must not alter legacy result IDs.
+                for name in STC_NAMES:
+                    config["parameters"].pop(name, None)
+                stc_config = expected["configuration"].get("stc_sparse")
+                if stc_config is not None:
+                    config["stc_sparse"] = stc_config
+                if c["STAGE2_METHOD"] == "dense":
+                    config["stage2_method"] = "dense"
+                    for name in ("HYBRID_ALPHA", "SELECT_HYBRID_ALPHA"):
+                        config["parameters"].pop(name, None)
                 if auto_modify:
                     config["modify_type"] = variables["JOB_MODIFY_TYPE"]
                 from dense_representation import configuration as dense_configuration, mode_path
@@ -422,12 +454,20 @@ def prepare_jobs(settings, *, identity_loader=None, backend=None, auto_modify=Fa
                 config = dense_configuration(config, use_dense, boolean(c["USE_FREERET_PROMPT_CONSTRAINTS"], "USE_FREERET_PROMPT_CONSTRAINTS"), boolean(c["USE_FREERET_FULL_PROMPT"], "USE_FREERET_FULL_PROMPT"))
                 config = views.add_pool_mode(option_shuffle.add_metadata(config,selection.get(option_shuffle.FIELD)), views.pool_mode(selection))
                 config = views.examples.add_configuration(config, selection.get(views.examples.FIELD))
+                config = probability_mass.add_metadata(config, selection)
                 fingerprint = views.digest(config)
                 output = settings.output_dir or (settings.roots["results"] / model.name / dataset / query / settings.split /
                          "adaptive_views" / selection["views_fingerprint"][:16] / expected["fingerprint"][:16] /
                          f"stage1_{c['STAGE1_DEPTH']}_stage2_{c['STAGE2_DEPTH']}" / fingerprint[:16])
+                if settings.output_dir is None:
+                    from stage2_retrieval_mode import output_path
+                    output = output_path(output, c["STAGE2_METHOD"])
                 output = option_shuffle.mark_path(output,selection.get(option_shuffle.FIELD))
                 output = mode_path(output, use_dense, boolean(c["USE_FREERET_PROMPT_CONSTRAINTS"], "USE_FREERET_PROMPT_CONSTRAINTS"), boolean(c["USE_FREERET_FULL_PROMPT"], "USE_FREERET_FULL_PROMPT")).resolve()
+                from stc_sparse import mark_path as mark_stc_path
+                output = mark_stc_path(output, stc_config)
+                if probability_mass.is_selection(selection):
+                    output = probability_mass.mark_output(output, selection)
                 if output in seen_outputs:
                     raise ValueError(f"Duplicate retrieval output directory: {output}")
                 seen_outputs.add(output)
@@ -507,6 +547,8 @@ VIEW_SELECTION_MODALITY=both VIEW_SELECTION_ROUNDS=20 VIEW_SELECTION_SEED=42.
 VIEW_EXAMPLE_MODE=auto|fixed defaults auto; VIEW_EXAMPLE_MAX_TOKENS=0 uses the model context budget.
 Match encoding mode/budget. Fixed mode uses VIEW_TEXTS_PER_ROUND=8 VIEW_IMAGES_PER_ROUND=2 and preserves old caches.
 USE_VIEW_PMI=false USE_VIEW_OVERLAP_SELECTION=false; enable both to retrieve PMI-calibrated overlap artifacts.
+ USE_VIEW_PROBABILITY_MASS=false VIEW_PROBABILITY_MASS_THRESHOLD=0.9; match encoding when using cumulative views.
+ Cumulative mode reads the locked selection and never resamples; it cannot be combined with overlap.
 Overlap: VIEW_SELECTED_COUNT=5 VIEW_OVERLAP_THRESHOLD=0.1 VIEW_OVERLAP_SAMPLES=20 VIEW_OVERLAP_SEED=42.
 Overlap versions 16/17 use shared tokens / candidate unique tokens, accepting strictly below threshold.
 Old overlap versions 13/15 are incompatible; reselect, re-encode and rebuild their indexes.

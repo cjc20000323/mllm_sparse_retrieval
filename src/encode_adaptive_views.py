@@ -850,6 +850,10 @@ def main():
     parser = HfArgumentParser((ModelArguments, PromptRepsLLMDataArguments, TrainingArguments, AdaptiveViewArguments))
 
     model_args, data_args, training_args, adaptive_args = parser.parse_args_into_dataclasses()
+    if adaptive_args.use_stc_sparse and not adaptive_args.adaptive_views:
+        raise ValueError("--use_stc_sparse requires --adaptive_views")
+    if adaptive_args.view_probability_mass and not adaptive_args.adaptive_views:
+        raise ValueError("--view_probability_mass requires --adaptive_views")
     if adaptive_args.view_selection_hierarchical and not adaptive_args.adaptive_views:
         raise ValueError("--view_selection_hierarchical requires --adaptive_views")
     if adaptive_args.view_selection_shuffle and not adaptive_args.adaptive_views:

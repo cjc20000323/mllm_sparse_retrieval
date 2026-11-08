@@ -183,7 +183,8 @@ class NativeQwenEncoder:
         import freeret_full_prompt as full_prompt
         if full_prompt.enabled(self.model_args):
             from adaptive_views import family_of
-            return full_prompt.prepare(self.processor,family_of(self.model.config),records,self.data.dataset_name,
+            return full_prompt.prepare_packed(self.processor,family_of(self.model.config),records,self.data.dataset_name,
+                [full_prompt.fixed_aspects(record,self.task,self.data,self.processor,concat=self.concat) for record in records],
                 padding_side="left" if self.data.reps_loc=="after_pad" else "right")
         contexts, instructions, groups = [], [], []
         for record in records:

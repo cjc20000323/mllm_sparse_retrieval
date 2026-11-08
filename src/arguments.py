@@ -50,7 +50,7 @@ class ModelArguments(tevatron.retriever.arguments.ModelArguments):
     use_output_embedding_cluster: bool = field(default=False)
     cluster_sum: int = field(default=8000)
     use_freeret_dense: bool = field(default=False, metadata={"help": "Use the final decoder pre-MLP state for dense only; preserve prompts and sparse logits"})
-    use_freeret_prompt_constraints: bool = field(default=False, metadata={"help": "Add FreeRet task_description once before input and task constraints before each representation instruction; requires use_freeret_dense"})
+    use_freeret_prompt_constraints: bool = field(default=False, metadata={"help": "Add FreeRet constraints before each original Summary instruction without task_description; requires use_freeret_dense"})
     use_freeret_full_prompt: bool = field(default=False, metadata={"help": "Complete FreeRet prompts for dense and sparse, with perspectives in semantic rules; requires use_freeret_dense"})
     eol_type: str = field(default='prompteol')
     calculate_type: str = field(default='separate')

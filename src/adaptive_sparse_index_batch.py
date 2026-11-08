@@ -14,8 +14,7 @@ import subprocess
 import sys
 
 from adaptive_views import MANIFEST, digest, validate_index_selection, is_overlap_selection, IncompatibleViewSelectionError, SelectionFileResolver
-from qwen_sparse_index import build_sparse_index
-from qwen_vl_paths import resolve_sparse_index
+from adaptive_sparse_index import build_sparse_index, collection_plan, canonical_index, normalize_collection
 
 
 FAMILIES = {
@@ -142,31 +141,17 @@ def check_artifact(root, manifest, configuration, *, selection=None, resolver=No
     if use_dense:
         suffix = FULL_PROMPT_SUFFIX if configuration.get("freeret_full_prompt") else PROMPT_SUFFIX if configuration.get("freeret_prompt_constraints") else ""
         expected_names = {name + SUFFIX + suffix for name in expected_names}
+    from stc_sparse import mark_path as stc_path, validate_bundle, FIELD as stc_field
+    stc_config = configuration.get(stc_field)
+    expected_names = {stc_path(Path(name), stc_config).name for name in expected_names}
+    validate_bundle(root, stc_config)
     validate_artifact(root, use_dense, bool(configuration.get("freeret_prompt_constraints")), bool(configuration.get("freeret_full_prompt")))
     if root.name not in expected_names:
         raise ValueError(f"Directory/view fingerprint mismatch at {root}; expected {fingerprint[:16]}")
     if selection is None:
         validate_index_selection(root, manifest, resolver=resolver)
-    collection, target = root / "collection", root / "collection/index"
-    if collection.resolve() != collection or target.resolve() != target:
-        raise ValueError(f"Refusing linked adaptive collection/index at {root}")
-    count = manifest.get("num_shards")
-    if type(count) is not int or count < 1:
-        raise ValueError(f"Invalid num_shards in {root / MANIFEST}")
-    documents = sorted(collection.glob("corpus_*.jsonl"))
-    if len(documents) != count:
-        raise ValueError(f"Sparse shard count mismatch at {collection}: found {len(documents)}, expected {count}")
-    for document in documents:
-        if not document.is_file() or document.resolve() != document:
-            raise ValueError(f"Expected an unlinked corpus file: {document}")
-    index = resolve_sparse_index(root, require=False)
-    if index.exists() or index.is_symlink():
-        if index.resolve() != index or not index.is_dir():
-            raise ValueError(f"Expected an unlinked index directory: {index}")
-        if not any(path.is_file() for path in index.glob("segments_*")):
-            raise ValueError(f"Incomplete existing index (no segments_*) at {index}; existing indexes are not overwritten")
-        return index
-    return None
+    collection_plan(root, manifest)
+    return canonical_index(root)
 
 
 def discover(settings, *, incompatible=None, non_overlap=None):
@@ -205,16 +190,16 @@ def discover(settings, *, incompatible=None, non_overlap=None):
             if (family not in settings.families or dataset not in settings.datasets
                     or kind not in settings.kinds or configuration.get("split") != settings.split):
                 continue
-            from dense_representation import LEGACY_PROMPT_SUFFIXES, SUFFIX
-            if (use_prompts and configuration["freeret_prompt_constraints"].get("version") == 1
-                    and path.parent.name.endswith(tuple(SUFFIX + item for item in LEGACY_PROMPT_SUFFIXES))):
-                reason = ("FreeRet prompt version v1 lacks task_description; re-encode and index "
-                          "with _freeret_constraints_v2")
-                if path.parent.resolve() == settings.sparse_root.resolve():
-                    raise ValueError(reason)
-                if incompatible is not None:
-                    incompatible.append((path, reason))
-                continue
+            from dense_representation import LEGACY_PROMPT_SUFFIXES, SUFFIX, validate_prompt_version
+            if use_prompts and path.parent.name.endswith(tuple(SUFFIX + item for item in LEGACY_PROMPT_SUFFIXES)):
+                try:
+                    validate_prompt_version(path.parent)
+                except ValueError as exc:
+                    if path.parent.resolve() == settings.sparse_root.resolve():
+                        raise
+                    if incompatible is not None:
+                        incompatible.append((path, str(exc)))
+                    continue
             if configuration.get("task") != GROUPS[settings.group]["datasets"][dataset]:
                 raise ValueError(f"Dataset/task mismatch for {dataset} at {path}")
             calibration = configuration.get("selection_calibration", {})
@@ -332,7 +317,7 @@ def discover_exact(settings, *, identity_loader=None, backend=None):
                                overlap=options.view_overlap_selection, run_id=c["VIEW_SELECTION_RUN_ID"])
                 details.update(example_mode=options.view_example_mode, example_max_tokens=options.view_example_max_tokens)
                 if strategy is not None:
-                    details["overlap_configuration"] = strategy.configuration
+                    details["probability_mass_configuration" if getattr(options, "view_probability_mass", False) else "overlap_configuration"] = strategy.configuration
                 raise ValueError(f"Missing exact selection cache: {selection_path}; encoding settings={json.dumps(details, ensure_ascii=False)}. "
                                  "Match the original encoding parameters and model/data paths, or set TARGET_SPARSE_DIR explicitly; "
                                  "no other experiment is selected automatically")
@@ -393,21 +378,27 @@ def run(settings, *, builder=None, identity_loader=None, backend=None):
     if not jobs:
         report_summary(settings, jobs, missing, built, skipped, planned, incompatible, non_overlap)
         raise ValueError("No matching completed adaptive sparse artifacts; check the filters and SPARSE_OUTPUT_ROOT")
-    builder = build_sparse_index if builder is None else builder
     for index, job in enumerate(jobs, 1):
+        layout = collection_plan(job.root)
         print(f"\nJob [{index}/{len(jobs)}]: {'|'.join(job.key)} split={settings.split} "
               f"PMI={'on' if job.pmi else 'off'}\nModel: {job.model}\nViews fingerprint: {job.fingerprint}\n"
               f"Input: {job.root / 'collection'}\nOutput: {job.existing_index or job.root / 'collection/index'}", flush=True)
+        if layout.copies:
+            print(f"Layout: copy {len(layout.copies)} root shard(s) into collection; originals are preserved.", flush=True)
+        if (job.root / "index").exists():
+            print("Legacy root index is preserved; only collection/index completes this indexing job.", flush=True)
         if job.existing_index is not None:
+            if not settings.dry_run:
+                normalize_collection(job.root)
             skipped += 1
             print("Skip: an existing index has segments_*; it is not overwritten.", flush=True)
             continue
         if settings.dry_run:
             planned += 1
-            print("Dry run: would build this fingerprint only.", flush=True)
+            print("Dry run: would normalize shards and build this fingerprint only; no files written.", flush=True)
             continue
         try:
-            builder(job.root, threads=settings.threads)
+            build_sparse_index(job.root, threads=settings.threads, builder=builder)
         except (subprocess.CalledProcessError, OSError, ValueError) as exc:
             status = exc.returncode if isinstance(exc, subprocess.CalledProcessError) else 2
             print(f"Failed: {job.root} (exit {status}); stopping batch: {exc}", file=sys.stderr, flush=True)
@@ -435,7 +426,10 @@ With --overlap-only: PMI_MODE=all selects 16/17; off selects 16; on selects 17.
 Ordinary/PMI-only corpora are skipped and summarized as skipped_non_overlap. Original launchers keep all modes.
 DRY_RUN=true|false (default false); PYTHON_BIN in the launcher selects the active environment.
 All matching fingerprints, checkpoint names and encoding variants are processed separately.
-Valid existing indexes are skipped. Missing combinations are summarized; no matches is an error.
+Valid collection/index indexes are skipped. Root-level legacy indexes do not prevent a new canonical build.
+Legacy root corpus_*.jsonl shards are copied into collection, preserving originals; partial identical copies resume.
+Conflicting copies fail before any build. DRY_RUN reports normalization without writing files.
+Missing combinations are summarized; no matches is an error.
 The completion manifest must reference its locked selection file; fingerprints must agree.
 Missing references are recovered read-only by the full selection_fingerprint; no short-hash or selected-view fallback.
 VIEW_SELECTION_ROOT optionally supplies the search directory (relative to project root in batch mode).

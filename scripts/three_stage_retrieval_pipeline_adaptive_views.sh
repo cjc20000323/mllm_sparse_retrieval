@@ -1,4 +1,20 @@
 #!/usr/bin/env bash
+# STC sparse vocabulary compression; false preserves the original sparse representation.
+USE_STC_SPARSE="${USE_STC_SPARSE-false}"
+STC_ALGORITHM="${STC_ALGORITHM-agglomerative}" # agglomerative / minibatch_kmeans
+STC_N_CLUSTERS="${STC_N_CLUSTERS-16000}" # semantic clusters; numeric singleton dimensions are additional
+STC_SEED="${STC_SEED-42}"
+STC_BATCH_SIZE="${STC_BATCH_SIZE-4096}"
+STC_MAX_ITER="${STC_MAX_ITER-100}"
+STC_WEIGHT_SCALE="${STC_WEIGHT_SCALE-10000}"
+STC_CACHE_ROOT="${STC_CACHE_ROOT-}" # empty: SPARSE_OUTPUT_ROOT/stc_vocab
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stc_sparse_mode.sh" || exit $?
+STAGE2_METHOD="${STAGE2_METHOD-hybrid}" # hybrid / dense; dense sorts only Stage-1 candidates
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stage2_retrieval_mode.sh" || exit $?
+stage2_mode_configure || exit $?
+# true: stop before the next probability-ranked view would exceed the threshold; keep at least the first.
+USE_VIEW_PROBABILITY_MASS="${USE_VIEW_PROBABILITY_MASS-false}"
+VIEW_PROBABILITY_MASS_THRESHOLD="${VIEW_PROBABILITY_MASS_THRESHOLD-0.9}" # [0,1]; 1 selects all; incompatible with overlap
 USE_HIERARCHICAL_VIEWS="${USE_HIERARCHICAL_VIEWS-false}"  # true: ten primary/secondary dimensions (A-J); false: original A-T
 case "${USE_HIERARCHICAL_VIEWS,,}" in
     true|1|yes) USE_HIERARCHICAL_VIEWS=true ;;
@@ -36,14 +52,15 @@ USAGE
 fi
 : "${VIEW_SELECTION_FILE:?Set VIEW_SELECTION_FILE to the selected JSON from adaptive encode}"
 : "${DENSE_CORPUS_DIR:?Set DENSE_CORPUS_DIR to the printed adaptive dense directory}"
-: "${SPARSE_CORPUS_DIR:?Set SPARSE_CORPUS_DIR to the printed adaptive sparse directory}"
+if [[ "${STAGE2_METHOD}" == dense ]]; then SPARSE_CORPUS_DIR="${SPARSE_CORPUS_DIR:-${STAGE1_SPARSE_INDEX:-}}"; fi
+: "${SPARSE_CORPUS_DIR:?Set SPARSE_CORPUS_DIR (or STAGE1_SPARSE_INDEX for dense Stage 2) to the indexed adaptive sparse directory}"
 STAGE1_DEPTH="${STAGE1_DEPTH:-1000}"
 STAGE2_DEPTH="${STAGE2_DEPTH:-1000}"
 # Resolve depth/output overrides before deriving paths; forward other arguments.
 PIPELINE_ARGS=()
 while (($#)); do
     case "${1%%=*}" in
-        --stage1-depth|--stage2-depth|--output-dir)
+        --stage2-method|--stage2_method|--stage1-depth|--stage2-depth|--output-dir)
             CLI_OPTION="${1%%=*}"
             if [[ "$1" == *=* ]]; then
                 CLI_VALUE="${1#*=}"
@@ -60,6 +77,7 @@ while (($#)); do
             case "${CLI_OPTION}" in
                 --stage1-depth) STAGE1_DEPTH="${CLI_VALUE}" ;;
                 --stage2-depth) STAGE2_DEPTH="${CLI_VALUE}" ;;
+                --stage2-method|--stage2_method) STAGE2_METHOD="${CLI_VALUE}" ;;
                 --output-dir) OUTPUT_DIR="${CLI_VALUE}" ;;
             esac
             ;;
@@ -67,6 +85,7 @@ while (($#)); do
         *) PIPELINE_ARGS+=("$1"); shift ;;
     esac
 done
+stage2_mode_configure || exit $?
 case "${MODEL_FAMILY:-qwen25}" in
     qwen2) CHECKPOINT=Qwen-Qwen2-VL-7B-Instruct ;;
     qwen25) CHECKPOINT=Qwen-Qwen2.5-VL-7B-Instruct ;;
@@ -109,9 +128,9 @@ for pair in 'IS_FILTERED:is-filtered' 'SPARSE_VALUE_MEAN:sparse-value-mean' 'OVE
     name="${pair%%:*}"; option="${pair#*:}"
     case "${!name:-false}" in true|1|yes) EXTRA+=("--${option}") ;; false|0|no) ;; *) printf 'Invalid %s\n' "${name}" >&2; exit 2 ;; esac
 done
-OUTPUT_DIR="${OUTPUT_DIR:-./three_stage_adaptive_results/${MODEL_PATH##*/}/${DATASET}/${QUERY}/${DATASET_SPLIT:-test}${LLAVA_RESULT_SUFFIX}/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}}"
+OUTPUT_DIR="${OUTPUT_DIR:-$(stage2_mode_path "./three_stage_adaptive_results/${MODEL_PATH##*/}/${DATASET}/${QUERY}/${DATASET_SPLIT:-test}${LLAVA_RESULT_SUFFIX}/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}")}"
 printf 'Results: %s\n' "${OUTPUT_DIR}"
-"${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/three_stage_retrieval_pipeline_adaptive_views.py --view-selection-run-id "${VIEW_SELECTION_RUN_ID}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" \
+"${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/three_stage_retrieval_pipeline_adaptive_views.py "${STC_ARGS[@]}" --stage2-method "${STAGE2_METHOD}" --view-probability-mass "${USE_VIEW_PROBABILITY_MASS}" --view-probability-mass-threshold "${VIEW_PROBABILITY_MASS_THRESHOLD}" --view-selection-run-id "${VIEW_SELECTION_RUN_ID}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" \
     --retrieval-llava-image-mode "${RETRIEVAL_LLAVA_IMAGE_MODE}" --ranker-llava-image-mode "${RANKER_LLAVA_IMAGE_MODE}" \
     --adaptive-views --view-selection-file "${VIEW_SELECTION_FILE}" --dataset-name "${DATASET}" \
     --dataset-split "${DATASET_SPLIT:-test}" --task-type "${TASK}" --query-type "${QUERY}" \

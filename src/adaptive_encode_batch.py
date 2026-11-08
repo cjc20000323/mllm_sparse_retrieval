@@ -39,6 +39,7 @@ DEFAULTS = {
     "DEEPSPEED_BIN": "deepspeed", "USE_FREERET_DENSE": "false", "USE_FREERET_PROMPT_CONSTRAINTS": "false", "USE_FREERET_FULL_PROMPT": "false",
     "SHUFFLE_VIEW_OPTIONS": "false",
     "USE_HIERARCHICAL_VIEWS": "false",
+    "USE_VIEW_PROBABILITY_MASS": "false", "VIEW_PROBABILITY_MASS_THRESHOLD": "0.9",
 }
 
 
@@ -76,6 +77,12 @@ def split_name(value, name):
 
 def encoding_controls(env):
     controls = {name: env.get(name) or default for name, default in DEFAULTS.items()}
+    controls["USE_VIEW_PROBABILITY_MASS"] = str(boolean(controls["USE_VIEW_PROBABILITY_MASS"], "USE_VIEW_PROBABILITY_MASS")).lower()
+    if controls["USE_VIEW_PROBABILITY_MASS"] == "true":
+        from adaptive_view_probability_mass import configuration
+        controls["VIEW_PROBABILITY_MASS_THRESHOLD"] = str(configuration(controls["VIEW_PROBABILITY_MASS_THRESHOLD"])["threshold"])
+        if boolean(env.get("USE_VIEW_OVERLAP_SELECTION", "false"), "USE_VIEW_OVERLAP_SELECTION"):
+            raise ValueError("Cumulative probability selection and overlap are mutually exclusive")
     for name in ("TEXT_SPARSE_LENGTH", "IMAGE_SPARSE_LENGTH"):
         controls[name] = env.get(name) or controls["SPARSE_LENGTH"]
     for name in ("VIEW_SELECTION_MODALITY", "USE_VIEW_PMI"):
@@ -116,6 +123,8 @@ def encoding_controls(env):
             raise ValueError(f"{name} must be an integer, got {controls[name]!r}") from exc
         if (name in positive and value < 1) or (name in nonnegative and value < 0):
             raise ValueError(f"{name} must be {'positive' if name in positive else 'nonnegative'}")
+    from stc_sparse import environment_controls
+    controls.update(environment_controls(env))
     return controls
 
 
@@ -194,6 +203,8 @@ class Settings:
             raise ValueError("Selected model paths must have distinct directory names to avoid artifact collisions")
         controls = encoding_controls(env)
         if encoder == "overlap":
+            if controls["USE_STC_SPARSE"] == "true":
+                raise ValueError("STC sparse mode does not support the overlap encoder")
             controls.update(overlap_controls(env))
         if controls["LLAVA_IMAGE_MODE"] == "base" and any(not family.startswith("llava_") for family in families):
             raise ValueError("LLAVA_IMAGE_MODE=base requires LLaVA-NeXT families only")
@@ -353,6 +364,10 @@ OUTPUT_DIR requires one job. VIEW_SELECTION_FILE requires one model/dataset pair
 VIEW_EXAMPLE_MODE=auto|fixed defaults auto. VIEW_EXAMPLE_MAX_TOKENS=0 uses the model context limit.
 Positive budgets may lower that limit; one answer token is reserved. Auto mode ignores fixed per-round counts.
 Fixed mode preserves legacy cache/artifact fingerprints; set it to reuse existing fixed-count selections.
+USE_VIEW_PROBABILITY_MASS=true selects a ranked probability prefix; VIEW_PROBABILITY_MASS_THRESHOLD=0.9.
+Stop before adding a view would exceed the threshold; equality is accepted. Keep at least the first view.
+Rule v2 uses comparison=le and a minimum-one fallback; 0 selects one, 1 selects all.
+Thresholds reuse immutable probability scores and isolate derived selection/encoding fingerprints. Incompatible with overlap.
 Overlap launchers use encode_adaptive_views_overlap.py and default USE_VIEW_OVERLAP_SELECTION=true.
 USE_VIEW_PMI=true can be combined with overlap; corrected probabilities determine the probe order.
 USE_HIERARCHICAL_VIEWS=true replaces A-T with the ten primary/secondary dimensions A-J (default false).

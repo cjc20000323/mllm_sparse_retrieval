@@ -1,4 +1,4 @@
-"""Optional FreeRet task context and constraints for representation prompts."""
+"""Optional FreeRet rules before original Summary instructions, without task context."""
 from __future__ import annotations
 
 import hashlib
@@ -7,7 +7,7 @@ import re
 
 from freeret_prompt_catalog import PROMPT_SPECS, PROMPT_VERSION
 
-SUFFIX = "_freeret_constraints_v2"
+SUFFIX = "_freeret_constraints_v3"
 DATASET_KEYS = {"coco": "coco_t2i", "flickr": "flickr_t2i", "CUHK-PEDES": "cuhk_pedes_t2i",
                 "ICFG-PEDES": "icfg_pedes_t2i", "RSTPReid": "rstpreid_t2i", "webqa": "webqa_t2it",
                 "remuq": "remuq_it2t", "llava": "llava_it2t"}
@@ -18,10 +18,9 @@ def plain_instruction(value):
     return re.sub(r"<([^<>]+)>", r"\1", value).rstrip("\n")
 
 
-CONFIGURATION = dict(version=2, source="freeret_task_instructions", catalog_version=PROMPT_VERSION,
-    description_placement="shared_user_context_before_input_once_newline_v1",
+CONFIGURATION = dict(version=3, source="freeret_task_instructions", catalog_version=PROMPT_VERSION,
+    task_description_included=False, constraint_placement="before_representation_instruction",
     instruction_fingerprint=hashlib.sha256(json.dumps({key: {
-        "task_description": spec.task_description.rstrip("\n") + "\n",
         "query": plain_instruction(spec.query_instruction), "target": plain_instruction(spec.target_instruction)}
         for key, spec in PROMPT_SPECS.items()}, sort_keys=True, ensure_ascii=False).encode()).hexdigest())
 FINGERPRINT = hashlib.sha256(json.dumps(CONFIGURATION, sort_keys=True).encode()).hexdigest()
@@ -99,35 +98,15 @@ def augment(value, args, dataset, record=None, *, role=None, input_type=None):
 
 
 def task_description(dataset):
+    """Read the unchanged catalog description; constraint prompts do not inject it."""
     if dataset not in DATASET_KEYS:
         raise ValueError(f"No FreeRet prompt constraints registered for dataset {dataset!r}")
     return PROMPT_SPECS[DATASET_KEYS[dataset]].task_description.rstrip("\n") + "\n"
 
 
 def augment_context(value, args, dataset):
-    """Add once to the common context, before image/text and isolated view blocks."""
-    return task_description(dataset) + value if enabled(args) else value
-
-
-def _description_template(value, description):
-    # Called on project templates before user text substitution. View-only
-    # content elements have no user header and must not repeat the description.
-    if isinstance(value, str):
-        pattern = r"\[INST\]|<\|start_header_id\|>user<\|end_header_id\|>\n\n|<\|im_start\|>user\n|USER: |<s>user\n\n"
-        return re.sub(pattern, lambda match: match[0] + description, value, count=1)
-    if isinstance(value, dict):
-        if value.get("role") == "user":
-            content = value["content"]
-            if isinstance(content, str):
-                content = description + content
-            else:
-                content = [{"type": "text", "text": description}, *content]
-            return {**value, "content": content}
-        return {key: _description_template(item, description) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_description_template(item, description) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_description_template(item, description) for item in value)
+    """Compatibility hook: rules belong to instruction blocks, not shared input."""
+    validate(args, dataset)
     return value
 
 
@@ -150,7 +129,6 @@ class Templates:
     def __init__(self, args, data, *, input_type=None):
         self.use = enabled(args)
         self.prefix = instruction(data.dataset_name, input_type=input_type) + "\n" if self.use else ""
-        self.description = task_description(data.dataset_name) if self.use else ""
 
     def __getattr__(self, name):
         import template
@@ -159,11 +137,10 @@ class Templates:
             return value
         if name == "build_random_view_prompts":
             return lambda *args, **kwargs: _template(value(*args, **kwargs), self.prefix)
-        return _description_template(_template(value, self.prefix), self.description)
+        return _template(value, self.prefix)
 
 
 def augment_template(value, args, data, *, input_type=None):
     if not enabled(args):
         return value
-    return _description_template(_template(value, instruction(data.dataset_name, input_type=input_type) + "\n"),
-                                 task_description(data.dataset_name))
+    return _template(value, instruction(data.dataset_name, input_type=input_type) + "\n")

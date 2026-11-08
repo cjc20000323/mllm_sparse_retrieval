@@ -123,7 +123,7 @@ class LauncherTests(unittest.TestCase):
     def test_local_and_environment_switches_reach_actual_commands_and_failures_propagate(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); scripts = root / "scripts"; scripts.mkdir()
-            for name in NAMES + ["freeret_task_common.sh", "freeret_dense_mode.sh"]:
+            for name in NAMES + ["freeret_task_common.sh", "freeret_dense_mode.sh", "stage2_retrieval_mode.sh"]:
                 shutil.copyfile(ROOT / "scripts" / name, scripts / name)
             model = root / "checkpoint with spaces"; model.mkdir(); (model / "config.json").write_text("{}")
             for dataset, folder, filename in (("flickr", "flickr", "flickr_test.csv"),

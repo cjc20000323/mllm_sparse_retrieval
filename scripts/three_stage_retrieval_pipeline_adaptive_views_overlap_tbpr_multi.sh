@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+STAGE2_METHOD="${STAGE2_METHOD-hybrid}" # hybrid / dense; dense sorts only Stage-1 candidates
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stage2_retrieval_mode.sh" || exit $?
+stage2_mode_configure || exit $?
 # auto 按实际上下文长度填充示例；fixed 使用 VIEW_TEXTS_PER_ROUND / VIEW_IMAGES_PER_ROUND。
 VIEW_EXAMPLE_MODE="${VIEW_EXAMPLE_MODE-auto}"
 VIEW_EXAMPLE_MAX_TOKENS="${VIEW_EXAMPLE_MAX_TOKENS-0}" # 0 使用模型上限；可下调，总预算包含一个回答 token
@@ -117,6 +120,7 @@ SPARSE_THREADS="${SPARSE_THREADS-16}"
 RETRIEVAL_BATCH_SIZE="${RETRIEVAL_BATCH_SIZE-1}"
 HYBRID_ALPHA="${HYBRID_ALPHA-0.5}"
 SELECT_HYBRID_ALPHA="${SELECT_HYBRID_ALPHA-false}"  # true 在当前数据集扫描 0.1～0.9
+stage2_mode_configure || exit $?
 RERANK_NUM="${RERANK_NUM-5}"
 RERANK_BATCH_SIZE="${RERANK_BATCH_SIZE-1}"
 # what_caption_generation 的 modify_type 始终按当前任务方向自动选择：
@@ -191,9 +195,9 @@ if [[ "${RUN_ONE}" == true ]]; then
         name="${pair%%:*}"; option="${pair#*:}"
         case "${!name:-false}" in true|1|yes) EXTRA+=("--${option}") ;; false|0|no) ;; *) printf 'Invalid %s\n' "${name}" >&2; exit 2 ;; esac
     done
-    OUTPUT_DIR="${OUTPUT_DIR:-./three_stage_adaptive_results/${MODEL_PATH##*/}/${DATASET}/${QUERY}/${DATASET_SPLIT:-test}${LLAVA_RESULT_SUFFIX}/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}}"
+    OUTPUT_DIR="${OUTPUT_DIR:-$(stage2_mode_path "./three_stage_adaptive_results/${MODEL_PATH##*/}/${DATASET}/${QUERY}/${DATASET_SPLIT:-test}${LLAVA_RESULT_SUFFIX}/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}")}"
     printf 'Results: %s\n' "${OUTPUT_DIR}"
-    exec "${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/three_stage_retrieval_pipeline_adaptive_views.py --view-selection-run-id "${VIEW_SELECTION_RUN_ID}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" \
+    exec "${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/three_stage_retrieval_pipeline_adaptive_views.py --stage2-method "${STAGE2_METHOD}" --view-selection-run-id "${VIEW_SELECTION_RUN_ID}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" \
         --retrieval-llava-image-mode "${RETRIEVAL_LLAVA_IMAGE_MODE}" --ranker-llava-image-mode "${RANKER_LLAVA_IMAGE_MODE}" \
         --adaptive-views --view-selection-file "${VIEW_SELECTION_FILE}" --dataset-name "${DATASET}" \
         --dataset-split "${DATASET_SPLIT:-test}" --task-type "${TASK}" --query-type "${QUERY}" \
@@ -217,7 +221,7 @@ fi
 
 # ===== 批量调度：普通变量通过一次 env 集中传给 Python =====
 command -v "${PYTHON_BIN}" >/dev/null 2>&1 || { echo "Python not found: ${PYTHON_BIN}; activate the retrieval environment or set PYTHON_BIN." >&2; exit 2; }
-BATCH_ENV=("USE_HIERARCHICAL_VIEWS=${USE_HIERARCHICAL_VIEWS}" "VIEW_SELECTION_RUN_ID=${VIEW_SELECTION_RUN_ID}" "USE_FREERET_DENSE=${USE_FREERET_DENSE}" "USE_FREERET_PROMPT_CONSTRAINTS=${USE_FREERET_PROMPT_CONSTRAINTS}" "USE_FREERET_FULL_PROMPT=${USE_FREERET_FULL_PROMPT}")
+BATCH_ENV=("STAGE2_METHOD=${STAGE2_METHOD}" "USE_HIERARCHICAL_VIEWS=${USE_HIERARCHICAL_VIEWS}" "VIEW_SELECTION_RUN_ID=${VIEW_SELECTION_RUN_ID}" "USE_FREERET_DENSE=${USE_FREERET_DENSE}" "USE_FREERET_PROMPT_CONSTRAINTS=${USE_FREERET_PROMPT_CONSTRAINTS}" "USE_FREERET_FULL_PROMPT=${USE_FREERET_FULL_PROMPT}")
 for name in VIEW_EXAMPLE_MODE VIEW_EXAMPLE_MAX_TOKENS \
     MODEL_FAMILIES MODEL_FAMILY DATASETS DATASET DATASET_SPLIT CHECKPOINT_ROOT MODEL_PATH_QWEN2 \
     MODEL_PATH_QWEN25 MODEL_PATH_QWEN3 MODEL_PATH_LLAVA_LLAMA MODEL_PATH_LLAVA_MISTRAL MODEL_PATH RANKER_MODEL_PATH_QWEN2 RANKER_MODEL_PATH_QWEN25 \

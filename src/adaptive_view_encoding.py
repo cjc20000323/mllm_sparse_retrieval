@@ -4,6 +4,7 @@ from __future__ import annotations
 import freeret_full_prompt as full_prompt
 
 import freeret_prompt_constraints as prompt_constraints
+import adaptive_view_probability_mass as probability_mass
 
 
 import copy
@@ -21,6 +22,7 @@ import torch.nn.functional as F
 
 import adaptive_views as views
 import adaptive_view_shuffle as option_shuffle
+import stc_sparse as stc
 
 
 def pipeline_module():
@@ -84,11 +86,14 @@ class AdaptiveEncoder:
         if not 1 <= len(self.selected) <= count:
             raise ValueError(f"Adaptive encoding requires 1..{count} selected views")
         self.last_prompts = []
+        if stc.enabled(model_args):
+            self.stc_encoder = stc.SparseEncoder(processor.tokenizer, data, model_args)
         configure_processor(model.config, processor, data.reps_loc)
 
     def prepare(self, records):
         if full_prompt.enabled(self.model_args):
-            return full_prompt.prepare(self.processor,self.family,records,self.data.dataset_name,
+            return full_prompt.prepare_packed(self.processor,self.family,records,self.data.dataset_name,
+                [[view["aspect"] for view in self.selected] for _ in records],
                 padding_side="left" if self.data.reps_loc=="after_pad" else "right")
         from qwen_vl_encoding import prepare_views, ViewBatch, read_image
         contexts, blocks = [], []
@@ -132,7 +137,8 @@ class AdaptiveEncoder:
     def encode(self, records):
         import freeret_full_prompt as full_prompt
         if full_prompt.enabled(self.model_args):
-            return full_prompt.encode(self, records, [[view["aspect"] for view in self.selected] for _ in records])
+            return full_prompt.encode(self, records, [[view["aspect"] for view in self.selected] for _ in records],
+                                      raw_sparse_logits=stc.enabled(self.model_args))
         from qwen_vl_encoding import forward_views
         batch = self.prepare(records)
         self.last_prompts = batch.prompts
@@ -162,12 +168,15 @@ class AdaptiveEncoder:
                 ends = torch.tensor([end - 2 for _, end in spans], device=output.logits.device)
                 logits.append(output.logits[row, ends])
                 hidden.append(output.hidden_states[-1][row, ends.to(output.hidden_states[-1].device)])
-        sparse = [torch.log1p(torch.relu(row[1:])) for row in logits]
+        sparse = ([row[1:] for row in logits] if stc.enabled(self.model_args) else
+                  [torch.log1p(torch.relu(row[1:])) for row in logits])
         dense = F.normalize(torch.stack([row[0] for row in hidden]), dim=-1)
         return sparse, dense
 
 
 def sparse_vectors(encoder, records, logits):
+    if stc.enabled(getattr(encoder, "model_args", None)):
+        return [encoder.stc_encoder.vector(row, record) for row, record in zip(logits, records)]
     if encoder.family.startswith("qwen"):
         from qwen_vl_encoding import SparseEncoder
         if not hasattr(encoder, "sparse_encoder"):
@@ -223,6 +232,9 @@ def encoding_configuration(model_args, data, task, kind, identity, selection):
                          renderer=views.digest(renderers), encoding=fields)
     if views.is_pmi_selection(selection):
         configuration["selection_calibration"] = selection["calibration"]["configuration"]
+    configuration = probability_mass.add_metadata(configuration, selection)
+    if stc.enabled(model_args):
+        configuration[stc.FIELD] = stc.configuration(model_args)
     from dense_representation import configuration as dense_configuration, enabled
     return views.examples.add_configuration(views.add_pool_mode(option_shuffle.add_metadata(
         dense_configuration(configuration, enabled(model_args), prompt_constraints.enabled(model_args), full_prompt.enabled(model_args)),
@@ -243,7 +255,8 @@ def artifact_dirs(model_args, data, training, selection):
         bases = [original_path(path) for path in bases]
         if full_prompt.enabled(model_args) and getattr(data,"llava_image_mode","anyres") == "base":
             bases = [path.with_name(path.name.removesuffix("_llava_base")) for path in bases]
-    return [mode_path(artifact_dir(option_shuffle.mark_path(path / "adaptive_views" / selection["views_fingerprint"][:16], selection.get(option_shuffle.FIELD)),
+    stc_config = stc.configuration(model_args)
+    return [mode_path(artifact_dir(stc.mark_path(option_shuffle.mark_path(path / "adaptive_views" / selection["views_fingerprint"][:16], selection.get(option_shuffle.FIELD)), stc_config),
                                   getattr(data, "llava_image_mode", "anyres")), enabled(model_args), prompt_constraints.enabled(model_args), full_prompt.enabled(model_args))
             for path in bases]
 
@@ -260,6 +273,7 @@ def make_args(model_args, data, training, options):
         query = "image"
     args = api._parser().parse_args(["--dataset-name", data.dataset_name, "--task-type", task, "--query-type", query])
     args.adaptive_views = True
+    stc.copy_options(model_args, args, dtype=getattr(model_args, "stc_dtype", "float16"))
     args.use_freeret_dense = getattr(model_args, "use_freeret_dense", False)
     args.use_freeret_full_prompt = getattr(model_args, "use_freeret_full_prompt", False)
     args.use_freeret_prompt_constraints = getattr(model_args, "use_freeret_prompt_constraints", False)
@@ -387,6 +401,20 @@ def write_shard(encoder, records, data, roots, rank):
 
 def run_encode(model_args, data, training, options, *, selection_strategy=None):
     from qwen_vl_pipeline import init_process, dataset_records
+    stc.validate(options)
+    if stc.enabled(options):
+        if selection_strategy is not None:
+            raise ValueError("STC sparse encoding does not support overlap strategies")
+        stc.copy_options(options, model_args,
+                         dtype="bfloat16" if training.bf16 else "float16" if training.fp16 else "float32",
+                         root=Path(data.sparse_output_dir) / "stc_vocab")
+        # Bash precomputes before launching NCCL; direct Python calls need the same cache.
+        stc.load(model_args)
+    mass_mode = probability_mass.enabled(options)
+    if mass_mode:
+        if selection_strategy is not None:
+            raise ValueError("Cumulative probability selection cannot be combined with an overlap strategy")
+        selection_strategy = probability_mass.ProbabilityMassStrategy(options, model_args, data, training.task_type)
     if training.task_type not in {"ir", "tbpr", "t2it", "it2t"}:
         raise ValueError("Adaptive views support ITR/ir, TBPR, t2it and it2t only")
     if (model_args.eol_type, model_args.calculate_type) != ("disassembleeol_separate", "concat") or data.sparse_manual:
@@ -420,6 +448,7 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
             options.view_selection_shuffle_run_id) if options.view_selection_shuffle_run_id else option_shuffle.new_run_id())
         training.output_dir = str(option_shuffle.mark_path(training.output_dir, {"run_id":options.view_selection_shuffle_run_id}))
     explicit_path = Path(options.view_selection_file).expanduser() if options.view_selection_file else None
+    probability_source_path = explicit_path if mass_mode and explicit_path is not None and explicit_path.is_file() else None
     def existing_selection():
         if explicit_path is not None and explicit_path.exists():
             if option_shuffle.enabled(options):
@@ -430,7 +459,14 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
                                              selection_modality=requested_mode, view_selection_pmi=requested_pmi,
                                              view_selection_hierarchical=candidate_mode is not None,
                                              view_example_mode=options.view_example_mode,
-                                             view_example_max_tokens=options.view_example_max_tokens)
+                                              view_example_max_tokens=options.view_example_max_tokens,
+                                              allow_legacy_probability_mass_source=mass_mode)
+            if mass_mode:
+                if options.view_selection_split and options.view_selection_split != selection.get("selection_split"):
+                    raise ValueError("Probability source split differs from VIEW_SELECTION_SPLIT")
+                selection = probability_mass.derive(selection, options.view_probability_mass_threshold)
+            else:
+                probability_mass.validate_requested(selection, False)
             if selection.get(option_shuffle.FIELD) is not None:
                 raise ValueError("A shuffled selection file requires shuffled encoding; choose a new file for a new shuffled experiment")
             if selection_strategy is not None:
@@ -439,6 +475,9 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
         return None
     # Inherit an explicitly reused file's mode and reject conflicts before loading weights.
     preselected = root_action(rank, existing_selection) if explicit_path is not None else None
+    if probability_source_path is not None:
+        # Existing explicit JSONs are immutable probability sources in this mode.
+        explicit_path = None
     mode = preselected["selection_modality"] if preselected is not None else views.resolve_modality(requested_mode)
     pmi = views.resolve_pmi(requested_pmi, selection=preselected)
     api = pipeline_module()
@@ -460,6 +499,8 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
             views.require_equal(dict(examples=preselected.get(views.examples.FIELD)),
                                 dict(examples=views.examples.configuration(options, runtime.encoder.config)), "View-example configuration")
         source_split = options.view_selection_split or data.dataset_split
+        if mass_mode and preselected is not None:
+            source_split = preselected["selection_split"]
         shuffle = option_shuffle.for_options(options,identity,data.dataset_name,pool)
         selection_key = views.selection_cache_key(
             identity, data.dataset_name, source_split, mode, sampling, args.data_root, pmi=pmi,
@@ -471,6 +512,21 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
         def select():
             if preselected is not None:
                 views.require_equal(preselected["model"], identity, "View selection model/processor")
+                if probability_source_path is not None:
+                    if selection_path.exists():
+                        cached = views.load_selection(selection_path, identity=identity, dataset=data.dataset_name)
+                        views.require_equal(dict(fingerprint=cached["fingerprint"]),
+                                            dict(fingerprint=preselected["fingerprint"]), "Derived selection cache")
+                    else:
+                        views.atomic_json(selection_path, preselected)
+                        views.atomic_json(selection_path.with_name("view_pool.json"), preselected["pool"])
+                        if shuffle is not None:
+                            views.atomic_json(selection_path.with_name("option_mapping.json"), shuffle)
+                    views.atomic_json(selection_path.with_name("view_selection_diagnostics.json"), dict(
+                        source_file=str(probability_source_path), configuration=preselected[probability_mass.FIELD],
+                        ranking=preselected["probability_mass_ranking"], selected_count=preselected["selected_count"],
+                        selected_probability_mass=preselected["selected_probability_mass"],
+                        minimum_one_fallback=preselected["minimum_one_fallback"]))
                 views.log_selection(preselected, selection_path, reused=True)
                 if selection_strategy is not None:
                     selection_strategy.report(preselected, reused=True)
@@ -510,6 +566,8 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
             views.log_selection(selection, selection_path)
             return selection
         selection = root_action(rank, select)
+        if stc.enabled(model_args) and views.is_overlap_selection(selection):
+            raise ValueError("STC does not support an overlap view selection file")
         roots = artifact_dirs(model_args, data, training, selection)
         root_action(rank, lambda: prepare_outputs(roots))
         error = None
@@ -528,6 +586,8 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
             completion = dict(expected, num_shards=world, selection_file=str(selection_path.resolve()),
                               selection_fingerprint=selection["fingerprint"], examples=encoder.last_prompts[:1])
             for root in roots:
+                if stc.enabled(model_args):
+                    stc.publish_bundle(root, encoder.stc_encoder.vocabulary)
                 views.atomic_json(root / views.MANIFEST, completion)
                 from dense_representation import write_manifest, enabled
                 write_manifest(root, enabled(model_args), prompt_constraints.enabled(model_args), full_prompt.enabled(model_args))
@@ -539,11 +599,26 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
             print("Selected views:", [(row["label"], row["aspect"]) for row in selection["selected"]])
             print("Adaptive dense:", roots[0])
             print("Adaptive sparse:", roots[1])
+            if stc.enabled(model_args):
+                print("STC vocabulary:", encoder.stc_encoder.vocabulary.directory)
+                print("STC dimensions:", encoder.stc_encoder.count)
+                print("STC mapping fingerprint:", encoder.stc_encoder.vocabulary.fingerprint)
             print(f'Build index: python -B src/adaptive_views.py index --sparse-root "{roots[1]}"')
         root_action(rank, complete)
         return roots, selection
     finally:
         api._release_retrieval_runtime(runtime)
+
+
+def _query_encoding_settings(args, api, selection, *, eol_type, calculate_type, sparse_manual):
+    """Use the same locked-selection metadata for query caches and reuse validation."""
+    probability_mass.validate_requested(selection, getattr(args, "view_probability_mass", None),
+                                        getattr(args, "view_probability_mass_threshold", None))
+    settings = api._qwen_encoding_settings(args, eol_type, calculate_type, sparse_manual)
+    if probability_mass.is_selection(selection):
+        settings = probability_mass.add_metadata(settings, selection)
+        settings["views_fingerprint"] = selection["views_fingerprint"]
+    return settings
 
 
 def encode_queries(args, runtime, api, *, eol_type, calculate_type, sparse_manual, progress_prefix,
@@ -554,7 +629,8 @@ def encode_queries(args, runtime, api, *, eol_type, calculate_type, sparse_manua
     identity = views.model_identity(args.retrieval_model_name_or_path, runtime.encoder.config, runtime.processor,
                                     dtype=args.retrieval_dtype, lora=args.retrieval_lora_model_path)
     selection = views.load_selection(args.view_selection_file, identity=identity, dataset=args.dataset_name)
-    settings = api._qwen_encoding_settings(args, eol_type, calculate_type, sparse_manual)
+    settings = _query_encoding_settings(args, api, selection, eol_type=eol_type,
+                                       calculate_type=calculate_type, sparse_manual=sparse_manual)
     key = ("adaptive", views.digest(settings), tuple(requested_query_ids) if requested_query_ids is not None else None)
     if key in runtime.query_cache:
         return runtime.query_cache[key]
@@ -588,8 +664,10 @@ def validate_encoded(args, encoded, paths, api, *, eol_type, calculate_type, spa
     expected = encoded.qwen_metadata
     if expected is None:
         raise ValueError("Missing adaptive query configuration")
-    views.require_equal(expected["pipeline_settings"], api._qwen_encoding_settings(
-        args, eol_type, calculate_type, sparse_manual), "Adaptive query reuse")
+    selection = views.load_selection(args.view_selection_file, dataset=args.dataset_name)
+    settings = _query_encoding_settings(args, api, selection, eol_type=eol_type,
+                                       calculate_type=calculate_type, sparse_manual=sparse_manual)
+    views.require_equal(expected["pipeline_settings"], settings, "Adaptive query reuse")
     for path, dense in paths:
         actual = views.validate_artifact(path, expected)
         if dense and len(api._find_corpus_pickles(Path(path))) != actual["num_shards"]:
@@ -598,6 +676,7 @@ def validate_encoded(args, encoded, paths, api, *, eol_type, calculate_type, spa
 
 def preflight(args, api, *, mark_output=True):
     """Validate candidate artifacts; only the main experiment marks the result path."""
+    probability_mass.enabled(args)
     if args.task_type not in {"ir", "tbpr", "t2it", "it2t"} or args.stage1_method != "sparse_concat":
         raise ValueError("Adaptive views require ITR/ir, TBPR or fused-modal sparse_concat retrieval")
     if args.sparse_logits_multiply_view_count:
@@ -606,8 +685,11 @@ def preflight(args, api, *, mark_output=True):
         raise ValueError("Adaptive mode executes all three stages; precomputed runs are supported with the mode disabled")
     if not args.view_selection_file:
         raise ValueError("--adaptive-views requires --view-selection-file from encode_adaptive_views.py")
-    if not args.stage1_sparse_index or not args.stage2_dense_index or not args.stage2_sparse_index:
-        raise ValueError("Adaptive views require Stage-1 sparse and Stage-2 dense/sparse artifacts")
+    from stage2_retrieval_mode import method as stage2_method, artifact_paths as stage2_artifact_paths
+    if (not args.stage1_sparse_index or not args.stage2_dense_index
+            or (stage2_method(args) == "hybrid" and not args.stage2_sparse_index)):
+        raise ValueError("Adaptive views require Stage-1 sparse and Stage-2 dense artifacts; hybrid also requires Stage-2 sparse")
+    stc.bind_corpus(args)
     if args.rerank_template not in {"relevant", "what_caption_generation"}:
         raise ValueError("Adaptive mode uses what_caption_generation reranking")
     args.rerank_template = "what_caption_generation"
@@ -618,15 +700,26 @@ def preflight(args, api, *, mark_output=True):
                                    image_mode=getattr(args, "retrieval_llava_image_mode", "anyres"),
                                    lora=args.retrieval_lora_model_path)
     selection = views.load_selection(args.view_selection_file, identity=identity, dataset=args.dataset_name)
+    if stc.enabled(args) and views.is_overlap_selection(selection):
+        raise ValueError("STC does not support overlap selections")
+    probability_mass.validate_requested(selection, getattr(args, "view_probability_mass", None),
+                                        getattr(args, "view_probability_mass_threshold", None))
     shuffle = selection.get(option_shuffle.FIELD)
     requested_run = getattr(args,"view_selection_run_id",None)
     if requested_run and (shuffle is None or shuffle["run_id"] != option_shuffle.validate_run_id(requested_run)):
         raise ValueError("Selection file does not belong to the requested VIEW_SELECTION_RUN_ID")
-    if mark_output and shuffle is not None and args.output_dir is not None:
+    if mark_output and stage2_method(args) == "dense" and args.output_dir is not None:
+        from stage2_retrieval_mode import adaptive_output_path
+        args.output_dir = str(adaptive_output_path(args.output_dir, selection))
+    elif mark_output and shuffle is not None and args.output_dir is not None:
         args.output_dir = str(option_shuffle.mark_path(args.output_dir,shuffle))
+    if mark_output and stage2_method(args) == "hybrid" and probability_mass.is_selection(selection) and args.output_dir is not None:
+        args.output_dir = str(probability_mass.mark_output(args.output_dir, selection))
     model_args, data = api._retrieval_namespaces(args, eol_type="disassembleeol_separate", calculate_type="concat", sparse_manual=False)
     expected = metadata(model_args, data, args.task_type, corpus_kind(args.task_type, args.query_type), identity, selection)
-    for path, dense in ((args.stage1_sparse_index, False), (args.stage2_dense_index, True), (args.stage2_sparse_index, False)):
+    if mark_output and stc.enabled(args) and args.output_dir is not None:
+        args.output_dir = str(stc.mark_path(args.output_dir, expected["configuration"][stc.FIELD]))
+    for path, dense in [(args.stage1_sparse_index, False), *stage2_artifact_paths(args)]:
         actual = views.validate_artifact(path, expected)
         if dense:
             if len(api._find_corpus_pickles(Path(path))) != actual["num_shards"]:

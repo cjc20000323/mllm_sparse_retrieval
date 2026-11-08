@@ -48,6 +48,7 @@ def selection(*, hierarchical=False, pmi=False, shuffled=False, uniform=False):
 
 class ConfigurationTests(unittest.TestCase):
     def test_matrix_covers_all_models_tasks_and_both_ir_directions(self):
+        self.assertEqual(experiment.COUNTS, tuple(range(1, 11)))
         jobs = experiment.build_jobs(dict(MODEL_FAMILIES=" ".join(experiment.CHECKPOINTS),
             DATASETS=" ".join(experiment.TASKS), IR_QUERY_TYPES="text image"))
         self.assertEqual(len(jobs), 50)
@@ -132,7 +133,7 @@ class RankingTests(unittest.TestCase):
                         self.assertEqual([row["label"] for row in prefix["selected"]], expected[:count])
                         self.assertEqual(len(prefix["selected"]), count)
         tied = experiment.ranked_views(selection(uniform=True))
-        self.assertEqual([row["label"] for row in tied[:7]], list("ABCDEFG"))
+        self.assertEqual([row["label"] for row in tied[:max(experiment.COUNTS)]], list("ABCDEFGHIJ"))
 
     def test_saved_source_is_immutable_and_derived_files_never_use_the_old_loader(self):
         source = selection(hierarchical=True, pmi=True, shuffled=True)
@@ -145,7 +146,7 @@ class RankingTests(unittest.TestCase):
                 lambda: self.fail("reused source loaded weights"), api)
             self.assertEqual(saved, source)
             self.assertEqual(location, str(path.resolve()))
-            experiment.prefix_selection(saved, experiment.ranked_views(saved), 7)
+            experiment.prefix_selection(saved, experiment.ranked_views(saved), max(experiment.COUNTS))
             self.assertEqual(before, path.read_bytes())
 
     def test_auto_selection_is_called_once_and_reused_across_directions(self):
@@ -166,7 +167,8 @@ class RankingTests(unittest.TestCase):
 class PrefixTests(unittest.TestCase):
     def test_all_prefixes_use_original_sparse_aggregation_and_actual_denominator(self):
         tokenizer = NS(get_vocab=lambda: {chr(97+i): i for i in range(8)})
-        logits = [torch.arange(1, 57, dtype=torch.float32).reshape(7, 8) / 11]
+        count = max(experiment.COUNTS)
+        logits = [torch.arange(1, count * 8 + 1, dtype=torch.float32).reshape(count, 8) / 11]
         records = [dict(id="one", text="a")]
         for policy in ("sum", "max", "replace"):
             for mean in (False, True):
@@ -179,7 +181,11 @@ class PrefixTests(unittest.TestCase):
                     self.assertEqual(result[count], expected)
                     self.assertTrue(result[count])
                 if policy == "sum":
-                    self.assertNotEqual(result[1], result[7])
+                    self.assertNotEqual(result[1], result[max(experiment.COUNTS)])
+
+    def test_legacy_seven_view_logits_cannot_supply_ten_prefixes(self):
+        with self.assertRaisesRegex(ValueError, "exactly 10"):
+            experiment.prefix_vectors(NS(), [dict(id="one")], [torch.zeros(7, 8)])
 
 
 class PrefixRealModelTests(fixtures.RealModelTests):
@@ -199,7 +205,7 @@ class PrefixRealModelTests(fixtures.RealModelTests):
             args.use_freeret_prompt_constraints = constraints
             args.use_freeret_full_prompt = full
             with redirect_stdout(io.StringIO()):
-                encoder = adaptive.AdaptiveEncoder(model, processor, args, data, "ir", {"selected": views.view_pool()[:7]})
+                encoder = adaptive.AdaptiveEncoder(model, processor, args, data, "ir", {"selected": views.view_pool()[:max(experiment.COUNTS)]})
             logits, dense = encoder.encode(records)
             prefixes = experiment.prefix_vectors(encoder, records, logits)
             for count in experiment.COUNTS:
@@ -228,13 +234,14 @@ class WorkflowTests(unittest.TestCase):
         class Encoder:
             def __init__(self, encoder_model, processor, model_args, data, task, selected):
                 self.model, self.processor, self.data, self.family = encoder_model, processor, data, "qwen2_vl"
-                self.last_prompts = ["whole dense plus seven views"]
+                self.last_prompts = [f"whole dense plus {max(experiment.COUNTS)} views"]
                 self.selected = selected["selected"]
-                if len(self.selected) != 7:
-                    raise AssertionError("not one seven-view encoding")
+                if len(self.selected) != max(experiment.COUNTS):
+                    raise AssertionError("not one maximum-view encoding")
             def encode(self, records):
                 calls.append([row["id"] for row in records])
-                logits = [torch.arange(1,57,dtype=torch.float32).reshape(7,8) / (int(row["id"])%6+10) for row in records]
+                count = max(experiment.COUNTS)
+                logits = [torch.arange(1,count*8+1,dtype=torch.float32).reshape(count,8) / (int(row["id"])%6+10) for row in records]
                 dense = torch.tensor([[1., int(row["id"])%6 / 8, .2] for row in records])
                 return logits, torch.nn.functional.normalize(dense, dim=-1)
         candidates = [dict(id=str(10000+i), text=f"candidate {i}") for i in range(6)]
@@ -243,10 +250,13 @@ class WorkflowTests(unittest.TestCase):
             index = Path(sparse_root) / "collection/index"
             index.mkdir(); (index / "segments_1").write_bytes(b"fake lucene")
             return index
-        def search(sparse_root, topics, qids, depth, **kwargs):
+        def search(index_path, topics, qids, depth, **kwargs):
             from collections import Counter
+            index = api._resolve_lucene_index(Path(index_path))
+            self.assertEqual(index.name, "index")
+            self.assertTrue((index / "segments_1").is_file())
             documents = []
-            for path in sorted((Path(sparse_root) / "collection").glob("corpus_*.jsonl")):
+            for path in sorted(index.parent.glob("corpus_*.jsonl")):
                 documents.extend(json.loads(line) for line in path.read_text(encoding="utf-8").splitlines())
             result = {}
             for query in qids:
@@ -288,43 +298,68 @@ class WorkflowTests(unittest.TestCase):
                 experiment.run_worker(job)
                 self.assertEqual(len(calls), first_calls)
                 self.assertEqual(loader.call_count, 1)
-                self.assertEqual(build.call_count, 7)
-            self.assertEqual(ranker.call_count, 0 if stop else fail_at or 7)
+                self.assertEqual(build.call_count, len(experiment.COUNTS))
+            self.assertEqual(ranker.call_count, 0 if stop else fail_at or len(experiment.COUNTS))
         return job, calls
 
-    def test_two_stage_all_seven_prefixes_stream_once_and_resume_without_weights(self):
+    def test_two_stage_all_ten_prefixes_stream_once_and_resume_without_weights(self):
         with fixtures.temporary_directory() as directory:
             job, calls = self.run_fixture(directory)
             self.assertEqual(len(calls), 5)  # three corpus batches, two query batches
             root = Path(job["output_root"])
             with (root / "topk_summary.csv").open(encoding="utf-8-sig", newline="") as stream:
                 rows = list(csv.DictReader(stream))
-            self.assertEqual(len(rows), 7*4)
-            self.assertEqual({int(row["view_count"]) for row in rows}, set(range(1,8)))
+            self.assertEqual(len(rows), 10*4)
+            self.assertEqual({int(row["view_count"]) for row in rows}, set(range(1,11)))
             self.assertTrue(all("R@20" in row and row["execution_mode"]=="two_stage" for row in rows))
             self.assertFalse(list(root.rglob("stage3*")))
             self.assertEqual(len(list(root.rglob("corpus_0.pkl"))), 1)
             self.assertEqual(len(list(root.rglob("query_0.pkl"))), 1)
             query_files=list(root.rglob("query_0.jsonl"))
-            self.assertEqual(len(query_files),7)
+            self.assertEqual(len(query_files),10)
             for path in query_files:
                 record=json.loads(path.read_text(encoding="utf-8").splitlines()[0])
                 self.assertEqual(set(record),{"id","vector"})
             documents = sorted(root.rglob("corpus_0.jsonl"))
-            self.assertEqual(len(documents), 7)
+            self.assertEqual(len(documents), 10)
             first = json.loads(documents[0].read_text(encoding="utf-8").splitlines()[0])
             last = json.loads(documents[-1].read_text(encoding="utf-8").splitlines()[0])
             self.assertNotEqual(first["vector"], last["vector"])
+            experiment_root = next(root.rglob("experiment.json")).parent
+            configuration = json.loads((experiment_root / "experiment.json").read_text(encoding="utf-8"))["configuration"]
+            ranking = json.loads((experiment_root / "view_ranking.json").read_text(encoding="utf-8"))
+            self.assertEqual(configuration["counts"], list(range(1,11)))
+            self.assertEqual(configuration["selected"], ranking[:10])
+            for count in experiment.COUNTS:
+                selected = json.loads((experiment_root / f"top_{count}" / "selected_views.json").read_text(encoding="utf-8"))
+                self.assertEqual(selected["selected"], ranking[:count])
 
-    def test_three_stage_reranks_seven_groups_and_retains_incremental_csv(self):
+    def test_three_stage_reranks_ten_groups_and_retains_incremental_csv(self):
         with fixtures.temporary_directory() as directory:
             job, _ = self.run_fixture(directory, stop=False)
             root = Path(job["output_root"])
             with (root / "topk_summary.csv").open(encoding="utf-8-sig", newline="") as stream:
                 rows = list(csv.DictReader(stream))
-            self.assertEqual(len(rows), 7*5)
-            self.assertEqual(sum(row["stage"]=="stage3" for row in rows), 7)
-            self.assertEqual(len(list(root.rglob("stage3_ranker_run.json"))), 7)
+            self.assertEqual(len(rows), 10*5)
+            self.assertEqual(sum(row["stage"]=="stage3" for row in rows), 10)
+            self.assertEqual(len(list(root.rglob("stage3_ranker_run.json"))), 10)
+
+    def test_ten_view_experiment_preserves_old_seven_view_artifacts(self):
+        with fixtures.temporary_directory() as directory:
+            with patch.object(experiment, "COUNTS", tuple(range(1,8))):
+                job, _ = self.run_fixture(directory)
+            root = Path(job["output_root"])
+            previous = next(root.rglob("experiment.json")).parent
+            original = {path: path.read_bytes() for path in previous.rglob("*") if path.is_file()}
+            self.run_fixture(directory)
+            self.assertEqual(len(list(root.rglob("experiment.json"))), 2)
+            self.assertTrue((previous / "artifacts/top_7/sparse/collection/index/segments_1").is_file())
+            self.assertFalse((previous / "top_10").exists())
+            for path, contents in original.items():
+                self.assertEqual(path.read_bytes(), contents)
+            current = next(path.parent for path in root.rglob("experiment.json") if path.parent != previous)
+            self.assertTrue((current / "top_10/selected_views.json").is_file())
+            self.assertTrue((current / "artifacts/top_10/sparse/collection/index/segments_1").is_file())
 
     def test_failed_group_preserves_previous_results_and_current_stage2_report(self):
         with fixtures.temporary_directory() as directory:
@@ -346,6 +381,37 @@ class WorkflowTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "corrupt"):
                 experiment.completed(root, dict(mode=1))
             self.assertEqual(item.read_text(), "corrupt")
+
+    def test_both_sparse_stages_open_actual_index_for_every_model_mode_and_prefix(self):
+        from dense_representation import write_manifest
+        encoded = api.EncodedQueries(["q"], np.array([[1., 0.]], dtype="float32"), {"q": "word"})
+        run = {"q": {"document": 1.}}
+        for family in experiment.CHECKPOINTS:
+            for use, constraints, full in ((False,False,False),(True,False,False),(True,True,False),(True,True,True)):
+                with self.subTest(family=family, dense=use, constraints=constraints, full=full), fixtures.temporary_directory() as directory:
+                    job = experiment.build_jobs(dict(MODEL_FAMILY=family, DATASET="RSTPReid", STOP_AFTER_STAGE2="true",
+                        USE_FREERET_DENSE=str(use), USE_FREERET_PROMPT_CONSTRAINTS=str(constraints),
+                        USE_FREERET_FULL_PROMPT=str(full)))[0]
+                    args = experiment.pipeline_args(job, api)
+                    dense_root, sparse_roots = experiment.artifact_paths(directory, job)
+                    for count, root in sparse_roots.items():
+                        with self.subTest(count=count):
+                            index = root / "collection" / "index"
+                            index.mkdir(parents=True)
+                            (index / "segments_1").write_bytes(b"fake lucene")
+                            write_manifest(root, use, constraints, full)
+                            def search(index_path, *unused, **kwargs):
+                                resolved = api._resolve_lucene_index(Path(index_path))
+                                self.assertEqual(resolved, index)
+                                self.assertTrue((resolved / "segments_1").is_file())
+                                return copy.deepcopy(run)
+                            with patch.object(api, "retrieve_sparse_topics_from_lucene", side_effect=search) as sparse, \
+                                    patch.object(api, "retrieve_dense_from_corpus", return_value=run), \
+                                    redirect_stdout(io.StringIO()), patch.dict(os.environ, RANK="1"):
+                                experiment.retrieve_prefix(args, encoded, root, dense_root, api)
+                            self.assertEqual(sparse.call_count, 2)
+                            self.assertEqual([call.kwargs["progress_prefix"] for call in sparse.call_args_list],
+                                             ["[stage1]", "[stage2]"])
 
     def test_real_index_builder_accepts_every_representation_mode_and_reuses_across_threads(self):
         import dense_representation as dense

@@ -9,6 +9,57 @@ ITR 对应现有 `ir`，TBPR 对应 `tbpr`，fused-modal 对应 `t2it/it2t`；�
 
 ## 选择方法
 
+### 按累计概率决定视角数量
+
+普通 adaptive 编码及三阶段检索支持以下独立开关，默认关闭：
+
+```bash
+USE_VIEW_PROBABILITY_MASS=true
+VIEW_PROBABILITY_MASS_THRESHOLD=0.9
+```
+
+对数据集级最终概率降序排列，每加入一个后续视角前，先计算“已选累计概率＋该视角概率”。
+如果将超过阈值，就停止且不加入该视角，也不继续尝试后面的视角。恰好等于阈值时允许加入，浮点相等的绝对容差为 `1e-12`。
+例如概率 `0.4、0.3、0.2、0.1`，阈值为 `0.7` 时选择前两个，累计概率为 `0.7`。
+**至少保留第一个视角**：如果第一项本身已超过阈值，仍保留这一项作为兜底，记录 `minimum_one_fallback=true`。
+阈值必须有限且在 `[0,1]` 内；0 选择第一项，1 选择全部候选。概率相同按候选池原始顺序排列。
+开启 PMI 时累计的是校正、归一化并完成轮次/模态汇总的概率，不是原始 PMI 对数分数。
+
+该模式支持原 A–T 和层级 A–J 候选，使用选中的 1～候选总数个视角执行 `disassembleeol_separate + concat`。
+概率只决定视角集合，token 权重、合并、视角掩码、整体 dense 指令及类 FreeRet 表征设置沿用原配置。
+与 overlap 互斥；overlap 的入口与算法未修改。同时启用两种选择规则会报错。
+
+普通编码脚本 `encode_adaptive_views.sh`、`encode_adaptive_views_{ir,tbpr,fused}.sh`，以及对应的普通三阶段脚本均展开这两个参数。
+自动建库脚本 `sparse_index_adaptive_{ir,tbpr,fused}.sh` 也必须设置相同的开关和阈值。以 RSTPReid 为例：
+
+```bash
+MODEL_FAMILY=qwen25 DATASET=RSTPReid USE_VIEW_PROBABILITY_MASS=true VIEW_PROBABILITY_MASS_THRESHOLD=0.9 \
+  bash scripts/encode_adaptive_views_tbpr.sh
+MODEL_FAMILY=qwen25 DATASET=RSTPReid USE_VIEW_PROBABILITY_MASS=true VIEW_PROBABILITY_MASS_THRESHOLD=0.9 \
+  bash scripts/sparse_index_adaptive_tbpr.sh
+MODEL_FAMILY=qwen25 DATASET=RSTPReid USE_VIEW_PROBABILITY_MASS=true VIEW_PROBABILITY_MASS_THRESHOLD=0.9 \
+  bash scripts/three_stage_retrieval_pipeline_adaptive_views_tbpr.sh
+```
+
+三个阶段的其他模型、采样、精度、稀疏、图像处理及 FreeRet 设置也须一致。
+检索直接使用编码锁定的集合，查询与候选保持一致，不重新选择；显式模式/阈值与文件不符时会报错。
+直接调用 Python 检索入口时可用 `--view-probability-mass true --view-probability-mass-threshold 0.9`，省略时继承文件。
+
+不同阈值复用原始概率缓存，派生的选择文件使用独立指纹目录；普通累计选择版本为 18，PMI 累计选择为 19。
+其中 `probability_mass_configuration.version=2` 使用 `comparison=le` 和 `minimum_selected_count=1`；规则版本参与所有相关指纹。
+旧 v1 规则会保留跨阈值视角，不能作为当前编码、建索引或检索的锁定集合。旧文件可以通过编码入口的 `VIEW_SELECTION_FILE`
+明确指定为只读概率来源，程序先校验旧记录，再派生 v2 选择，不重新采样或计算模型概率，也不覆盖旧文件。
+使用 v2 选择重新编码并建索引，不能重命名旧产物冒充新结果。
+即使两个阈值选中相同视角，选择、编码及检索指纹仍不同。关闭模式不会将这两个参数写入原有指纹，仍使用固定 Top-5。
+`VIEW_SELECTION_FILE` 指向已有普通/PMI 或累计概率文件时，只读取其中完整概率，派生结果另存，不覆盖原文件；不接受 overlap 文件。
+指定尚不存在的选择文件时，在指定位置创建新记录。
+
+`view_selection.json` 增加 `selection_strategy`、`probability_mass_configuration`、`probability_source_fingerprint`、
+`probability_mass_ranking`、`selected_probability_mass`、`selected_count` 和 `minimum_one_fallback`，并保留原有概率、轮次和样本记录。
+排名表的 `cumulative_probability` 始终表示该排名及之前全部选项的累计概率；`selected` 标明实际保留的前缀，超阈值项及之后均为 false。
+日志显示各项概率、累计概率、是否选中、停止位置、最终数量和兜底状态。`view_selection_diagnostics.json` 记录概率来源和阈值决策。
+Top-K 和 seed 实验不增加该开关，继续各自原有的运行方式。
+
 从 `template.py` 中 ITR、TBPR origin/type、WebQA、ReMuQ 和 LLaVA 融合任务的默认人工五视角
 提取描述，补充文本／图像 `prompt_6` 的第六项（原因）和 `mistral_generation` 的第七项（动植物），
 得到旧版 20 项来源目录，再将近义表述合并；版本 4 从已有模板追加六个视角 O～T，
@@ -498,7 +549,7 @@ bash scripts/run_adaptive_views_three_stage.sh
 
 | 新脚本 | 默认数据集 | 检索方向／候选编码 |
 |---|---|---|
-| `scripts/three_stage_retrieval_pipeline_adaptive_views_ir.sh` | `flickr coco` | 图搜文使用 `text` 库；文搜图使用 `image` 库 |
+| `scripts/three_stage_retrieval_pipeline_adaptive_views_ir.sh` | `flickr` | 图搜文使用 `text` 库；文搜图使用 `image` 库 |
 | `scripts/three_stage_retrieval_pipeline_adaptive_views_tbpr.sh` | `CUHK-PEDES ICFG-PEDES RSTPReid` | 文搜行人图像，使用 `image` 库 |
 | `scripts/three_stage_retrieval_pipeline_adaptive_views_fused.sh` | `webqa remuq llava` | WebQA 文本搜图文；ReMuQ/LLaVA 图文搜文本，使用 `corpus` 库 |
 
@@ -524,9 +575,21 @@ bash scripts/run_adaptive_views_three_stage.sh
 因此自动生成的结果目录与以前三个入口全部使用 `no` 的结果分开；视角选择缓存、编码指纹和 dense/sparse/index 路径保持一致。
 这只启用已有重排修正算法，不额外启用重排先验缓存，与编码阶段的视角 PMI 是两个独立设置。
 
-新脚本默认 `OVERWRITE=false`：结果目录已存在会在预检时报错；设置 `OVERWRITE=true` 后允许重新执行并覆写。
+三个任务脚本默认 `OVERWRITE=true`，允许重新执行并覆写对应结果；设置 `OVERWRITE=false` 可恢复已有目录保护。
 `DRY_RUN=true` 只读取配置、processor 和已有产物，打印指纹与任务，不加载模型权重、不启动检索、不写结果。
-默认五种模型、所有数据集和 IR 双向检索对应 20／15／15 个任务；缺失输入的任务会跳过并汇总。
+默认模型为 `qwen25`；IR 为 `flickr` 双向，TBPR 为 `CUHK-PEDES ICFG-PEDES RSTPReid`，
+fused 为 `webqa remuq llava`，分别对应 2／3／3 个任务。五种模型的路径配置及多模型、多数据集覆盖仍可使用。
+缺失输入的任务会跳过并汇总。
+
+这三个脚本默认使用第二阶段 `dense`、层级十视角、累计概率阈值 `0.95`，
+`VIEW_EXAMPLE_MODE=auto`、`VIEW_EXAMPLE_MAX_TOKENS=16384`；fixed 模式备用数量为文本 30 条、图像 10 张。
+FreeRet dense 和完整提示词开启，prompt constraints 关闭，对应 `_freeret_full_prompt_v2`；STC 默认关闭。
+稀疏长度为 30，聚合 `sum`、`lower`、`after_pad`，`TBPR_TYPE=type`；图像处理为 `anyres`，
+Qwen 像素预算 min=0、max=401408，编码精度 float16。默认 2 GPU、检索 batch size=4，
+第一／二阶段深度均为 200，`RERANK_NUM=20`、`RERANK_BATCH_SIZE=20`。
+检查点位于 `/root/gpufree-share/checkpoints`，数据根目录为 `/root/gpufree-share`，
+dense、sparse 和结果分别位于其 `dense_output`、`sparse_output`、`three_stage_adaptive_results` 子目录。
+自定义结果根目录继续通过 `ADAPTIVE_OUTPUT_ROOT` 配置；这些定位参数必须与实际编码一致。
 
 ```bash
 # IR：两个模型、两个数据集、双向检索，先预览任务
@@ -603,9 +666,15 @@ overlap 默认选 5 个视角、阈值 0.1、每模态采样 20 条、独立种�
 `RANKER_MODEL_PATH_LLAVA_LLAMA`。全局 `MODEL_PATH`、`RANKER_MODEL_PATH` 仅允许一个模型族时使用。
 `RETRIEVAL_DTYPE`、`RANKER_DTYPE` 默认跟随 `DTYPE`；两阶段 LLaVA 模式也可分别覆盖。
 
-默认两阶段检索深度为 1000，`RERANK_NUM=5`，`HYBRID_ALPHA=0.5`。
-`SELECT_HYBRID_ALPHA=true` 使用现有的当前数据集扫描；自定义验证集输入继续使用单任务入口。
+旧批量入口默认两阶段检索深度为 1000、`RERANK_NUM=5`、`HYBRID_ALPHA=0.5`；
+三个新任务脚本采用前述 200／200、重排 20 条、第二阶段 dense 的默认配置。
+dense 模式忽略融合权重与扫描；切换 `STAGE2_METHOD=hybrid` 后，
+`SELECT_HYBRID_ALPHA=true` 使用现有的当前数据集扫描。自定义验证集输入继续使用单任务入口。
 查询编码在线执行并在第二阶段复用，第三阶段固定为 `what_caption_generation`。
+累计概率模式下，查询编码、缓存键和复用校验使用相同的完整配置，包括选择策略、概率阈值规则和
+`views_fingerprint`。复用时从当前选择文件重建配置；修改阈值、切换视角选择或更改表征配置仍会拒绝复用。
+这项校验同时适用于第二阶段 `dense` 和 `hybrid`。修复 `Adaptive query reuse mismatch` 中三个概率模式
+字段被误报为 `requested=None` 的问题不改变现有候选编码、指纹或索引，更新代码后重跑检索即可。
 新入口按上表自动选择 `modify_type`；原单任务脚本和旧批量入口继续使用固定的 `no`。
 任务按模型、数据集、方向串行执行；`GPUS`、`NUM_NODES` 控制当前任务。
 
@@ -670,7 +739,31 @@ FreeRet 开关、图像像素预算、编码精度、稀疏参数均在配置区
 不会自动选择最新实验。模型路径、相关文件修改时间和 `DATA_ROOT` 都影响缓存键。
 编码使用自定义 `VIEW_SELECTION_FILE` 时，请用 `TARGET_SPARSE_DIR` 指定产物。
 手动模式沿用原清单校验和按完整指纹恢复缺失引用的机制，不需要本地模型配置。
-有效已有索引仍跳过；预演不建索引。独立 overlap 索引脚本保留原扫描行为。
+有效已有 `collection/index` 仍跳过；预演不建索引。独立 overlap 索引脚本保留原扫描行为。
+
+### 兼容根目录 JSONL 分片
+
+带 `adaptive_views_manifest.json` 的旧产物如果把 `corpus_*.jsonl` 放在产物根目录，
+上述三个索引脚本及三个 `sparse_index_adaptive_views_overlap_*.sh` 会自动复制到 `collection/`，
+保留根目录原文件，并统一生成 `collection/index/segments_*`。无须重新编码或改变视角指纹。
+根目录旧 `index/` 保留，但不会导致新位置的索引构建被跳过。
+
+完整的 `collection` 分片优先；只有部分分片时，检查它们与完整根目录分片的同名文件逐字节一致，
+再补齐缺失文件。内容冲突、缺少分片或已有不完整的 `collection/index` 都会停止，不覆盖文件。
+每个分片先复制到临时文件再原子发布，建索引也先在临时目录完成，确认 `segments_*` 后发布。
+普通 `encode.py` / 非 Adaptive FreeRet 产物不进入此流程。
+
+可以直接对编码日志中的 `Adaptive sparse` 目录执行：
+
+```bash
+# 仅检查并显示复制和索引位置，不写文件
+python -B src/adaptive_views.py index --sparse-root /path/to/Adaptive_sparse --dry-run
+# 复制旧分片并创建 collection/index
+python -B src/adaptive_views.py index --sparse-root /path/to/Adaptive_sparse --threads 16
+```
+
+批量脚本的 `DRY_RUN=true` 同样只报告整理计划，不复制分片、不创建目录。
+STC 映射、FreeRet 表征标记和完整选择指纹继续按原规则校验。
 
 ## 在 Jupyter 中查看三阶段结果
 

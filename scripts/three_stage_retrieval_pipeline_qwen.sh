@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+STAGE2_METHOD="${STAGE2_METHOD-hybrid}" # hybrid / dense; dense sorts only Stage-1 candidates
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stage2_retrieval_mode.sh" || exit $?
+stage2_mode_configure || exit $?
 USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"  # true: FreeRet pre-MLP dense; prompts/sparse unchanged
 USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"  # Complete FreeRet dense/sparse prompts; requires FreeRet dense
 USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prepend FreeRet constraints to all representation views
@@ -25,6 +28,7 @@ set -euo pipefail
 usage() {
     cat <<'USAGE'
 Usage: bash scripts/three_stage_retrieval_pipeline_qwen.sh
+STAGE2_METHOD=hybrid|dense; dense sorts only Stage-1 candidates and skips fusion.
 Configure through the block below or environment variables:
   QWEN_FAMILY       qwen2 | qwen25 | qwen3 (default: qwen25)
   DATASETS          whitespace-separated names (default: "flickr coco")
@@ -79,6 +83,7 @@ export RETRIEVAL_QWEN_MAX_PIXELS="${RETRIEVAL_QWEN_MAX_PIXELS:-0}"
 export RANKER_QWEN_MIN_PIXELS="${RANKER_QWEN_MIN_PIXELS:-0}"
 export RANKER_QWEN_MAX_PIXELS="${RANKER_QWEN_MAX_PIXELS:-0}"
 export SELECT_HYBRID_ALPHA="${SELECT_HYBRID_ALPHA:-false}"
+stage2_mode_configure || exit $?
 export VALIDATION_SPLIT="${VALIDATION_SPLIT:-val}"
 case "${SELECT_HYBRID_ALPHA,,}" in
     true|1|yes) SELECT_HYBRID_ALPHA=true ;;
@@ -132,6 +137,7 @@ dataset_task() {
     esac
 }
 validation_job_env() {
+    if [[ "${STAGE2_METHOD}" == dense ]]; then QWEN_VALIDATION_ENV=(); return 0; fi
     local dataset="$1" dense sparse name first_index first_run
     QWEN_VALIDATION_ENV=()
     name="${VALIDATION_DATASETS[${dataset}]-${VALIDATION_DATASET_NAME:-}}"
@@ -186,6 +192,7 @@ for dataset in "${DATASET_LIST[@]}"; do
     if [[ "${SELECT_HYBRID_ALPHA}" == true ]]; then JOB_OUTPUT+="/alpha_select"; fi
     JOB_OUTPUT+="/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}"
     validation_job_env "${dataset}"
+    JOB_OUTPUT="$(stage2_mode_path "${JOB_OUTPUT}")"
     JOB_ENV=("USE_FREERET_DENSE=${USE_FREERET_DENSE}" "USE_FREERET_PROMPT_CONSTRAINTS=${USE_FREERET_PROMPT_CONSTRAINTS}" "USE_FREERET_FULL_PROMPT=${USE_FREERET_FULL_PROMPT}" 
         "DATASET=${dataset}" "QUERY_TYPE=${QUERY}"
         "BASE_MODEL=${ARTIFACT_TAG}" "ARTIFACT_MODEL_NAME=${ARTIFACT_TAG}"

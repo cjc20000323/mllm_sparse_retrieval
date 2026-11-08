@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 一次调用：同一概率排序 -> Top-1..7 稀疏编码 -> 建索引 -> 二/三阶段检索 -> CSV 汇总。
+# 一次调用：同一概率排序 -> Top-1..10 稀疏编码 -> 建索引 -> 二/三阶段检索 -> CSV 汇总。
 # 所有任务由新的 Python 入口执行；不调用或修改原有编码、检索启动脚本。
 set -euo pipefail
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -56,7 +56,7 @@ LLAVA_IMAGE_MODE="${LLAVA_IMAGE_MODE-anyres}" # base 只用于 LLaVA-NeXT，Qwen
 QWEN_MIN_PIXELS="${QWEN_MIN_PIXELS-0}"
 QWEN_MAX_PIXELS="${QWEN_MAX_PIXELS-0}"
 
-# ===== 概率来源：每个模型/数据集只计算一次，七组和 IR 双向共用 =====
+# ===== 概率来源：每个模型/数据集只计算一次，十组和 IR 双向共用 =====
 VIEW_SELECTION_FILE="${VIEW_SELECTION_FILE-}" # 可填写原 encode_adaptive_views 的 view_selection.json；限单模型/数据集
 VIEW_SELECTION_SPLIT="${VIEW_SELECTION_SPLIT-}"
 VIEW_SELECTION_MODALITY="${VIEW_SELECTION_MODALITY-}" # 空: 新选择用 both，已有文件继承；text / image / both
@@ -77,7 +77,7 @@ USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"
 USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"
 USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"
 
-# ===== 检索参数：七组共用固定融合权重 =====
+# ===== 检索参数：十组共用固定融合权重 =====
 STAGE1_DEPTH="${STAGE1_DEPTH-1000}"
 STAGE2_DEPTH="${STAGE2_DEPTH-1000}"
 SPARSE_THREADS="${SPARSE_THREADS-16}"

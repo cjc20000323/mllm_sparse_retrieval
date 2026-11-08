@@ -42,10 +42,10 @@ dense_mode_path() {
         value="$(dirname -- "${value}")"
     done
     # Preserve explicitly supplied old paths so Python reports the version mismatch.
-    if [[ "${value}" != *_dense_freeret_pre_mlp_freeret_constraints_v1 && "${value}" != *_dense_freeret_pre_mlp_freeret_constraints_v2 && "${value}" != *_dense_freeret_pre_mlp_freeret_full_prompt_v1 ]]; then
+    if [[ "${value}" != *_dense_freeret_pre_mlp_freeret_constraints_v1 && "${value}" != *_dense_freeret_pre_mlp_freeret_constraints_v2 && "${value}" != *_dense_freeret_pre_mlp_freeret_constraints_v3 && "${value}" != *_dense_freeret_pre_mlp_freeret_full_prompt_v1 && "${value}" != *_dense_freeret_pre_mlp_freeret_full_prompt_v2 ]]; then
         [[ "${value}" == *_dense_freeret_pre_mlp ]] || value+="_dense_freeret_pre_mlp"
-        if [[ "${USE_FREERET_FULL_PROMPT}" == true ]]; then value+="_freeret_full_prompt_v1"
-        elif [[ "${USE_FREERET_PROMPT_CONSTRAINTS}" == true ]]; then value+="_freeret_constraints_v2"; fi
+        if [[ "${USE_FREERET_FULL_PROMPT}" == true ]]; then value+="_freeret_full_prompt_v2"
+        elif [[ "${USE_FREERET_PROMPT_CONSTRAINTS}" == true ]]; then value+="_freeret_constraints_v3"; fi
     fi
     printf '%s%s' "${value}" "${tail}"
 }

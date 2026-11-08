@@ -27,13 +27,13 @@
 |---|---|---|
 | false | false | 原表征及提示词，原目录 |
 | true | false | FreeRet pre-MLP 密集层，原提示词；`_dense_freeret_pre_mlp` |
-| true | true | FreeRet 密集层、输入前一次任务描述及各视角约束；`_dense_freeret_pre_mlp_freeret_constraints_v2` |
+| true | true | FreeRet 密集层、各视角原 Summary 前添加约束规则，无任务描述；`_dense_freeret_pre_mlp_freeret_constraints_v3` |
 
 `USE_FREERET_PROMPT_CONSTRAINTS=true` 要求 `USE_FREERET_DENSE=true`。三个阶段应使用同一组合；目录与模式元数据不匹配时会报错。未标记的显式产物目录会按开关补齐后缀，已经标记的正确目录不会重复添加。
 
-任务描述取自 `freeret_prompt_catalog.py` 的 `task_description`，放在原聊天前缀之后、图文输入之前，仅加入一次。Summary、任务约束、聊天模板和实际重排提示词保持原样。v1 产物不含任务描述，需重新编码并建立 v2 索引；开启约束时不能混用旧产物。关闭约束时保持原行为。
+约束规则取自 `freeret_prompt_catalog.py` 对应任务及角色的指令，放在原 Summary 之前；v3 不再向聊天模板或共享输入中注入 `task_description`。Summary、规则内容、图文输入、视角掩码和实际重排评分提示词保持原样。需要按 v3 重新编码并建索引，不能通过改名复用 v1/v2 产物；旧文件保留，自动索引扫描跳过并报告，显式旧路径会报错。关闭约束时保持原表征提示词。
 
-另可设置 `USE_FREERET_DENSE=true USE_FREERET_FULL_PROMPT=true` 启用完整 FreeRet 提示词。新开关默认 `false`；开启后替代现有 Summary 提示词，整体 dense 使用原 FreeRet 模板，sparse 在语义规则中写入各视角，其他规则保留。此时旧 `USE_FREERET_PROMPT_CONSTRAINTS` 不再叠加内容。目录后缀为 `_dense_freeret_pre_mlp_freeret_full_prompt_v1`，三个阶段都需使用同一新开关，并重新编码、建索引。实际重排评分提示词不变。
+另可设置 `USE_FREERET_DENSE=true USE_FREERET_FULL_PROMPT=true` 启用完整 FreeRet 提示词。新开关默认 `false`；开启后替代现有 Summary 提示词，整体 dense 使用原 FreeRet 模板，sparse 在语义规则中写入各视角，其他规则保留。v2 共用一次任务描述和图文输入，将完整指令块拼接后一次前向，使用视角级因果掩码和位置编号复位隔离各块。此时旧 `USE_FREERET_PROMPT_CONSTRAINTS` 不再叠加内容。目录后缀为 `_dense_freeret_pre_mlp_freeret_full_prompt_v2`，三个阶段都需使用同一新开关，并重新编码、建索引；旧独立前向 v1 产物不能改名复用，显式旧路径需清空或改为新的 v2 输出。实际重排评分提示词不变。
 
 例如为 TBPR 开启两个模式，依次执行：
 

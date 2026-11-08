@@ -9,6 +9,7 @@ import math
 import os
 from pathlib import Path
 import pickle
+import re
 import shutil
 import subprocess
 import tempfile
@@ -357,6 +358,8 @@ class DownstreamTests(unittest.TestCase):
             scripts = root / "scripts"
             scripts.mkdir()
             shutil.copyfile(ROOT / "scripts/freeret_dense_mode.sh", scripts / "freeret_dense_mode.sh")
+            shutil.copyfile(ROOT / "scripts/stage2_retrieval_mode.sh", scripts / "stage2_retrieval_mode.sh")
+            shutil.copyfile(ROOT / "scripts/stc_sparse_mode.sh", scripts / "stc_sparse_mode.sh")
             capture = root / "capture"
             capture.write_text('#!/usr/bin/env bash\nprintf "mode=%s\\nbudget=%s\\n" "$VIEW_EXAMPLE_MODE" "$VIEW_EXAMPLE_MAX_TOKENS"\nprintf "%s\\n" "$@"\n', encoding="utf-8")
             capture.chmod(0o755)
@@ -366,7 +369,7 @@ class DownstreamTests(unittest.TestCase):
                         body = (ROOT / "scripts" / name).read_text(encoding="utf-8")
                         if local:
                             body = body.replace('${VIEW_EXAMPLE_MODE-auto}', '${VIEW_EXAMPLE_MODE-fixed}')
-                            body = body.replace('${VIEW_EXAMPLE_MAX_TOKENS-0}', '${VIEW_EXAMPLE_MAX_TOKENS-2048}')
+                            body = re.sub(r'\$\{VIEW_EXAMPLE_MAX_TOKENS-[0-9]+\}', '${VIEW_EXAMPLE_MAX_TOKENS-2048}', body)
                         (scripts / name).write_text(body, encoding="utf-8")
                         env = {k: v for k, v in os.environ.items() if k not in {"VIEW_EXAMPLE_MODE", "VIEW_EXAMPLE_MAX_TOKENS", "TARGET_SPARSE_DIR"}}
                         env.update(PYTHON_BIN=capture.as_posix(), DEEPSPEED_BIN=capture.as_posix(), MODEL_FAMILY="qwen25", MODEL_PATH="fixture",

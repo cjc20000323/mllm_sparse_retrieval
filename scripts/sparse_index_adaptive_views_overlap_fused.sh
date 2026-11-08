@@ -7,6 +7,7 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.s
 set -euo pipefail
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
+# Root shards are copied into collection; only a valid collection/index skips the build.
 if (($#)) && ! { (($# == 1)) && [[ "$1" == -h || "$1" == --help ]]; }; then
     echo 'Configure environment variables or the configuration block; see --help.' >&2
     exit 2

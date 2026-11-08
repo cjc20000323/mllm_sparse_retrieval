@@ -1,9 +1,9 @@
-"""Independent Top-1..7 adaptive sparse-view experiment.
+"""Independent Top-1..10 adaptive sparse-view experiment.
 
 Run scripts/adaptive_views_topk_experiment.sh once. Configuration is taken from
 its environment, not from the old encode/retrieval launchers. DRY_RUN is read-only.
 The original five-view selection remains immutable: its complete probability
-ranking supplies seven prefixes, stored in this experiment's own manifests.
+ranking supplies ten prefixes, stored in this experiment's own manifests.
 
 STOP_AFTER_STAGE2=true skips all ranker setup and execution. Each model/dataset
 shares one probability selection across IR directions; query and candidate
@@ -31,7 +31,7 @@ from uuid import uuid4
 
 
 PROJECT = Path(__file__).resolve().parents[1]
-COUNTS = tuple(range(1, 8))
+COUNTS = tuple(range(1, 11))
 VERSION = 1
 CHECKPOINTS = {
     "qwen2": "Qwen-Qwen2-VL-7B-Instruct",
@@ -156,6 +156,8 @@ def _list(env, singular, plural, default, allowed):
 
 def build_jobs(env, project=PROJECT):
     """Resolve the complete matrix before creating outputs or starting workers."""
+    if boolean(env.get("USE_STC_SPARSE") or False):
+        raise ValueError("STC sparse mode is not supported by the Top-K experiment; use the adaptive encoding/retrieval scripts")
     project = Path(project).resolve()
     def path(value):
         item = Path(value).expanduser()
@@ -296,7 +298,7 @@ def resolve_selection(job, args, identity, config, get_runtime, api):
             raise ValueError("VIEW_SELECTION_FILE does not match VIEW_SELECTION_RUN_ID")
         if job["SHUFFLE_VIEW_OPTIONS"] and mapping is None:
             raise ValueError("SHUFFLE_VIEW_OPTIONS=true requires a source file with a recorded option mapping")
-        # Selection controls belong to the immutable source file. All seven groups inherit them.
+        # Selection controls belong to the immutable source file. All groups inherit them.
         return selection, str(Path(explicit).resolve())
     mode = views.resolve_modality(options.view_selection_modality)
     sampling = views.selection_sampling(options, mode, model_config=config)
@@ -338,7 +340,7 @@ def ranked_views(selection):
         raise ValueError("Saved candidate probabilities differ from their per-round aggregate")
     order = sorted(range(len(selection["pool"])), key=lambda index: (-ranking["scores"][index], index))
     if len(order) < max(COUNTS):
-        raise ValueError("Top-1..7 experiment requires at least seven candidate perspectives")
+        raise ValueError(f"Top-1..{max(COUNTS)} experiment requires at least {max(COUNTS)} candidate perspectives")
     return [dict(rank=rank + 1, **selection["pool"][index], probability=ranking["scores"][index],
                  text_mean=None if ranking["text_mean"] is None else ranking["text_mean"][index],
                  image_mean=None if ranking["image_mean"] is None else ranking["image_mean"][index])
@@ -362,7 +364,7 @@ def prefix_vectors(encoder, records, logits, converter=None):
     if converter is None:
         from adaptive_view_encoding import sparse_vectors as converter
     if any(len(row) != max(COUNTS) for row in logits):
-        raise ValueError("Expected exactly seven unmerged sparse-view logits per sample")
+        raise ValueError(f"Expected exactly {max(COUNTS)} unmerged sparse-view logits per sample")
     return {count: converter(encoder, records, [row[:count] for row in logits]) for count in COUNTS}
 
 
@@ -374,7 +376,7 @@ def artifact_paths(root, job):
 
 
 def encode_artifacts(job, args, context, runtime, selection, ranking, root, configuration, api):
-    """Stream one corpus pass into seven JSONL collections; keep logits batch-local."""
+    """Stream one corpus pass into all prefix JSONL collections; keep logits batch-local."""
     import numpy as np
     import adaptive_views as views
     import adaptive_view_encoding as adaptive
@@ -423,7 +425,7 @@ def encode_artifacts(job, args, context, runtime, selection, ranking, root, conf
                 pickle.dump((dense, identifiers), stream)
             records = api._qwen_query_records(args, api._query_records(args, dataset))[context.rank::context.world_size]
             ids, dense_parts = [], []
-            # Store compact vectors, not seven sets of weight-expanded topic strings.
+            # Store compact vectors for every prefix.
             # Only the current prefix is expanded when its retrieval actually starts.
             with ExitStack() as stack:
                 streams = {count: stack.enter_context((staging / "queries" / f"top_{count}" / f"query_{context.rank}.jsonl").open("w", encoding="utf-8"))
@@ -476,15 +478,18 @@ def ensure_index(root, configuration, *, threads=16):
 def retrieve_prefix(args, encoded, sparse_root, dense_root, api):
     """Same three-stage primitives, with independently validated Top-K artifacts."""
     api._validate_encoded_queries(encoded)
+    # Top-K artifacts use this layout for every model, without a Qwen/adaptive
+    # manifest that would let the shared reader infer it from the sparse root.
+    index_path = Path(sparse_root) / "collection" / "index"
     first, second = api.StageTimer(), api.StageTimer()
-    stage1 = api.retrieve_sparse_topics_from_lucene(Path(sparse_root), encoded.sparse_topics, encoded.query_ids,
+    stage1 = api.retrieve_sparse_topics_from_lucene(index_path, encoded.sparse_topics, encoded.query_ids,
         depth=args.stage1_depth, threads=args.sparse_threads, progress_prefix="[stage1]", timing=first)
     candidates = {query: set(api._top_ids(scores, args.stage1_depth)) for query, scores in stage1.items()}
     if not stage1:
         return stage1, {}, {}, {}, first, second
     dense = api.retrieve_dense_from_corpus(encoded.dense_representations, encoded.query_ids, Path(dense_root), list(stage1),
         depth=args.stage2_depth, candidate_filter=candidates, normalize=not args.no_dense_normalize, timing=second)
-    sparse = api.retrieve_sparse_topics_from_lucene(Path(sparse_root), encoded.sparse_topics, list(stage1),
+    sparse = api.retrieve_sparse_topics_from_lucene(index_path, encoded.sparse_topics, list(stage1),
         depth=max(args.stage2_depth, args.stage1_depth), threads=args.sparse_threads, progress_prefix="[stage2]", timing=second)
     hybrid = api.fuse_restricted_runs(stage1, dense, sparse, args.hybrid_alpha, args.stage1_depth, timing=second)
     return stage1, dense, sparse, hybrid, first, second
@@ -636,9 +641,9 @@ def run_worker(job, local_rank=-1):
         from qwen_vl_pipeline import corpus_kind
         configuration = dict(version=VERSION, model=identity, task=job["task"], query_type=job["query_type"],
             dataset=job["dataset"], split=job["DATASET_SPLIT"], data_root=job["data_root"], source_fingerprint=selection["fingerprint"],
-            counts=list(COUNTS), selected=ranking[:7], world_size=context.world_size,
+            counts=list(COUNTS), selected=ranking[:max(COUNTS)], world_size=context.world_size,
             encoding=adaptive.encoding_configuration(model_args, data, job["task"], corpus_kind(job["task"], job["query_type"]),
-                identity, prefix_selection(selection, ranking, 7)),
+                identity, prefix_selection(selection, ranking, max(COUNTS))),
             prompt_sources={name: file_hash(PROJECT / "src" / name) for name in (
                 "freeret_prompt_catalog.py", "freeret_prompt_constraints.py", "freeret_full_prompt.py")})
         experiment = Path(job["output_root"]) / job["model_family"] / Path(job["model_path"]).name / job["dataset"] / job["query_type"] / job["DATASET_SPLIT"] / digest(configuration)[:16]
@@ -652,7 +657,7 @@ def run_worker(job, local_rank=-1):
                 atomic_json(experiment / f"top_{count}" / "selected_views.json", dict(count=count,
                     source_fingerprint=selection["fingerprint"], selected=ranking[:count]))
             print(f"[topk] experiment: {experiment}\n[topk] source: {source_path}", flush=True)
-            for row in ranking[:7]:
+            for row in ranking[:max(COUNTS)]:
                 print(f"[topk] rank={row['rank']} {row['label']}: {row['aspect']} probability={row['probability']:.8f}", flush=True)
         adaptive.root_action(context.rank, prepare)
         ready = adaptive.root_action(context.rank, lambda: completed(experiment / "artifacts", configuration))
@@ -708,7 +713,7 @@ def run_batch(env, *, runner=subprocess.run):
         command = [env.get("DEEPSPEED_BIN") or "deepspeed", f"--num_gpus={job['GPUS']}", f"--num_nodes={job['NUM_NODES']}",
                    str(PROJECT / "src" / "adaptive_views_topk_experiment.py"), "--worker", str(path)]
         print(f"[topk] job {index}/{len(runnable)}: {job['model_family']}/{job['dataset']}/{job['query_type']}; "
-              f"Top-1..7; {'two stages' if job['STOP_AFTER_STAGE2'] else 'three stages'}", flush=True)
+              f"Top-1..{max(COUNTS)}; {'two stages' if job['STOP_AFTER_STAGE2'] else 'three stages'}", flush=True)
         print(json.dumps(dict(command=command, configuration=job), ensure_ascii=False), flush=True)
         if dry:
             continue

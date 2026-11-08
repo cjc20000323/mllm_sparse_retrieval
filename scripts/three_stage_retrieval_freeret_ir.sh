@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+STAGE2_METHOD="${STAGE2_METHOD-hybrid}" # hybrid / dense; dense sorts only Stage-1 candidates
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stage2_retrieval_mode.sh" || exit $?
+stage2_mode_configure || exit $?
 # 三阶段检索：使用普通固定视角产物；两个 FreeRet 开关默认关闭。
 set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,6 +67,7 @@ STAGE2_DEPTH="${STAGE2_DEPTH-1000}"
 SPARSE_THREADS="${SPARSE_THREADS-16}"
 HYBRID_ALPHA="${HYBRID_ALPHA-0.5}"
 SELECT_HYBRID_ALPHA="${SELECT_HYBRID_ALPHA-false}"
+stage2_mode_configure || exit $?
 VAL_PASSAGE_REPS="${VAL_PASSAGE_REPS-}"
 VAL_SPARSE_INDEX="${VAL_SPARSE_INDEX-}"
 VAL_STAGE1_SPARSE_INDEX="${VAL_STAGE1_SPARSE_INDEX-}"
@@ -110,9 +114,10 @@ OUTPUT_VARIANT=sparse_concat_stage1
 if [[ "${RETRIEVAL_LLAVA_IMAGE_MODE}" == base || "${RANKER_LLAVA_IMAGE_MODE}" == base ]]; then
     OUTPUT_VARIANT+="_retrieval_${RETRIEVAL_LLAVA_IMAGE_MODE}_ranker_${RANKER_LLAVA_IMAGE_MODE}"
 fi
-OUTPUT_DIR="$(dense_mode_path "${OUTPUT_DIR:-./three_stage_results/${MODEL_TAG}/${DATASET}/${DIRECTION_LABEL}/${DATASET_SPLIT}/${OUTPUT_VARIANT}/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}}")"
+OUTPUT_DIR="$(dense_mode_path "${OUTPUT_DIR:-$(stage2_mode_path "./three_stage_results/${MODEL_TAG}/${DATASET}/${DIRECTION_LABEL}/${DATASET_SPLIT}/${OUTPUT_VARIANT}/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}")}")"
 EXTRA=()
 CHECK_ARGS=(--dense-root "${STAGE2_DENSE_INDEX}" --sparse-root "${STAGE1_SPARSE_INDEX}" --sparse-root "${STAGE2_SPARSE_INDEX}")
+if [[ "${STAGE2_METHOD}" == dense ]]; then CHECK_ARGS=(--dense-root "${STAGE2_DENSE_INDEX}" --sparse-root "${STAGE1_SPARSE_INDEX}"); fi
 [[ "${SPARSE_VALUE_MEAN}" == false ]] || EXTRA+=(--sparse-value-mean)
 [[ "${IS_FILTERED}" == false ]] || EXTRA+=(--is-filtered)
 [[ "${OVERWRITE}" == false ]] || EXTRA+=(--overwrite)
@@ -137,7 +142,7 @@ if [[ -n "${VAL_STAGE1_SPARSE_INDEX}" ]]; then
 fi
 [[ "${USE_RERANK_PRIOR_CACHE}" == false ]] || EXTRA+=(--use-rerank-prior-cache --rerank-prior-cache-dir "${RERANK_PRIOR_CACHE_DIR}")
 COMMAND=(
-    "${DEEPSPEED_BIN}" --num_gpus="${GPUS}" --num_nodes="${NUM_NODES}" src/three_stage_retrieval_pipeline.py
+    "${DEEPSPEED_BIN}" --num_gpus="${GPUS}" --num_nodes="${NUM_NODES}" src/three_stage_retrieval_pipeline.py --stage2-method "${STAGE2_METHOD}"
     "${FREERET_ARGS[@]}"
     --dataset-name "${DATASET}" --dataset-split "${DATASET_SPLIT}" --task-type "${TASK_TYPE}" --query-type "${QUERY_TYPE}" --data-root "${DATA_ROOT}"
     --stage1-method sparse_concat --stage1-sparse-index "${STAGE1_SPARSE_INDEX}" --stage1-depth "${STAGE1_DEPTH}"

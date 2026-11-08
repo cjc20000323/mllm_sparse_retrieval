@@ -1,4 +1,20 @@
 #!/usr/bin/env bash
+# STC sparse vocabulary compression; false preserves the original sparse representation.
+USE_STC_SPARSE="${USE_STC_SPARSE-false}"
+STC_ALGORITHM="${STC_ALGORITHM-agglomerative}" # agglomerative / minibatch_kmeans
+STC_N_CLUSTERS="${STC_N_CLUSTERS-16000}" # semantic clusters; numeric singleton dimensions are additional
+STC_SEED="${STC_SEED-42}"
+STC_BATCH_SIZE="${STC_BATCH_SIZE-4096}"
+STC_MAX_ITER="${STC_MAX_ITER-100}"
+STC_WEIGHT_SCALE="${STC_WEIGHT_SCALE-10000}"
+STC_CACHE_ROOT="${STC_CACHE_ROOT-}" # empty: SPARSE_OUTPUT_ROOT/stc_vocab
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stc_sparse_mode.sh" || exit $?
+STAGE2_METHOD="${STAGE2_METHOD-hybrid}" # hybrid / dense; dense sorts only Stage-1 candidates
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stage2_retrieval_mode.sh" || exit $?
+stage2_mode_configure || exit $?
+# true: stop before the next probability-ranked view would exceed the threshold; keep at least the first.
+USE_VIEW_PROBABILITY_MASS="${USE_VIEW_PROBABILITY_MASS-false}"
+VIEW_PROBABILITY_MASS_THRESHOLD="${VIEW_PROBABILITY_MASS_THRESHOLD-0.9}" # [0,1]; 1 selects all; incompatible with overlap
 USE_HIERARCHICAL_VIEWS="${USE_HIERARCHICAL_VIEWS-false}"  # true: ten primary/secondary dimensions (A-J); false: original A-T
 case "${USE_HIERARCHICAL_VIEWS,,}" in
     true|1|yes) USE_HIERARCHICAL_VIEWS=true ;;
@@ -61,7 +77,7 @@ PIPELINE_ARGS=()
 while (($#)); do
     case "${1%%=*}" in
         -h|--help) usage; exit 0 ;;
-        --view-selection-file|--stage1-sparse-index|--stage2-dense-index|--stage2-sparse-index)
+        --stage2-method|--stage2_method|--view-selection-file|--stage1-sparse-index|--stage2-dense-index|--stage2-sparse-index)
             CLI_OPTION="${1%%=*}"
             if [[ "$1" == *=* ]]; then
                 CLI_VALUE="${1#*=}"
@@ -77,16 +93,19 @@ while (($#)); do
                 --stage1-sparse-index) STAGE1_SPARSE_INDEX="${CLI_VALUE}" ;;
                 --stage2-dense-index) DENSE_CORPUS_DIR="${CLI_VALUE}" ;;
                 --stage2-sparse-index) SPARSE_CORPUS_DIR="${CLI_VALUE}" ;;
+                --stage2-method|--stage2_method) STAGE2_METHOD="${CLI_VALUE}" ;;
             esac
             ;;
         --) PIPELINE_ARGS+=("$@"); break ;;
         *) PIPELINE_ARGS+=("$1"); shift ;;
     esac
 done
+stage2_mode_configure || exit $?
 
 [[ -n "${VIEW_SELECTION_FILE:-}" ]] || die "Set VIEW_SELECTION_FILE to the selection JSON printed by adaptive encode."
 [[ -n "${DENSE_CORPUS_DIR:-}" ]] || die "Set DENSE_CORPUS_DIR to the adaptive dense output directory."
-[[ -n "${SPARSE_CORPUS_DIR:-}" ]] || die "Set SPARSE_CORPUS_DIR to the indexed adaptive sparse output directory."
+if [[ "${STAGE2_METHOD}" == dense ]]; then SPARSE_CORPUS_DIR="${SPARSE_CORPUS_DIR:-${STAGE1_SPARSE_INDEX:-}}"; fi
+[[ -n "${SPARSE_CORPUS_DIR:-}" ]] || die "Set SPARSE_CORPUS_DIR (or STAGE1_SPARSE_INDEX for dense Stage 2) to the indexed adaptive sparse output directory."
 export VIEW_SELECTION_FILE DENSE_CORPUS_DIR SPARSE_CORPUS_DIR
 export STAGE1_SPARSE_INDEX="${STAGE1_SPARSE_INDEX:-${SPARSE_CORPUS_DIR}}"
 dense_mode_paths
@@ -132,7 +151,7 @@ try:
         fail(f"Dense shard count mismatch at {dense}: found {len(shards)}, expected {dense_manifest['num_shards']}.")
     print(f"Adaptive selection: {selection_path}; modality={selection['selection_modality']} selected_count={len(selection['selected'])}", flush=True)
     print(f"Adaptive dense: {dense}; shards={len(shards)}", flush=True)
-    for label, path in (("Stage-1 sparse", first_sparse), ("Stage-2 sparse", sparse)):
+    for label, path in ([("Stage-1 sparse", first_sparse)] if os.environ.get("STAGE2_METHOD", "hybrid") == "dense" else [("Stage-1 sparse", first_sparse), ("Stage-2 sparse", sparse)]):
         root = artifact_root(path)
         completion(root, label)
         index = resolve_sparse_index(path, require=False)
@@ -144,4 +163,4 @@ except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
     fail(exc)
 PY
 
-exec env "USE_HIERARCHICAL_VIEWS=${USE_HIERARCHICAL_VIEWS}" "VIEW_SELECTION_RUN_ID=${VIEW_SELECTION_RUN_ID}" "USE_FREERET_DENSE=${USE_FREERET_DENSE}" "USE_FREERET_PROMPT_CONSTRAINTS=${USE_FREERET_PROMPT_CONSTRAINTS}" "USE_FREERET_FULL_PROMPT=${USE_FREERET_FULL_PROMPT}" bash "${REPO_ROOT}/scripts/three_stage_retrieval_pipeline_adaptive_views.sh" "${PIPELINE_ARGS[@]}"
+exec env "${STC_ENV[@]}" "USE_VIEW_PROBABILITY_MASS=${USE_VIEW_PROBABILITY_MASS}" "VIEW_PROBABILITY_MASS_THRESHOLD=${VIEW_PROBABILITY_MASS_THRESHOLD}" "USE_HIERARCHICAL_VIEWS=${USE_HIERARCHICAL_VIEWS}" "VIEW_SELECTION_RUN_ID=${VIEW_SELECTION_RUN_ID}" "USE_FREERET_DENSE=${USE_FREERET_DENSE}" "USE_FREERET_PROMPT_CONSTRAINTS=${USE_FREERET_PROMPT_CONSTRAINTS}" "USE_FREERET_FULL_PROMPT=${USE_FREERET_FULL_PROMPT}" bash "${REPO_ROOT}/scripts/three_stage_retrieval_pipeline_adaptive_views.sh" "${PIPELINE_ARGS[@]}"

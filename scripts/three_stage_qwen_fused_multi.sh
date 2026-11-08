@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+STAGE2_METHOD="${STAGE2_METHOD-hybrid}" # hybrid / dense; dense sorts only Stage-1 candidates
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stage2_retrieval_mode.sh" || exit $?
+stage2_mode_configure || exit $?
 USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"  # true: FreeRet pre-MLP dense; prompts/sparse unchanged
 USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"  # Complete FreeRet dense/sparse prompts; requires FreeRet dense
 USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prepend FreeRet constraints to all representation views
@@ -16,6 +19,7 @@ die() { printf 'Error: %s\n' "$*" >&2; exit 2; }
 usage() {
     cat <<'USAGE'
 Usage: bash scripts/three_stage_qwen_fused_multi.sh [-h|--help]
+STAGE2_METHOD=hybrid|dense; dense sorts only Stage-1 candidates and skips fusion.
 Default result paths end in stage1_<STAGE1_DEPTH>_stage2_<STAGE2_DEPTH>.
 Explicit OUTPUT_DIR stays unchanged.
 Default: all 3 Qwen families x all 3 fused-modal datasets = 9 sequential jobs.
@@ -128,6 +132,7 @@ IS_FILTERED="${IS_FILTERED:-false}"
 TBPR_TYPE="${TBPR_TYPE:-origin_type}"
 CIR_TYPE="${CIR_TYPE:-type}"
 SELECT_HYBRID_ALPHA="${SELECT_HYBRID_ALPHA:-false}"
+stage2_mode_configure || exit $?
 HYBRID_ALPHA="${HYBRID_ALPHA:-0.5}"
 VALIDATION_SPLIT="${VALIDATION_SPLIT:-val}"
 RANKER_DEVICE_MAP="${RANKER_DEVICE_MAP:-auto}"
@@ -288,6 +293,7 @@ require_corpus() {
     fi
     index="$(resolve_index "${sparse}")"
     local -a segments=("${index}"/segments_*)
+    [[ "${STAGE2_METHOD}" != dense ]] || return 0
     ((${#segments[@]})) && [[ -f "${segments[0]}" ]] || die "${label}: no Lucene segments_* in ${index}; run sparse_index_qwen.sh."
 }
 resolve_job() {
@@ -338,7 +344,7 @@ resolve_job() {
     if [[ "${AUTO_PRIOR_BY_DATASET}" == true ]]; then
         prior_suffix="/${JOB_MODIFY_TYPE}_prior_${JOB_USE_RERANK_PRIOR_CACHE}"
     fi
-    JOB_OUTPUT="${OUTPUT_DIR:-${QWEN_OUTPUT_ROOT}/${RELATIVE}/${DIRECTION}/three_stage/${ALPHA_LABEL}${prior_suffix}/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}}"
+    JOB_OUTPUT="${OUTPUT_DIR:-$(stage2_mode_path "${QWEN_OUTPUT_ROOT}/${RELATIVE}/${DIRECTION}/three_stage/${ALPHA_LABEL}${prior_suffix}/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}")}"
 }
 preflight_job() {
     dense_mode_paths
@@ -360,7 +366,7 @@ preflight_job() {
 }
 build_command() {
     dense_mode_paths
-    COMMAND=("${DEEPSPEED_BIN}" --num_gpus "${GPUS}" --num_nodes "${NUM_NODES}" src/three_stage_retrieval_pipeline.py --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}"
+    COMMAND=("${DEEPSPEED_BIN}" --num_gpus "${GPUS}" --num_nodes "${NUM_NODES}" src/three_stage_retrieval_pipeline.py --stage2-method "${STAGE2_METHOD}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}"
         --dataset-name "${JOB_DATASET}" --dataset-split "${DATASET_SPLIT}" --task-type "${TASK_TYPE}" --query-type "${QUERY_TYPE}"
         --tbpr-type "${TBPR_TYPE}" --cir-type "${CIR_TYPE}" --data-root "${DATA_ROOT}" --stage1-method sparse_concat
         --stage1-sparse-index "${JOB_FIRST}" --stage1-depth "${STAGE1_DEPTH}"
@@ -419,7 +425,9 @@ for family in "${FAMILY_LIST[@]}"; do
         printf '\nJob [%s/%s]: %s (%s, %s)\nRetrieval model: %s\nRanker model: %s\nDense corpus: %s\n' "$((completed + 1))" "${TOTAL_JOBS}" "${JOB_KEY}" "${DATASET_SPLIT}" "${DIRECTION}" "${QWEN_MODEL_PATH}" "${RANKER_MODEL_PATH}" "${JOB_DENSE}"
         printf 'Stage-1 Lucene index: %s\nStage-2 Lucene index: %s\n' "$(resolve_index "${JOB_FIRST}")" "$(resolve_index "${JOB_SPARSE}")"
         printf 'Rerank correction: modify_type=%s prior_cache=%s\n' "${JOB_MODIFY_TYPE}" "${JOB_USE_RERANK_PRIOR_CACHE}"
-        if [[ "${SELECT_HYBRID_ALPHA}" == false ]]; then
+        if [[ "${STAGE2_METHOD}" == dense ]]; then
+            printf \'Stage 2: dense; hybrid alpha unused.\n\'
+        elif [[ "${SELECT_HYBRID_ALPHA}" == false ]]; then
             printf 'Alpha: fixed %s\n' "${HYBRID_ALPHA}"
         elif [[ -n "${JOB_VAL_DENSE}" ]]; then
             printf 'Alpha: select 0.1..0.9 on %s/%s\nValidation dense: %s\nValidation Lucene index: %s\n' "${JOB_VAL_DATASET}" "${VALIDATION_SPLIT}" "${JOB_VAL_DENSE}" "$(resolve_index "${JOB_VAL_SPARSE}")"

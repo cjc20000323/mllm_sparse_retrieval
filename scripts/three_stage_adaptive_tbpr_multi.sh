@@ -1,4 +1,20 @@
 #!/usr/bin/env bash
+# STC sparse vocabulary compression; false preserves the original sparse representation.
+USE_STC_SPARSE="${USE_STC_SPARSE-false}"
+STC_ALGORITHM="${STC_ALGORITHM-agglomerative}" # agglomerative / minibatch_kmeans
+STC_N_CLUSTERS="${STC_N_CLUSTERS-16000}" # semantic clusters; numeric singleton dimensions are additional
+STC_SEED="${STC_SEED-42}"
+STC_BATCH_SIZE="${STC_BATCH_SIZE-4096}"
+STC_MAX_ITER="${STC_MAX_ITER-100}"
+STC_WEIGHT_SCALE="${STC_WEIGHT_SCALE-10000}"
+STC_CACHE_ROOT="${STC_CACHE_ROOT-}" # empty: SPARSE_OUTPUT_ROOT/stc_vocab
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stc_sparse_mode.sh" || exit $?
+STAGE2_METHOD="${STAGE2_METHOD-hybrid}" # hybrid / dense; dense sorts only Stage-1 candidates
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stage2_retrieval_mode.sh" || exit $?
+stage2_mode_configure || exit $?
+# true: stop before the next probability-ranked view would exceed the threshold; keep at least the first.
+USE_VIEW_PROBABILITY_MASS="${USE_VIEW_PROBABILITY_MASS-false}"
+VIEW_PROBABILITY_MASS_THRESHOLD="${VIEW_PROBABILITY_MASS_THRESHOLD-0.9}" # [0,1]; 1 selects all; incompatible with overlap
 # auto 按实际上下文长度填充示例；fixed 使用 VIEW_TEXTS_PER_ROUND / VIEW_IMAGES_PER_ROUND。
 VIEW_EXAMPLE_MODE="${VIEW_EXAMPLE_MODE-auto}"
 VIEW_EXAMPLE_MAX_TOKENS="${VIEW_EXAMPLE_MAX_TOKENS-0}" # 0 使用模型上限；可下调，总预算包含一个回答 token
@@ -55,6 +71,7 @@ export STAGE1_DEPTH="${STAGE1_DEPTH-1000}"
 export STAGE2_DEPTH="${STAGE2_DEPTH-1000}"
 export HYBRID_ALPHA="${HYBRID_ALPHA-0.5}"
 export SELECT_HYBRID_ALPHA="${SELECT_HYBRID_ALPHA-false}"
+stage2_mode_configure || exit $?
 export RERANK_NUM="${RERANK_NUM-5}"
 export OVERWRITE="${OVERWRITE-true}"
 export DRY_RUN="${DRY_RUN-false}"
@@ -69,4 +86,4 @@ export DRY_RUN="${DRY_RUN-false}"
 # OUTPUT_DIR requires one job; otherwise use ADAPTIVE_OUTPUT_ROOT.
 PYTHON_BIN="${PYTHON_BIN:-python}"
 command -v "${PYTHON_BIN}" >/dev/null 2>&1 || { echo "Python not found: ${PYTHON_BIN}; activate the retrieval environment or set PYTHON_BIN." >&2; exit 2; }
-exec env "VIEW_EXAMPLE_MODE=${VIEW_EXAMPLE_MODE}" "VIEW_EXAMPLE_MAX_TOKENS=${VIEW_EXAMPLE_MAX_TOKENS}" "USE_HIERARCHICAL_VIEWS=${USE_HIERARCHICAL_VIEWS}" "VIEW_SELECTION_RUN_ID=${VIEW_SELECTION_RUN_ID}" "USE_FREERET_DENSE=${USE_FREERET_DENSE}" "USE_FREERET_PROMPT_CONSTRAINTS=${USE_FREERET_PROMPT_CONSTRAINTS}" "USE_FREERET_FULL_PROMPT=${USE_FREERET_FULL_PROMPT}" "${PYTHON_BIN}" -B src/adaptive_retrieval_batch.py --task-group tbpr "$@"
+exec env "${STC_ENV[@]}" "USE_VIEW_PROBABILITY_MASS=${USE_VIEW_PROBABILITY_MASS}" "VIEW_PROBABILITY_MASS_THRESHOLD=${VIEW_PROBABILITY_MASS_THRESHOLD}" "VIEW_EXAMPLE_MODE=${VIEW_EXAMPLE_MODE}" "VIEW_EXAMPLE_MAX_TOKENS=${VIEW_EXAMPLE_MAX_TOKENS}" "USE_HIERARCHICAL_VIEWS=${USE_HIERARCHICAL_VIEWS}" "VIEW_SELECTION_RUN_ID=${VIEW_SELECTION_RUN_ID}" "USE_FREERET_DENSE=${USE_FREERET_DENSE}" "USE_FREERET_PROMPT_CONSTRAINTS=${USE_FREERET_PROMPT_CONSTRAINTS}" "USE_FREERET_FULL_PROMPT=${USE_FREERET_FULL_PROMPT}" "${PYTHON_BIN}" -B src/adaptive_retrieval_batch.py --task-group tbpr "$@"

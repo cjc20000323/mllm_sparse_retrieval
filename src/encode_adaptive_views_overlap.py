@@ -850,6 +850,8 @@ def main():
     parser = HfArgumentParser((ModelArguments, PromptRepsLLMDataArguments, TrainingArguments, OverlapViewArguments))
 
     model_args, data_args, training_args, adaptive_args = parser.parse_args_into_dataclasses()
+    if adaptive_args.use_stc_sparse:
+        raise ValueError("STC is supported by encode_adaptive_views.py, not the overlap entrypoint")
     if adaptive_args.view_selection_hierarchical and not adaptive_args.adaptive_views:
         raise ValueError("--view_selection_hierarchical requires --adaptive_views")
     if adaptive_args.view_selection_shuffle and not adaptive_args.adaptive_views:

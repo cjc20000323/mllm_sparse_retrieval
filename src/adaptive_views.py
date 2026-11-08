@@ -24,6 +24,10 @@ VERSION = 12
 OVERLAP_VERSION = 16
 PMI_VERSION = 14
 PMI_OVERLAP_VERSION = 17
+PROBABILITY_MASS_VERSION = 18
+PMI_PROBABILITY_MASS_VERSION = 19
+SUPPORTED_VERSIONS = (VERSION, OVERLAP_VERSION, PMI_VERSION, PMI_OVERLAP_VERSION,
+                      PROBABILITY_MASS_VERSION, PMI_PROBABILITY_MASS_VERSION)
 TOP_K = 5
 SELECTION_MODALITIES = ("text", "image", "both")
 MANIFEST = "adaptive_views_manifest.json"
@@ -132,6 +136,16 @@ CHOICE_INSTRUCTION = (
 @dataclass
 class AdaptiveViewArguments:
     adaptive_views: bool = False
+    use_stc_sparse: bool = False
+    stc_algorithm: str = "agglomerative"
+    stc_n_clusters: int = 16000
+    stc_seed: int = 42
+    stc_batch_size: int = 4096
+    stc_max_iter: int = 100
+    stc_weight_scale: int = 10000
+    stc_cache_root: str = ""
+    view_probability_mass: bool = field(default=False, metadata={"help": "Stop before the next probability-ranked view would exceed the threshold; keep at least one; incompatible with overlap"})
+    view_probability_mass_threshold: float = field(default=0.9, metadata={"help": "Cumulative normalized probability threshold in [0,1]; 1 selects all views"})
     view_selection_hierarchical: bool = field(default=False, metadata={
         "help": "Use the ten primary/secondary dimension perspectives (A-J) instead of the original A-T pool"})
     view_selection_shuffle: bool = False
@@ -359,7 +373,7 @@ def selection_cache_path(sparse_root, model_path, dataset, key):
 
 
 def is_pmi_selection(selection):
-    return selection.get("version") in {PMI_VERSION, PMI_OVERLAP_VERSION}
+    return selection.get("version") in {PMI_VERSION, PMI_OVERLAP_VERSION, PMI_PROBABILITY_MASS_VERSION}
 
 
 def is_overlap_selection(selection):
@@ -547,7 +561,9 @@ def selection_compatibility_details(selection, expected_pool):
 
 
 def load_selection(path, *, identity=None, dataset=None, selection_modality=None, view_selection_pmi=None,
-                   view_selection_hierarchical=None, view_example_mode=None, view_example_max_tokens=None):
+                   view_selection_hierarchical=None, view_example_mode=None, view_example_max_tokens=None,
+                   view_probability_mass=None, view_probability_mass_threshold=None,
+                   allow_legacy_probability_mass_source=False):
     path = Path(path).expanduser()
     value = json.loads(path.read_text(encoding="utf-8"))
     stored = value.get("fingerprint")
@@ -571,10 +587,10 @@ def load_selection(path, *, identity=None, dataset=None, selection_modality=None
             f"{details}"
             "reselect views with candidate_fraction_lt, re-encode the corpus and rebuild its index. "
             "Omit --view_selection_file or choose a new file.")
-    if value.get("version") not in {VERSION, OVERLAP_VERSION, PMI_VERSION, PMI_OVERLAP_VERSION} or value.get("pool") != expected_pool:
+    if value.get("version") not in SUPPORTED_VERSIONS or value.get("pool") != expected_pool:
         details = selection_compatibility_details(value, expected_pool)
         raise IncompatibleViewSelectionError(
-            f"Adaptive view pool/version mismatch: {path}; expected version {VERSION}, {OVERLAP_VERSION}, {PMI_VERSION} or {PMI_OVERLAP_VERSION} with {len(expected_pool)} views (A-{expected_pool[-1]['label']}). "
+            f"Adaptive view pool/version mismatch: {path}; expected versions {SUPPORTED_VERSIONS} with {len(expected_pool)} views (A-{expected_pool[-1]['label']}). "
             f"{details}"
             "Rerun encode_adaptive_views.py without --view_selection_file, or choose a new selection file, "
             "then encode and index the new artifacts.")
@@ -590,7 +606,13 @@ def load_selection(path, *, identity=None, dataset=None, selection_modality=None
     count = TOP_K
     fingerprint = views_fingerprint(selected, mode, pmi=pmi, shuffle=shuffle, pool_mode=candidate_mode,
                                     example_configuration=example_policy)
-    if is_overlap_selection(value):
+    import adaptive_view_probability_mass as probability_mass
+    probability_mass.validate_requested(value, view_probability_mass, view_probability_mass_threshold,
+                                        allow_legacy_source=allow_legacy_probability_mass_source)
+    if probability_mass.is_selection(value):
+        count = probability_mass.validate_selection(value, allow_legacy_source=allow_legacy_probability_mass_source)
+        fingerprint = probability_mass.fingerprint(value)
+    elif is_overlap_selection(value):
         from adaptive_view_overlap import validate_selection, overlap_fingerprint
         count = validate_selection(value)
         fingerprint = overlap_fingerprint(value)
@@ -782,6 +804,8 @@ def log_selection(selection, path, *, reused=False):
     print(f"[adaptive views] selected_views={json.dumps(selection['selected'], ensure_ascii=False)}", flush=True)
     if pool_mode(selection) is not None:
         print(f"[adaptive views] view_pool_mode={pool_mode(selection)} candidates={len(selection['pool'])}", flush=True)
+    from adaptive_view_probability_mass import log_selection as log_probability_mass
+    log_probability_mass(selection)
 
 
 def log_prior(pool, calibration):
@@ -900,6 +924,8 @@ def validate_artifact(path, expected):
     if not manifest.is_file():
         raise ValueError(f"Missing adaptive completion manifest: {manifest}; use encode_adaptive_views.py")
     actual = json.loads(manifest.read_text(encoding="utf-8"))
+    from stc_sparse import validate_bundle, FIELD as stc_field
+    validate_bundle(manifest.parent, actual["configuration"].get(stc_field))
     from dense_representation import validate_artifact as validate_dense_mode
     validate_dense_mode(path, bool(expected["configuration"].get("dense_representation")),
                         bool(expected["configuration"].get("freeret_prompt_constraints")), bool(expected["configuration"].get("freeret_full_prompt")))
@@ -976,6 +1002,8 @@ def validate_index_selection(root, manifest, *, resolver=None):
     """Check the locked selection before building or reusing an adaptive index."""
     root = Path(root)
     configuration = manifest["configuration"]
+    from stc_sparse import validate_bundle, FIELD as stc_field
+    validate_bundle(root, configuration.get(stc_field))
     from dense_representation import validate_artifact as validate_dense_mode
     validate_dense_mode(root, bool(configuration.get("dense_representation")), bool(configuration.get("freeret_prompt_constraints")), bool(configuration.get("freeret_full_prompt")))
     if manifest.get("fingerprint") != digest(configuration):
@@ -1005,6 +1033,11 @@ def validate_index_selection(root, manifest, *, resolver=None):
         raise ValueError("Adaptive manifest/selection option shuffle mismatch")
     require_equal(dict(examples=configuration.get(examples.FIELD)), dict(examples=selection.get(examples.FIELD)),
                   "Adaptive index example sampling")
+    from adaptive_view_probability_mass import FIELD as mass_field
+    require_equal(dict(strategy=configuration.get("selection_strategy"), mass=configuration.get(mass_field)),
+                  dict(strategy=selection.get("selection_strategy") if selection.get("version") in
+                       {PROBABILITY_MASS_VERSION, PMI_PROBABILITY_MASS_VERSION} else None,
+                       mass=selection.get(mass_field)), "Adaptive index cumulative probability strategy")
     if is_overlap_selection(selection):
         require_equal(dict(full=selection["overlap_configuration"].get("freeret_full_prompt")),
                       dict(full=configuration.get("freeret_full_prompt")), "Adaptive index overlap complete FreeRet prompt")
@@ -1022,6 +1055,7 @@ def main():
     index_parser = commands.add_parser("index", help="Build collection/index from completed adaptive JSONL shards")
     index_parser.add_argument("--sparse-root", required=True)
     index_parser.add_argument("--threads", type=int, default=16)
+    index_parser.add_argument("--dry-run", action="store_true", help="Validate and report the layout/build without writing files")
     index_parser.add_argument("--view-selection-root", type=Path, default=os.environ.get("VIEW_SELECTION_ROOT") or None,
                               help="Find exact copies of missing selections here; defaults to the nearest view_selection directory")
     args = parser.parse_args()
@@ -1031,20 +1065,32 @@ def main():
             atomic_json(args.output, pool)
         print(json.dumps(pool, indent=2, ensure_ascii=False))
     else:
-        root = artifact_root(args.sparse_root)
+        root = artifact_root(args.sparse_root).resolve()
         if not (root / MANIFEST).is_file():
             parser.error(f"Missing adaptive completion manifest: {root / MANIFEST}")
         try:
-            validate_index_selection(root, json.loads((root / MANIFEST).read_text(encoding="utf-8")),
-                                     resolver=SelectionFileResolver(args.view_selection_root))
+            from adaptive_sparse_index_batch import check_artifact
+            manifest = json.loads((root / MANIFEST).read_text(encoding="utf-8"))
+            check_artifact(root, manifest, manifest["configuration"],
+                           resolver=SelectionFileResolver(args.view_selection_root))
         except (OSError, ValueError, KeyError, TypeError) as exc:
             parser.error(str(exc))
-        from qwen_sparse_index import build_sparse_index
+        from adaptive_sparse_index import build_sparse_index, collection_plan
         import subprocess
         try:
-            build_sparse_index(root, threads=args.threads)
+            if args.threads < 1:
+                raise ValueError("threads must be positive")
+            plan = collection_plan(root)
+            print(f"Adaptive collection: {plan.collection}\nAdaptive index: {plan.target}\n"
+                  f"Root shards to copy: {len(plan.copies)} (originals preserved)", flush=True)
+            if args.dry_run:
+                print("Dry run: no files written.", flush=True)
+            else:
+                build_sparse_index(root, threads=args.threads)
         except subprocess.CalledProcessError as exc:
             raise SystemExit(exc.returncode) from exc
+        except (OSError, ValueError) as exc:
+            parser.error(str(exc))
 
 
 if __name__ == "__main__":

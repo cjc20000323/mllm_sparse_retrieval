@@ -168,9 +168,8 @@ class FullRealModelTests(fixtures.RealModelTests):
                     try: sparse,reps=encoder.encode(records)
                     finally: handle.remove()
                     count=2 if adapter=="adaptive" else 5
-                    self.assertEqual(len(captured),count+1)
-                    batch=full.prepare(processor,views.family_of(model.config),records,dataset,
-                                       padding_side="left" if location=="after_pad" else "right")
+                    self.assertEqual(len(captured),1)
+                    batch=encoder.prepare(records)
                     expected=torch.nn.functional.normalize(torch.stack([captured[0][i,row[0][1]-1]
                         for i,row in enumerate(batch.spans)]),dim=-1)
                     self.assertTrue(torch.equal(reps,expected))
@@ -275,6 +274,8 @@ class LauncherTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); scripts=root/"scripts"; scripts.mkdir()
             shutil.copyfile(ROOT/"scripts/freeret_dense_mode.sh",scripts/"freeret_dense_mode.sh")
+            shutil.copyfile(ROOT / "scripts/stage2_retrieval_mode.sh", scripts / "stage2_retrieval_mode.sh")
+            shutil.copyfile(ROOT / "scripts/stc_sparse_mode.sh", scripts / "stc_sparse_mode.sh")
             capture=root/"capture.sh"
             capture.write_text('#!/usr/bin/env bash\nprintf "%s" "$USE_FREERET_FULL_PROMPT"\n',encoding="utf-8")
             capture.chmod(0o755)
@@ -285,7 +286,7 @@ class LauncherTests(unittest.TestCase):
                 text=(ROOT/"scripts"/name).read_text(encoding="utf-8").replace('${USE_FREERET_DENSE-false}','${USE_FREERET_DENSE-true}').replace('${USE_FREERET_FULL_PROMPT-false}','${USE_FREERET_FULL_PROMPT-true}')
                 path=scripts/name; path.write_text(text,encoding="utf-8")
                 env={key:value for key,value in os.environ.items() if key not in {"USE_FREERET_DENSE","USE_FREERET_FULL_PROMPT"}}
-                env.update(PYTHON_BIN=capture.as_posix(),DRY_RUN="true",LLAVA_IMAGE_MODE="anyres")
+                env.update(PYTHON_BIN=capture.as_posix(),DRY_RUN="true",LLAVA_IMAGE_MODE="anyres",STAGE2_METHOD="hybrid")
                 result=subprocess.run([bash,path.as_posix()],cwd=root,env=env,text=True,capture_output=True,timeout=30)
                 self.assertEqual(result.returncode,0,result.stderr)
                 self.assertEqual(result.stdout,"true",name)

@@ -22,7 +22,7 @@ IR: DATASET=flickr|coco, QUERY_TYPE=image|text; candidates are the opposite moda
 TBPR: DATASET=CUHK-PEDES|ICFG-PEDES|RSTPReid, QUERY_TYPE=text, image candidates.
 fused: DATASET=webqa|remuq|llava; WebQA text->image+text; ReMuQ/LLaVA image+text->text.
 USE_FREERET_DENSE=false and USE_FREERET_PROMPT_CONSTRAINTS=false by default.
-USE_FREERET_FULL_PROMPT=false by default; true requires FreeRet dense and replaces Summary with complete FreeRet prompts.
+USE_FREERET_FULL_PROMPT=false by default; true requires FreeRet dense and uses v2 complete FreeRet prompts in one shared-context, view-masked forward.
 Constraints require FreeRet dense. Use the same switches and encoding settings in all three steps.
 DRY_RUN=true prints paths and the command without requiring artifacts or loading models.
 Defaults: prompt_5, disassembleeol_separate+concat, sparse_length=40, non-manual,

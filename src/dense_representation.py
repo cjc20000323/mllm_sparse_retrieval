@@ -12,9 +12,10 @@ SOURCE = "freeret_pre_mlp"
 SUFFIX = "_dense_freeret_pre_mlp"
 SIDECAR_SUFFIX = ".dense_representation.json"
 CONFIGURATION = {"source": SOURCE, "version": 1}
-PROMPT_SUFFIX = "_freeret_constraints_v2"
-LEGACY_PROMPT_SUFFIXES = ("_freeret_constraints_v1",)
-FULL_PROMPT_SUFFIX = "_freeret_full_prompt_v1"
+PROMPT_SUFFIX = "_freeret_constraints_v3"
+LEGACY_PROMPT_SUFFIXES = ("_freeret_constraints_v1", "_freeret_constraints_v2")
+FULL_PROMPT_SUFFIX = "_freeret_full_prompt_v2"
+LEGACY_FULL_PROMPT_SUFFIXES = ("_freeret_full_prompt_v1",)
 
 
 def boolean(value):
@@ -185,9 +186,16 @@ def prompts_marked(path):
 
 
 def validate_prompt_version(path):
-    if artifact_root(path).name.endswith(tuple(SUFFIX + item for item in LEGACY_PROMPT_SUFFIXES)):
-        raise ValueError(f"FreeRet prompt version mismatch at {path}: v1 lacks task_description; "
-                         "re-encode and index with the current _freeret_constraints_v2 mode")
+    if artifact_root(path).name.endswith(tuple(SUFFIX + item for item in LEGACY_FULL_PROMPT_SUFFIXES)):
+        raise ValueError(f"FreeRet full prompt version mismatch at {path}: v1 uses independent forwards; "
+                         "v2 uses one packed forward with isolated views. Clear the explicit old path, "
+                         "re-encode and index in the new _freeret_full_prompt_v2 directory; do not rename v1 artifacts.")
+    for suffix in LEGACY_PROMPT_SUFFIXES:
+        if artifact_root(path).name.endswith(SUFFIX + suffix):
+            version = suffix.rsplit("_", 1)[-1]
+            raise ValueError(f"FreeRet prompt version mismatch at {path}: legacy {version} is incompatible "
+                             f"with current {PROMPT_SUFFIX} (constraints before Summary, no task_description). "
+                             "Re-encode and index with the current mode; do not rename old artifacts.")
 
 
 def mode_path(path, use_freeret_dense=False, use_freeret_prompt_constraints=False, use_freeret_full_prompt=False):

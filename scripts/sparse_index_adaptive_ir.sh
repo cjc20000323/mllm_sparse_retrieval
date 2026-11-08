@@ -1,4 +1,17 @@
 #!/usr/bin/env bash
+# STC sparse vocabulary compression; false preserves the original sparse representation.
+USE_STC_SPARSE="${USE_STC_SPARSE-false}"
+STC_ALGORITHM="${STC_ALGORITHM-agglomerative}" # agglomerative / minibatch_kmeans
+STC_N_CLUSTERS="${STC_N_CLUSTERS-16000}" # semantic clusters; numeric singleton dimensions are additional
+STC_SEED="${STC_SEED-42}"
+STC_BATCH_SIZE="${STC_BATCH_SIZE-4096}"
+STC_MAX_ITER="${STC_MAX_ITER-100}"
+STC_WEIGHT_SCALE="${STC_WEIGHT_SCALE-10000}"
+STC_CACHE_ROOT="${STC_CACHE_ROOT-}" # empty: SPARSE_OUTPUT_ROOT/stc_vocab
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stc_sparse_mode.sh" || exit $?
+# true: stop before the next probability-ranked view would exceed the threshold; keep at least the first.
+USE_VIEW_PROBABILITY_MASS="${USE_VIEW_PROBABILITY_MASS-false}"
+VIEW_PROBABILITY_MASS_THRESHOLD="${VIEW_PROBABILITY_MASS_THRESHOLD-0.9}" # [0,1]; 1 selects all; incompatible with overlap
 # auto 按实际上下文长度填充示例；fixed 使用 VIEW_TEXTS_PER_ROUND / VIEW_IMAGES_PER_ROUND。
 VIEW_EXAMPLE_MODE="${VIEW_EXAMPLE_MODE-auto}"
 VIEW_EXAMPLE_MAX_TOKENS="${VIEW_EXAMPLE_MAX_TOKENS-0}" # 0 使用模型上限；可下调，总预算包含一个回答 token
@@ -6,6 +19,7 @@ VIEW_EXAMPLE_MAX_TOKENS="${VIEW_EXAMPLE_MAX_TOKENS-0}" # 0 使用模型上限；
 set -euo pipefail
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
+# Root-level Adaptive corpus_*.jsonl are copied into collection; the index is always collection/index.
 if (($#)) && ! { (($# == 1)) && [[ "$1" == -h || "$1" == --help ]]; }; then
     echo 'Configure environment variables or the configuration block; see --help.' >&2
     exit 2
@@ -92,7 +106,7 @@ else
     EXTRA+=(--exact-encoding)
 fi
 # 普通变量配置，在进入 Python 时集中传入；支持多模型、多数据集。
-BATCH_ENV=()
+BATCH_ENV=("${STC_ENV[@]}" "USE_VIEW_PROBABILITY_MASS=${USE_VIEW_PROBABILITY_MASS}" "VIEW_PROBABILITY_MASS_THRESHOLD=${VIEW_PROBABILITY_MASS_THRESHOLD}" )
 for name in VIEW_EXAMPLE_MODE VIEW_EXAMPLE_MAX_TOKENS MODEL_FAMILIES MODEL_FAMILY DATASETS DATASET ENCODE_TYPES ENCODE_TYPE DATASET_SPLIT \
     CHECKPOINT_ROOT MODEL_PATH_QWEN2 MODEL_PATH_QWEN25 MODEL_PATH_QWEN3 MODEL_PATH_LLAVA_LLAMA MODEL_PATH_LLAVA_MISTRAL MODEL_PATH \
     DATA_ROOT SPARSE_OUTPUT_ROOT DENSE_OUTPUT_ROOT VIEW_SELECTION_ROOT DTYPE REPS_LOC \

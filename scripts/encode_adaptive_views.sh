@@ -1,4 +1,17 @@
 #!/usr/bin/env bash
+# STC sparse vocabulary compression; false preserves the original sparse representation.
+USE_STC_SPARSE="${USE_STC_SPARSE-false}"
+STC_ALGORITHM="${STC_ALGORITHM-agglomerative}" # agglomerative / minibatch_kmeans
+STC_N_CLUSTERS="${STC_N_CLUSTERS-16000}" # semantic clusters; numeric singleton dimensions are additional
+STC_SEED="${STC_SEED-42}"
+STC_BATCH_SIZE="${STC_BATCH_SIZE-4096}"
+STC_MAX_ITER="${STC_MAX_ITER-100}"
+STC_WEIGHT_SCALE="${STC_WEIGHT_SCALE-10000}"
+STC_CACHE_ROOT="${STC_CACHE_ROOT-}" # empty: SPARSE_OUTPUT_ROOT/stc_vocab
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stc_sparse_mode.sh" || exit $?
+# true: stop before the next probability-ranked view would exceed the threshold; keep at least the first.
+USE_VIEW_PROBABILITY_MASS="${USE_VIEW_PROBABILITY_MASS-false}"
+VIEW_PROBABILITY_MASS_THRESHOLD="${VIEW_PROBABILITY_MASS_THRESHOLD-0.9}" # [0,1]; 1 selects all; incompatible with overlap
 # auto 按实际上下文长度填充示例；fixed 使用 VIEW_TEXTS_PER_ROUND / VIEW_IMAGES_PER_ROUND。
 VIEW_EXAMPLE_MODE="${VIEW_EXAMPLE_MODE-auto}"
 VIEW_EXAMPLE_MAX_TOKENS="${VIEW_EXAMPLE_MAX_TOKENS-0}" # 0 使用模型上限；可下调，总预算包含一个回答 token
@@ -97,9 +110,10 @@ for pair in 'IS_FILTERED:is_filtered' 'SPARSE_VALUE_MEAN:sparse_value_mean'; do
     name="${pair%%:*}"; option="${pair#*:}"
     case "${!name:-false}" in true|1|yes) EXTRA+=("--${option}") ;; false|0|no) ;; *) printf 'Invalid %s\n' "${name}" >&2; exit 2 ;; esac
 done
-"${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/encode_adaptive_views.py --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" --view_selection_hierarchical "${USE_HIERARCHICAL_VIEWS}" "${ADAPTIVE_SHUFFLE_ARGS[@]}" \
+stc_sparse_prepare || exit $?
+"${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/encode_adaptive_views.py "${STC_ARGS[@]}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" --view_selection_hierarchical "${USE_HIERARCHICAL_VIEWS}" "${ADAPTIVE_SHUFFLE_ARGS[@]}" \
     --llava_image_mode "${LLAVA_IMAGE_MODE:-anyres}" \
-    --adaptive_views --model_name_or_path "${MODEL_PATH}" --dataset_name "${DATASET}" \
+    --view_probability_mass "${USE_VIEW_PROBABILITY_MASS}" --view_probability_mass_threshold "${VIEW_PROBABILITY_MASS_THRESHOLD}" --adaptive_views --model_name_or_path "${MODEL_PATH}" --dataset_name "${DATASET}" \
     --dataset_split "${DATASET_SPLIT:-test}" --task_type "${TASK}" --encode_type "${ENCODE_TYPE:-${KIND}}" \
     --adaptive_data_root "${DATA_ROOT:-/root/autodl-tmp}" --output_dir "${OUTPUT_DIR:-./adaptive_encode_logs}" \
     --dense_output_dir "${DENSE_OUTPUT_ROOT:-./dense_output}" --sparse_output_dir "${SPARSE_OUTPUT_ROOT:-./sparse_output}" \

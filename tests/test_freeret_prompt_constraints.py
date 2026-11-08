@@ -1,6 +1,7 @@
 """Prompt, model-forward and launcher checks for the optional FreeRet constraints."""
 import ast
 import copy
+import hashlib
 from contextlib import redirect_stdout
 import importlib
 import io
@@ -31,43 +32,36 @@ def options(use=True, dense_mode=True, name="fixture"):
 
 
 class PromptTests(unittest.TestCase):
-    def test_task_description_is_shared_before_input_with_one_trailing_newline(self):
+    def test_context_is_unchanged_even_when_input_quotes_task_description(self):
         for dataset,key in constraints.DATASET_KEYS.items():
             description=catalog.PROMPT_SPECS[key].task_description.rstrip("\n")+"\n"
             with self.subTest(dataset=dataset):
                 self.assertEqual(constraints.task_description(dataset),description)
-                for context in ("<image>\n", "user text\n", "<image>\nuser text\n"):
-                    self.assertEqual(constraints.augment_context(context,options(),dataset),description+context)
-                    self.assertIs(constraints.augment_context(context,options(False),dataset),context)
-                    self.assertIs(constraints.augment_context(context,options(False,False),dataset),context)
-                self.assertFalse(description.endswith("\n\n"))
+                for context in ("<image>\n", "user text\n", "<image>\nuser text\n",
+                                description+"Summary in one word: quoted user text"):
+                    for args in (options(), options(False), options(False,False)):
+                        self.assertIs(constraints.augment_context(context,args,dataset),context)
 
-    def test_template_descriptions_preserve_chat_prefixes_inputs_and_view_elements(self):
+    def test_templates_preserve_chat_prefixes_inputs_and_add_only_rules(self):
         import template
         for dataset in constraints.DATASET_KEYS:
             templates=constraints.Templates(options(),data_args(dataset_name=dataset),input_type="text")
             description=constraints.task_description(dataset)
-            for family,header in (("llava_mistral","[INST]"),
-                                  ("llama3","<|start_header_id|>user<|end_header_id|>\n\n"),
-                                  ("qwen2_5","<|im_start|>user\n"),
-                                  ("qwen3","<|im_start|>user\n")):
+            for family in ("llava_mistral","llama3","qwen2_5","qwen3"):
                 for suffix in ("_text_prefix","_image_prefix","_content_element",""):
                     name=family+"_template"+suffix
-                    original=getattr(template,name)
-                    actual=getattr(templates,name)
                     with self.subTest(dataset=dataset,template=name):
-                        if suffix=="_content_element":
-                            self.assertEqual(actual,original)
-                        else:
-                            self.assertEqual(actual,original.replace(header,header+description,1))
-                            self.assertEqual(actual.count(description),1)
+                        self.assertEqual(getattr(templates,name),getattr(template,name))
             messages=[dict(role="system",content="existing system"),
                       dict(role="user",content=[dict(type="image"),dict(type="text",text="Summary above image in one word: ")])]
             original=copy.deepcopy(messages)
             actual=constraints.augment_template(messages,options(),data_args(dataset_name=dataset),input_type="image")
+            prefix=constraints.instruction(dataset,input_type="image")+"\n"
             self.assertEqual(actual[0],original[0])
-            self.assertEqual(actual[1]["content"][0],dict(type="text",text=description))
-            self.assertEqual(actual[1]["content"][1],dict(type="image"))
+            self.assertEqual(len(actual[1]["content"]),2)
+            self.assertEqual(actual[1]["content"][0],dict(type="image"))
+            self.assertEqual(actual[1]["content"][1]["text"],prefix+original[1]["content"][1]["text"])
+            self.assertNotIn(description,json.dumps(actual,ensure_ascii=False))
             self.assertEqual(messages,original)
             self.assertIs(constraints.augment_template(messages,options(False),data_args()),messages)
 
@@ -114,10 +108,11 @@ class PromptTests(unittest.TestCase):
         self.assertEqual(new.retrieval_disassemble_text_prompts_for_concat, [prefix+x for x in original])
         self.assertEqual(template.retrieval_disassemble_text_prompts_for_concat, original)
         body = new.llava_mistral_template_text_prefix + new.llava_mistral_template_content_element.format(new.text_prompt_for_concat)
-        user = "Summary above sentence in one word: quoted user text"
+        user = constraints.task_description("flickr") + "Summary above sentence in one word: quoted user text"
         rendered = body.replace("<sent>", user)
         self.assertEqual(rendered.count(prefix), 1)
         self.assertIn(user, rendered)
+        self.assertEqual(rendered.count(constraints.task_description("flickr")), 1)
 
     def test_original_freeret_entry_reexports_identical_prompt_catalog(self):
         import freeret_retrieval as freeret
@@ -161,9 +156,8 @@ class PromptTests(unittest.TestCase):
                         getattr(wrapper,method)([user],kind,processor,torch.device("cpu"),args,data)
                     prefix=constraints.instruction(dataset,input_type=kind)+"\n"
                     description=constraints.task_description(dataset)
-                    self.assertEqual(processor.prompts[0].replace(prefix,"").replace(description,""),original[0])
-                    self.assertEqual(processor.prompts[0].count(description),1)
-                    self.assertLess(processor.prompts[0].index(description),processor.prompts[0].index(user))
+                    self.assertEqual(processor.prompts[0].replace(prefix,""),original[0])
+                    self.assertNotIn(description,processor.prompts[0])
                     self.assertEqual(processor.prompts[0].count(prefix),original[0].count("Summary")-1)
                     self.assertIn(user,processor.prompts[0])
                     dense.configure_model(encoder,False)
@@ -183,9 +177,8 @@ class PromptTests(unittest.TestCase):
                             actual=method(runtime,args,task)
                             prefix=constraints.instruction(dataset,input_type="query" if task=="it2t" else "image")+"\n"
                             description=constraints.task_description(dataset)
-                            self.assertEqual(actual.replace(prefix,"").replace(description,""),original)
-                            self.assertEqual(actual.count(description),1)
-                            self.assertLess(actual.index(description),actual.index("<image>"))
+                            self.assertEqual(actual.replace(prefix,""),original)
+                            self.assertNotIn(description,actual)
                             self.assertEqual(actual.count(prefix),original.count("Summary"))
                             self.assertEqual(actual.count("<image>"),original.count("<image>"))
 
@@ -222,52 +215,72 @@ class PromptTests(unittest.TestCase):
 
 
 class ArtifactTests(unittest.TestCase):
-    def test_v2_prompt_identity_contains_descriptions_and_rejects_explicit_v1_artifacts(self):
-        self.assertEqual(constraints.CONFIGURATION["version"],2)
-        self.assertIn("shared_user_context",constraints.CONFIGURATION["description_placement"])
+    def test_v3_identity_hashes_rules_only_and_rejects_legacy_artifacts(self):
+        self.assertEqual(constraints.CONFIGURATION["version"],3)
+        self.assertFalse(constraints.CONFIGURATION["task_description_included"])
+        self.assertEqual(constraints.CONFIGURATION["constraint_placement"],"before_representation_instruction")
+        self.assertNotIn("description_placement",constraints.CONFIGURATION)
+        expected=hashlib.sha256(json.dumps({key: {
+            "query":constraints.plain_instruction(spec.query_instruction),
+            "target":constraints.plain_instruction(spec.target_instruction)}
+            for key,spec in catalog.PROMPT_SPECS.items()},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+        self.assertEqual(constraints.CONFIGURATION["instruction_fingerprint"],expected)
         self.assertEqual(dense.PROMPT_SUFFIX,constraints.SUFFIX)
         with temporary_directory() as directory:
-            old=Path(directory)/("corpus"+dense.SUFFIX+"_freeret_constraints_v1")
-            old.mkdir()
-            dense.sidecar(old).write_text(json.dumps(dict(dense.CONFIGURATION,
-                freeret_prompt_constraints=dict(version=1))))
-            for alias in (old,old/"collection/index",old/"corpus_0.pkl"):
-                self.assertTrue(dense.marked(alias)); self.assertTrue(dense.prompts_marked(alias))
-                with self.assertRaisesRegex(ValueError,"v1 lacks task_description"):
-                    dense.mode_path(alias,True,True)
-                with self.assertRaisesRegex(ValueError,"v1 lacks task_description"):
-                    dense.validate_artifact(alias,True,True)
-            saved=dense.sidecar(old).read_bytes()
-            with self.assertRaisesRegex(ValueError,"v1 lacks task_description"):
-                dense.write_manifest(old,True,True)
-            self.assertEqual(dense.sidecar(old).read_bytes(),saved)
-            self.assertEqual(dense.original_path(old),Path(directory)/"corpus")
-            new=dense.mode_path(Path(directory)/"corpus",True,True)
-            self.assertNotEqual(new,old)
-            self.assertTrue(new.name.endswith("_freeret_constraints_v2"))
+            base=Path(directory)/"corpus"
+            new=dense.mode_path(base,True,True)
+            self.assertTrue(new.name.endswith("_freeret_constraints_v3"))
+            for version in (1,2):
+                with self.subTest(legacy_version=version):
+                    old=Path(directory)/("corpus"+dense.SUFFIX+f"_freeret_constraints_v{version}")
+                    old.mkdir()
+                    dense.sidecar(old).write_text(json.dumps(dict(dense.CONFIGURATION,
+                        freeret_prompt_constraints=dict(version=version))))
+                    saved=dense.sidecar(old).read_bytes()
+                    for alias in (old,old/"collection/index",old/"corpus_0.pkl"):
+                        self.assertTrue(dense.marked(alias)); self.assertTrue(dense.prompts_marked(alias))
+                        with self.assertRaisesRegex(ValueError,f"legacy v{version}"):
+                            dense.mode_path(alias,True,True)
+                        with self.assertRaisesRegex(ValueError,"freeret_constraints_v3"):
+                            dense.validate_artifact(alias,True,True)
+                    with self.assertRaisesRegex(ValueError,f"legacy v{version}"):
+                        dense.write_manifest(old,True,True)
+                    self.assertEqual(dense.sidecar(old).read_bytes(),saved)
+                    self.assertEqual(dense.original_path(old),base)
+                    self.assertNotEqual(new,old)
+            new.mkdir()
+            dense.sidecar(new).write_text(json.dumps(dict(dense.CONFIGURATION,
+                freeret_prompt_constraints=dict(version=2))))
+            with self.assertRaisesRegex(ValueError,"mode mismatch"):
+                dense.validate_artifact(new,True,True)
 
-    def test_legacy_manifests_do_not_block_new_indexing_but_explicit_v1_is_rejected(self):
+    def test_legacy_manifests_do_not_block_v3_indexing_and_explicit_targets_fail(self):
         import adaptive_sparse_index_batch as index
         from test_adaptive_sparse_exact import artifacts
         with temporary_directory() as directory:
             env,records,loader=artifacts(directory,USE_FREERET_DENSE="true",USE_FREERET_PROMPT_CONSTRAINTS="true")
             current,_,_=records[0]
-            old=current.with_name(current.name.replace("_freeret_constraints_v2","_freeret_constraints_v1"))
-            old.mkdir()
-            manifest=json.loads((current/views.MANIFEST).read_text(encoding="utf-8"))
-            manifest["configuration"]["freeret_prompt_constraints"]={"version":1}
-            manifest["fingerprint"]=views.digest(manifest["configuration"])
-            views.atomic_json(old/views.MANIFEST,manifest)
+            historical=[]
+            for version in (1,2):
+                old=current.with_name(current.name.replace(constraints.SUFFIX,f"_freeret_constraints_v{version}"))
+                old.mkdir()
+                manifest=json.loads((current/views.MANIFEST).read_text(encoding="utf-8"))
+                manifest["configuration"]["freeret_prompt_constraints"]={"version":version}
+                manifest["fingerprint"]=views.digest(manifest["configuration"])
+                views.atomic_json(old/views.MANIFEST,manifest)
+                historical.append((version,old,(old/views.MANIFEST).read_bytes()))
             settings=index.Settings.from_environment("tbpr",env)
             skipped=[]
             jobs,missing=index.discover(settings,incompatible=skipped)
             self.assertFalse(missing)
             self.assertEqual([job.root for job in jobs],[current])
-            self.assertEqual(len(skipped),1)
-            self.assertIn("lacks task_description",skipped[0][1])
-            settings=index.Settings.from_environment("tbpr",dict(env,SPARSE_OUTPUT_ROOT=str(old)))
-            with self.assertRaisesRegex(ValueError,"v1 lacks task_description"):
-                index.discover(settings)
+            self.assertEqual(len(skipped),2)
+            for version,old,saved in historical:
+                self.assertTrue(any(f"legacy v{version}" in reason for path,reason in skipped))
+                settings=index.Settings.from_environment("tbpr",dict(env,SPARSE_OUTPUT_ROOT=str(old)))
+                with self.assertRaisesRegex(ValueError,f"legacy v{version}"):
+                    index.discover(settings)
+                self.assertEqual((old/views.MANIFEST).read_bytes(),saved)
             exact=index.Settings.from_environment("tbpr",env,exact_encoding=True)
             with redirect_stdout(io.StringIO()):
                 jobs,missing=index.discover_exact(exact,identity_loader=loader)
@@ -314,6 +327,19 @@ class ArtifactTests(unittest.TestCase):
             old_config = dict(version=1)
             self.assertNotIn("freeret_prompt_constraints",dense.configuration(old_config,True))
             self.assertEqual(dense.configuration(old_config,True,True)["freeret_prompt_constraints"],constraints.CONFIGURATION)
+
+    def test_bash_v3_paths_are_idempotent_and_preserve_explicit_legacy_targets(self):
+        bash=shutil.which("bash") if os.name!="nt" else "D:/Git/bin/bash.exe"
+        if not bash or not Path(bash).is_file(): self.skipTest("Bash unavailable")
+        base="/cache/corpus"; current=base+dense.SUFFIX+constraints.SUFFIX
+        values=[base,current,current+"/collection/index",current+"/corpus_0.pkl"]
+        values += [base+dense.SUFFIX+f"_freeret_constraints_v{v}"+"/collection/index" for v in (1,2)]
+        env=dict(os.environ,USE_FREERET_DENSE="true",USE_FREERET_PROMPT_CONSTRAINTS="true",USE_FREERET_FULL_PROMPT="false")
+        command='source "$1" || exit $?; shift; for value in "$@"; do dense_mode_path "$value"; printf "\\n"; done'
+        result=subprocess.run([bash,"-c",command,"--",(ROOT/"scripts/freeret_dense_mode.sh").as_posix(),*values],
+                              env=env,capture_output=True,text=True,timeout=30)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(result.stdout.splitlines(),[current,current,*values[2:]])
 
     def test_adaptive_metadata_and_overlap_selection_modes_are_consistent(self):
         import adaptive_view_overlap as overlap
@@ -378,6 +404,8 @@ class LauncherTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); scripts=root/"scripts"; scripts.mkdir()
             shutil.copyfile(ROOT/"scripts/freeret_dense_mode.sh",scripts/"freeret_dense_mode.sh")
+            shutil.copyfile(ROOT / "scripts/stage2_retrieval_mode.sh", scripts / "stage2_retrieval_mode.sh")
+            shutil.copyfile(ROOT / "scripts/stc_sparse_mode.sh", scripts / "stc_sparse_mode.sh")
             capture=root/"capture.sh"
             capture.write_text('#!/usr/bin/env bash\nprintf \'%s|%s\' "$USE_FREERET_DENSE" "$USE_FREERET_PROMPT_CONSTRAINTS"\n',encoding="utf-8")
             capture.chmod(0o755)
@@ -420,15 +448,10 @@ class ConstraintRealModelTests(fixtures.RealModelTests):
                         prefix=constraints.instruction(dataset,record)+"\n"
                         description=constraints.task_description(dataset)
                         self.assertEqual(batch.prompts[row].count(prefix),len(batch.spans[row]))
-                        self.assertEqual(batch.prompts[row].count(description),1)
-                        self.assertLess(batch.prompts[row].index(description),batch.prompts[row].index(prefix))
-                        if record.get("image") is not None:
-                            marker="<|vision_start|>" if family.startswith("qwen") else "<image>"
-                            self.assertLess(batch.prompts[row].index(description),batch.prompts[row].index(marker))
+                        self.assertEqual(batch.prompts[row].count(description),original.prompts[row].count(description))
                         if record.get("text"):
-                            context_start=batch.prompts[row].index(description)+len(description)
-                            self.assertIn(record["text"],batch.prompts[row][context_start:batch.prompts[row].index(prefix)])
-                        self.assertEqual(batch.prompts[row].replace(prefix,"").replace(description,""),original.prompts[row])
+                            self.assertIn(record["text"],batch.prompts[row][:batch.prompts[row].index(prefix)])
+                        self.assertEqual(batch.prompts[row].replace(prefix,""),original.prompts[row])
                         self.assertEqual(batch.prompts[row].count("<image>"),original.prompts[row].count("<image>"))
                         self.assertEqual(batch.prompts[row].count("<|image_pad|>"),original.prompts[row].count("<|image_pad|>"))
                     captured=[]

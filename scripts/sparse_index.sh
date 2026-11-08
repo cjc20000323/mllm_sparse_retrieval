@@ -24,8 +24,8 @@ DATASET_SPLIT=test
 
 DENSE_MODE_SUFFIX=""
 [[ "${USE_FREERET_DENSE}" == false ]] || DENSE_MODE_SUFFIX="_dense_freeret_pre_mlp"
-if [[ "${USE_FREERET_FULL_PROMPT}" == true ]]; then DENSE_MODE_SUFFIX+="_freeret_full_prompt_v1"
-elif [[ "${USE_FREERET_PROMPT_CONSTRAINTS}" == true ]]; then DENSE_MODE_SUFFIX+="_freeret_constraints_v2"; fi
+if [[ "${USE_FREERET_FULL_PROMPT}" == true ]]; then DENSE_MODE_SUFFIX+="_freeret_full_prompt_v2"
+elif [[ "${USE_FREERET_PROMPT_CONSTRAINTS}" == true ]]; then DENSE_MODE_SUFFIX+="_freeret_constraints_v3"; fi
 python -m pyserini.index.lucene \
   --collection JsonVectorCollection \
   --input ${OUTPUT_DIR}/${MODEL}/${DATASET}/${MODAL}/${FILTER}/${CALCULATE_TYPE}/${PROMPT_TYPE}/${DATASET_SPLIT}/${EXPENDED_TOKENS}_${MANUAL}_${MANUAL_LENGTH}_${SPARSE_VALUE_TYPE}_${CLUSTER}_${REPS_LOC}_${EOL_TYPE}_${SPARSE_LOWER_OR_UPPER}_${USE_MEAN}${DENSE_MODE_SUFFIX} \

@@ -4,6 +4,9 @@ The existing search and reranking programs are intentionally left untouched.
 This file follows the loading flow used by ``search.py`` / ``rerank.py`` and
 calls the existing :class:`reranker.Reranker` for the final stage.
 
+``--stage2-method dense`` uses only dense scores inside the Stage-1 candidate
+pool; the default ``hybrid`` mode combines dense and sparse scores.
+
 Pipeline
 --------
 1. Stage 1 is a coarse candidate generator.  It can be one of:
@@ -91,6 +94,8 @@ except ModuleNotFoundError as exc:
 
 
 Run = dict[str, dict[str, float]]
+
+from stage2_retrieval_mode import method as stage2_method, artifact_paths as stage2_artifact_paths, configure as configure_stage2_mode, output_path as stage2_output_path
 
 STAGE1_METHODS = ("clip", "blip", "sparse_manual", "sparse_concat")
 STAGE2_EOL_TYPE = "disassembleeol_separate"
@@ -1123,7 +1128,7 @@ def _load_retrieval_runtime(
             else ("cuda" if torch.cuda.is_available() else "cpu")
         )
     load_kwargs: dict[str, Any] = {"torch_dtype": dtype, "low_cpu_mem_usage": True}
-    if getattr(args, "adaptive_views", False):
+    if getattr(args, "adaptive_views", False) or full_prompt.enabled(args):
         load_kwargs["attn_implementation"] = "sdpa"
     device_map = _device_map_for_process(args.retrieval_device_map, context)
     if device_map != "none":
@@ -1287,6 +1292,8 @@ def _retrieval_namespaces(
         data_args.llava_image_mode = getattr(args,"retrieval_llava_image_mode","anyres")
     if prompt_constraints.enabled(args):
         model_args.use_freeret_prompt_constraints = True
+    from stc_sparse import copy_options
+    copy_options(args, model_args, dtype=args.retrieval_dtype)
     return model_args, data_args
 
 
@@ -2905,7 +2912,7 @@ def run_stage2(
     }
 
     if args.stage2_run:
-        hybrid_run = read_run(Path(args.stage2_run))
+        precomputed_run = read_run(Path(args.stage2_run))
         restricted: Run = {}
         for query_id, candidate_ids in _progress(
             candidate_filter.items(),
@@ -2913,22 +2920,27 @@ def run_stage2(
             unit="query",
             total=len(candidate_filter),
         ):
-            scores = hybrid_run.get(query_id, {})
+            scores = precomputed_run.get(query_id, {})
+            if stage2_method(args) == "dense":
+                scores = {doc: value for doc, value in scores.items() if doc in candidate_ids}
             restricted[query_id] = {
                 doc_id: scores[doc_id]
                 for doc_id in _top_ids(scores, args.stage2_depth)
                 if doc_id in candidate_ids
             }
-        return {}, {}, restricted
+        return (restricted, {}, restricted) if stage2_method(args) == "dense" else ({}, {}, restricted)
 
     required = {
         "stage2_dense_index": args.stage2_dense_index,
-        "stage2_sparse_index": args.stage2_sparse_index,
     }
+    if stage2_method(args) == "hybrid":
+        required["stage2_sparse_index"] = args.stage2_sparse_index
     missing = [name for name, value in required.items() if not value]
     if missing:
         raise ValueError(
-            "第二阶段必须提供当前 disassembleeol_separate+concat 的 dense/sparse artifacts；"
+            ("第二阶段 dense 模式必须提供当前 disassembleeol_separate+concat 的 dense artifacts；"
+             if stage2_method(args) == "dense" else
+             "第二阶段必须提供当前 disassembleeol_separate+concat 的 dense/sparse artifacts；") +
             f"缺少: {', '.join(missing)}"
         )
     if retrieval_runtime is None and encoded_queries is None:
@@ -2946,7 +2958,7 @@ def run_stage2(
     )
 
     _validate_qwen_artifacts(
-        args, encoded, [(args.stage2_dense_index, True), (args.stage2_sparse_index, False)],
+        args, encoded, stage2_artifact_paths(args),
         eol_type=STAGE2_EOL_TYPE, calculate_type=STAGE2_CALCULATE_TYPE, sparse_manual=False,
     )
 
@@ -2961,6 +2973,8 @@ def run_stage2(
         progress_desc="[stage2] dense retrieval",
         timing=timing,
     )
+    if stage2_method(args) == "dense":
+        return dense_run, {}, dense_run
     sparse_run = retrieve_sparse_topics_from_lucene(
         Path(args.stage2_sparse_index),
         encoded.sparse_topics,
@@ -3304,6 +3318,8 @@ def _alpha_validation_args(args: argparse.Namespace) -> Optional[argparse.Namesp
 
 
 def _validate_alpha_options(args: argparse.Namespace) -> None:
+    if stage2_method(args) == "dense":
+        return
     inputs = [getattr(args, name, None) for name in (
         "val_passage_reps", "val_sparse_index", "val_stage1_run",
         "val_stage1_sparse_index", "validation_dataset_name",
@@ -3545,9 +3561,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--stage1-depth", type=int, default=1000)
 
+    parser.add_argument("--stage2-method", "--stage2_method", choices=("hybrid", "dense"), default="hybrid",
+                        help="Stage-2 scoring within Stage-1 candidates; dense skips sparse retrieval and fusion")
     parser.add_argument(
         "--stage2-run",
-        help="Optional precomputed Stage-2 hybrid run. If provided, dense/sparse Stage-2 artifacts are not loaded.",
+        help="Optional precomputed Stage-2 ranking for --stage2-method; skips online Stage-2 retrieval.",
     )
     parser.add_argument("--stage2-dense-index", help="Stage-2 passage_reps directory containing corpus*.pkl.")
     parser.add_argument("--stage2-sparse-index", help="Stage-2 corpus-side sparse directory containing index/.")
@@ -3615,7 +3633,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--use-freeret-full-prompt", "--use_freeret_full_prompt", nargs="?", const=True, default=False, type=boolean,
                         help="Use complete FreeRet prompts for dense and sparse; requires FreeRet dense")
     parser.add_argument("--use-freeret-prompt-constraints", "--use_freeret_prompt_constraints", nargs="?", const=True, default=False, type=boolean,
-                        help="Add FreeRet task_description before input and task constraints to all representation instructions; requires FreeRet dense")
+                         help="Add FreeRet constraints before each original Summary instruction without task_description; requires FreeRet dense")
     parser.add_argument("--rerank-template", default="relevant")
     parser.add_argument("--use-rerank-prior-cache", "--use_rerank_prior_cache", action="store_true")
     parser.add_argument("--rerank-prior-cache-dir", "--rerank_prior_cache_dir", default=None)
@@ -3636,6 +3654,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--adaptive-views", action="store_true", help="Use dataset-selected perspectives from the copied encoder.")
+    from stc_sparse import add_parser as add_stc_parser
+    add_stc_parser(parser)
+    parser.add_argument("--view-probability-mass", "--view_probability_mass", nargs="?", const=True, default=None,
+                        type=boolean, help="Require cumulative probability views; omitted inherits the saved selection")
+    parser.add_argument("--view-probability-mass-threshold", "--view_probability_mass_threshold", type=float, default=None,
+                        help="Require the encoding probability threshold (default 0.9 when enabled)")
     parser.add_argument("--view-selection-file", help="Locked selection JSON written by encode_adaptive_views.py.")
     parser.add_argument("--view-selection-run-id", default=None, help="Optional shuffle run identifier; must match the locked selection file")
     parser.add_argument("--val-view-selection-file", help="Validation dataset selection; defaults to target selection for the same dataset.")
@@ -3643,6 +3667,13 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _validate_args(args: argparse.Namespace) -> None:
+    configure_stage2_mode(args)
+    from stc_sparse import enabled as stc_enabled, validate as validate_stc
+    validate_stc(args)
+    if stc_enabled(args) and not args.adaptive_views:
+        raise ValueError("--use-stc-sparse requires --adaptive-views")
+    if getattr(args, "view_probability_mass", False) and not getattr(args, "adaptive_views", False):
+        raise ValueError("--view-probability-mass requires --adaptive-views")
     from dense_representation import prepare_pipeline
     prepare_pipeline(args)
     _validate_alpha_options(args)
@@ -3706,7 +3737,7 @@ def _validate_args(args: argparse.Namespace) -> None:
         )
         print(f"Stage 1 sparse mode: {expected}")
     if is_main_process:
-        print(f"Stage 2 fixed mode: {STAGE2_EOL_TYPE} + {STAGE2_CALCULATE_TYPE}")
+        print(f"Stage 2 scoring: {stage2_method(args)}; encoding: {STAGE2_EOL_TYPE} + {STAGE2_CALCULATE_TYPE}")
     if args.output_dir and Path(args.output_dir).exists() and not args.overwrite:
         raise FileExistsError(
             f"输出目录已存在: {args.output_dir}。请更换目录或添加 --overwrite。"
@@ -3729,8 +3760,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.output_dir is None:
         args.output_dir = str(
-            Path("./three_stage_results")
-            / f"stage1_{args.stage1_depth}_stage2_{args.stage2_depth}"
+            stage2_output_path(Path("./three_stage_results")
+            / f"stage1_{args.stage1_depth}_stage2_{args.stage2_depth}", stage2_method(args))
         )
     try:
         _validate_args(args)
@@ -3763,11 +3794,13 @@ def main() -> None:
         output_dir = Path(args.output_dir).expanduser().resolve()
         if distributed_context.is_main:
             output_dir.mkdir(parents=True, exist_ok=True)
+            from stage2_retrieval_mode import clear_inactive_reports
+            clear_inactive_reports(output_dir, args)
             from dense_representation import write_manifest
             write_manifest(output_dir, getattr(args, "use_freeret_dense", False), prompt_constraints.enabled(args), full_prompt.enabled(args))
             timing_reporter = TimingReporter(args, output_dir, wall_started)
 
-        select_alpha = getattr(args, "select_hybrid_alpha", False)
+        select_alpha = stage2_method(args) == "hybrid" and getattr(args, "select_hybrid_alpha", False)
         alpha_reporter = AlphaSweepReporter(output_dir) if select_alpha and distributed_context.is_main else None
         if select_alpha:
             # The requested fixed weight is irrelevant in selection mode.
@@ -3846,7 +3879,7 @@ def main() -> None:
                 )
 
             if distributed_context.is_main:
-                tqdm.write("[stage2] distributed restricted hybrid retrieval")
+                tqdm.write(f"[stage2] distributed restricted {stage2_method(args)} retrieval")
             local_dense_run, local_sparse_run, local_stage2_run = run_stage2(
                 args,
                 local_stage1_run,
@@ -3884,16 +3917,16 @@ def main() -> None:
                     )
                 write_trec_run(
                     stage2_run,
-                    output_dir / "stage2_hybrid_run.trec",
-                    "stage2_hybrid",
+                    output_dir / f"stage2_{stage2_method(args)}_run.trec",
+                    f"stage2_{stage2_method(args)}",
                 )
-                write_json_run(stage2_run, output_dir / "stage2_hybrid_run.json")
+                write_json_run(stage2_run, output_dir / f"stage2_{stage2_method(args)}_run.json")
                 stage2_metrics_runs = {}
                 if dense_run:
                     stage2_metrics_runs["dense"] = dense_run
                 if sparse_run:
                     stage2_metrics_runs["sparse"] = sparse_run
-                stage2_metrics_runs["hybrid"] = stage2_run
+                stage2_metrics_runs[stage2_method(args)] = stage2_run
                 assert recall_reporter is not None
                 recall_reporter.record("stage2", stage2_metrics_runs)
             if pipeline_progress is not None:
@@ -3982,6 +4015,7 @@ def main() -> None:
                     "query_count": len(stage1_run),
                 },
                 "stage2": {
+                    "method": stage2_method(args),
                     "query_encoding": (
                         "reused_stage1" if reuse_stage1_queries else
                         "online" if not args.stage2_run else "precomputed_run"
@@ -3994,7 +4028,7 @@ def main() -> None:
                     "sparse_corpus_index": args.stage2_sparse_index,
                     "eol_type": STAGE2_EOL_TYPE,
                     "calculate_type": STAGE2_CALCULATE_TYPE,
-                    "alpha": args.hybrid_alpha,
+                    "alpha": args.hybrid_alpha if stage2_method(args) == "hybrid" else None,
                     "candidate_depth": args.stage1_depth,
                     "query_count": len(stage2_run),
                 },
@@ -4011,8 +4045,8 @@ def main() -> None:
                 "files": [
                     "stage1_run.trec",
                     "stage1_run.json",
-                    "stage2_hybrid_run.trec",
-                    "stage2_hybrid_run.json",
+                    f"stage2_{stage2_method(args)}_run.trec",
+                    f"stage2_{stage2_method(args)}_run.json",
                     "stage3_ranker_run.trec",
                     "stage3_ranker_run.json",
                     "recall_metrics.json",
@@ -4030,6 +4064,10 @@ def main() -> None:
                 metadata["adaptive_views"] = dict(selection_file=str(Path(args.view_selection_file).resolve()),
                                                    selection_modality=selection["selection_modality"],
                                                    selected=selection["selected"], views_fingerprint=selection["views_fingerprint"])
+                from stc_sparse import enabled as stc_enabled, configuration as stc_configuration
+                if stc_enabled(args):
+                    model_args, _ = _retrieval_namespaces(args, eol_type="disassembleeol_separate", calculate_type="concat", sparse_manual=False)
+                    metadata["stc_sparse"] = stc_configuration(model_args)
             with (output_dir / "pipeline_metadata.json").open("w", encoding="utf-8") as handle:
                 json.dump(metadata, handle, ensure_ascii=False, indent=2)
             assert timing_reporter is not None

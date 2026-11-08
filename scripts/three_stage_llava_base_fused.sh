@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+STAGE2_METHOD="${STAGE2_METHOD-hybrid}" # hybrid / dense; dense sorts only Stage-1 candidates
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stage2_retrieval_mode.sh" || exit $?
+stage2_mode_configure || exit $?
 USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"  # true: FreeRet pre-MLP dense; prompts/sparse unchanged
 USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"  # Complete FreeRet dense/sparse prompts; requires FreeRet dense
 USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prepend FreeRet constraints to all representation views
@@ -16,6 +19,7 @@ die() { printf 'Error: %s\n' "$*" >&2; exit 2; }
 usage() {
     cat <<'USAGE'
 Usage: bash scripts/three_stage_llava_base_fused.sh [-h|--help]
+STAGE2_METHOD=hybrid|dense; dense sorts only Stage-1 candidates and skips fusion.
 Standalone launcher for src/three_stage_retrieval_pipeline.py; no other shell is called.
 Supported datasets: webqa remuq llava. Default: webqa.
 WebQA: text->image+text (t2it). ReMuQ/LLaVA: image+text->text (it2t);
@@ -111,6 +115,7 @@ IS_FILTERED="${IS_FILTERED:-false}"
 TBPR_TYPE="${TBPR_TYPE:-origin_type}"
 CIR_TYPE="${CIR_TYPE:-type}"
 SELECT_HYBRID_ALPHA="${SELECT_HYBRID_ALPHA:-false}"
+stage2_mode_configure || exit $?
 HYBRID_ALPHA="${HYBRID_ALPHA:-0.5}"
 VALIDATION_SPLIT="${VALIDATION_SPLIT:-val}"
 RANKER_DEVICE_MAP="${RANKER_DEVICE_MAP:-auto}"
@@ -238,6 +243,7 @@ require_corpus() {
     else
         ((${#shards[@]})) && [[ -f "${shards[0]}" ]] || die "${label}: no corpus*.pkl in ${dense}; run encode.py with matching settings."
     fi
+    [[ "${STAGE2_METHOD}" != dense ]] || return 0
     ((${#segments[@]})) && [[ -f "${segments[0]}" ]] || die "${label}: no Lucene segments_* in ${index}; build the sparse index first."
 }
 resolve_job() {
@@ -294,7 +300,7 @@ resolve_job() {
     fi
     local result="${LLAVA_OUTPUT_ROOT}/${ARTIFACT_MODEL_NAME}/${JOB_DATASET}/${DIRECTION}/${DATASET_SPLIT}/sparse_concat_stage1"
     [[ "${TASK_TYPE}" != tbpr ]] || result+="/${TBPR_TYPE}"
-    JOB_OUTPUT="${OUTPUT_DIR:-${result}/${ALPHA_LABEL}_retrieval_${RETRIEVAL_LLAVA_IMAGE_MODE}_ranker_${RANKER_LLAVA_IMAGE_MODE}/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}}"
+    JOB_OUTPUT="${OUTPUT_DIR:-$(stage2_mode_path "${result}/${ALPHA_LABEL}_retrieval_${RETRIEVAL_LLAVA_IMAGE_MODE}_ranker_${RANKER_LLAVA_IMAGE_MODE}/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}")}"
 }
 preflight_job() {
     dense_mode_paths
@@ -315,7 +321,7 @@ preflight_job() {
 }
 build_command() {
     dense_mode_paths
-    COMMAND=("${DEEPSPEED_BIN}" --num_gpus "${GPUS}" --num_nodes "${NUM_NODES}" src/three_stage_retrieval_pipeline.py --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}"
+    COMMAND=("${DEEPSPEED_BIN}" --num_gpus "${GPUS}" --num_nodes "${NUM_NODES}" src/three_stage_retrieval_pipeline.py --stage2-method "${STAGE2_METHOD}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}"
         --dataset-name "${JOB_DATASET}" --dataset-split "${DATASET_SPLIT}" --task-type "${TASK_TYPE}" --query-type "${QUERY_TYPE}"
         --tbpr-type "${TBPR_TYPE}" --cir-type "${CIR_TYPE}" --data-root "${DATA_ROOT}" --stage1-method sparse_concat
         --stage1-sparse-index "${JOB_FIRST}" --stage1-depth "${STAGE1_DEPTH}"

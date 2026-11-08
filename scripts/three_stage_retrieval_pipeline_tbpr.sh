@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+STAGE2_METHOD="${STAGE2_METHOD-hybrid}" # hybrid / dense; dense sorts only Stage-1 candidates
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stage2_retrieval_mode.sh" || exit $?
+stage2_mode_configure || exit $?
 USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"  # true: FreeRet pre-MLP dense; prompts/sparse unchanged
 USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"  # Complete FreeRet dense/sparse prompts; requires FreeRet dense
 USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prepend FreeRet constraints to all representation views
@@ -70,7 +73,7 @@ is_true() {
 EXTRA_ARGS=()
 while (($# > 0)); do
     case "${1%%=*}" in
-        --retrieval-llava-image-mode|--ranker-llava-image-mode|--dataset-name|--dataset-split|--task-type|--query-type|--tbpr-type|--data-root|--output-dir|--stage1-depth|--stage2-depth|--stage1-sparse-index|--stage2-dense-index|--stage2-sparse-index|--val-passage-reps|--val-sparse-index|--validation-dataset-name|--validation-split|--val-stage1-sparse-index|--val-stage1-run)
+        --retrieval-llava-image-mode|--ranker-llava-image-mode|--dataset-name|--dataset-split|--task-type|--query-type|--tbpr-type|--data-root|--output-dir|--stage2-method|--stage2_method|--stage1-depth|--stage2-depth|--stage1-sparse-index|--stage2-dense-index|--stage2-sparse-index|--val-passage-reps|--val-sparse-index|--validation-dataset-name|--validation-split|--val-stage1-sparse-index|--val-stage1-run)
             CLI_OPTION="${1%%=*}"
             if [[ "$1" == *=* ]]; then
                 CLI_VALUE="${1#*=}"
@@ -94,6 +97,7 @@ while (($# > 0)); do
                 --output-dir) OUTPUT_DIR="${CLI_VALUE}" ;;
                 --stage1-depth) STAGE1_DEPTH="${CLI_VALUE}" ;;
                 --stage2-depth) STAGE2_DEPTH="${CLI_VALUE}" ;;
+                --stage2-method|--stage2_method) STAGE2_METHOD="${CLI_VALUE}" ;;
                 --stage1-sparse-index) STAGE1_SPARSE_INDEX="${CLI_VALUE}" ;;
                 --stage2-dense-index) STAGE2_DENSE_INDEX="${CLI_VALUE}" ;;
                 --stage2-sparse-index) STAGE2_SPARSE_INDEX="${CLI_VALUE}" ;;
@@ -111,6 +115,7 @@ while (($# > 0)); do
         --select-hybrid-alpha)
             [[ "$1" != *=* ]] || die "--select-hybrid-alpha is a flag and does not take a value."
             SELECT_HYBRID_ALPHA=true
+            stage2_mode_configure || exit $?
             shift
             ;;
         --)
@@ -165,6 +170,7 @@ STAGE1_DEPTH="${STAGE1_DEPTH:-1000}"
 STAGE2_DEPTH="${STAGE2_DEPTH:-1000}"
 HYBRID_ALPHA="${HYBRID_ALPHA:-0.5}"
 SELECT_HYBRID_ALPHA="${SELECT_HYBRID_ALPHA:-false}"
+stage2_mode_configure || exit $?
 ALPHA_SELECTION_ARGS=()
 ALPHA_OUTPUT_SUFFIX=""
 if is_true "${SELECT_HYBRID_ALPHA}"; then
@@ -227,7 +233,7 @@ STAGE2_SPARSE_INDEX="${STAGE2_SPARSE_INDEX:-sparse_output/${INDEX_RELATIVE_PATH}
 STAGE1_SPARSE_INDEX="${STAGE1_SPARSE_INDEX:-${STAGE2_SPARSE_INDEX}}"
 HAS_EXPLICIT_OUTPUT=false
 if [[ -n "${OUTPUT_DIR:-}" ]]; then HAS_EXPLICIT_OUTPUT=true; fi
-OUTPUT_DIR="${OUTPUT_DIR:-./three_stage_results/${ARTIFACT_MODEL_NAME}/${DATASET}/${DIRECTION_LABEL}/${DATASET_SPLIT}/sparse_concat_stage1/${TBPR_TYPE}}"
+OUTPUT_DIR="${OUTPUT_DIR:-$(stage2_mode_path "./three_stage_results/${ARTIFACT_MODEL_NAME}/${DATASET}/${DIRECTION_LABEL}/${DATASET_SPLIT}/sparse_concat_stage1/${TBPR_TYPE}")}"
 if [[ "${HAS_EXPLICIT_OUTPUT}" == false ]]; then OUTPUT_DIR+="${ALPHA_OUTPUT_SUFFIX}"; fi
 if [[ "${HAS_EXPLICIT_OUTPUT}" == false && ( "${RETRIEVAL_LLAVA_IMAGE_MODE}" == base || "${RANKER_LLAVA_IMAGE_MODE}" == base ) ]]; then
     OUTPUT_DIR+="_retrieval_${RETRIEVAL_LLAVA_IMAGE_MODE}_ranker_${RANKER_LLAVA_IMAGE_MODE}"
@@ -256,7 +262,7 @@ else
         "no corpus*.pkl found in ${STAGE2_DENSE_INDEX}; generate the candidate index with encode.py --encode_type image --task_type tbpr"
 fi
 require_lucene_index "${STAGE1_SPARSE_INDEX}" "Stage-1 Lucene index"
-require_lucene_index "${STAGE2_SPARSE_INDEX}" "Stage-2 Lucene index"
+[[ "${STAGE2_METHOD}" != hybrid ]] || require_lucene_index "${STAGE2_SPARSE_INDEX}" "Stage-2 Lucene index"
 
 OVERWRITE_ARGS=()
 if is_true "${OVERWRITE}"; then
@@ -267,7 +273,7 @@ COMMAND=(
     "${DEEPSPEED_BIN}"
     --num_gpus "${GPUS}"
     --num_nodes "${NUM_NODES}"
-    src/three_stage_retrieval_pipeline.py --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}"
+    src/three_stage_retrieval_pipeline.py --stage2-method "${STAGE2_METHOD}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}"
     --dataset-name "${DATASET}"
     --dataset-split "${DATASET_SPLIT}"
     --task-type "${TASK_TYPE}"
