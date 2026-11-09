@@ -14,6 +14,7 @@ import sys
 
 import adaptive_views as views
 import stc_sparse as stc
+import lens_sparse as lens
 from qwen_vl_paths import artifact_root
 from adaptive_sparse_index import resolve_sparse_index
 
@@ -68,6 +69,7 @@ def parser():
     add("view_probability_mass_threshold", type=float)
     add("view_selection_modality", choices=("text", "image", "both"))
     stc.add_parser(p, inherit=True)
+    lens.add_parser(p, inherit=True)
     add("depth", type=int, default=1000)
     add("alpha", type=float, default=0.5, help="Dense weight; sparse weight is 1-alpha")
     add("use_fixed_alpha", type=boolean, nargs="?", const=True, default=True)
@@ -179,6 +181,7 @@ def prepare(args, *, identity_loader=None, backend=None):
         if getattr(args, name) is None:
             setattr(args, name, bool(config.get(key)))
     stc.bind_search(args, roots[1] or roots[0], config.get(stc.FIELD))
+    lens.bind_search(args, roots[1] or roots[0], config.get(lens.FIELD))
     views.load_selection(reference, dataset=args.dataset_name, selection_modality=args.view_selection_modality,
         view_selection_pmi=args.view_selection_pmi, view_selection_hierarchical=args.view_selection_hierarchical,
         view_probability_mass=args.view_probability_mass, view_probability_mass_threshold=args.view_probability_mass_threshold)
@@ -198,6 +201,7 @@ def prepare(args, *, identity_loader=None, backend=None):
         setattr(a, name, getattr(args, name))
     a.view_selection_file = str(reference)
     stc.copy_options(args, a, dtype=args.dtype)
+    lens.copy_options(args, a, dtype=args.dtype)
     model, data = api._retrieval_namespaces(a, eol_type="disassembleeol_separate", calculate_type="concat", sparse_manual=False)
     data.llava_image_mode = args.llava_image_mode
     actual_identity = identity_loader(args.model_name_or_path, dtype=args.dtype, reps_loc=args.reps_loc,
@@ -248,6 +252,9 @@ def prepare_validation(args, target, **kwargs):
     views.require_equal({stc.FIELD: target.expected["configuration"].get(stc.FIELD)},
                         {stc.FIELD: val.expected["configuration"].get(stc.FIELD)},
                         "Validation/target STC vocabulary and quantization")
+    views.require_equal({lens.FIELD: target.expected["configuration"].get(lens.FIELD)},
+                        {lens.FIELD: val.expected["configuration"].get(lens.FIELD)},
+                        "Validation/target LENS head and quantization")
     return val
 
 
@@ -275,6 +282,7 @@ def output_location(experiment, config):
     from dense_representation import mode_path
     output = mode_path(output, a.use_freeret_dense, a.use_freeret_prompt_constraints, a.use_freeret_full_prompt).resolve()
     output = stc.mark_path(output, experiment.expected["configuration"].get(stc.FIELD))
+    output = lens.mark_path(output, experiment.expected["configuration"].get(lens.FIELD))
     if output in {experiment.dense_root, experiment.sparse_root, experiment.selection_path.parent}:
         raise ValueError("Search output must be separate from encoding artifacts and selection caches")
     if output.exists() and (not output.is_dir() or not a.overwrite):
@@ -477,6 +485,10 @@ def execute(args):
                     print("[adaptive search] STC vocabulary:", target.args.stc_vocab_path, flush=True)
                     print("[adaptive search] STC mapping fingerprint:",
                           target.expected["configuration"][stc.FIELD]["mapping_fingerprint"], flush=True)
+                if lens.enabled(target.args):
+                    print("[adaptive search] LENS head:", target.args.lens_head_path, flush=True)
+                    print("[adaptive search] LENS head fingerprint:",
+                          target.expected["configuration"][lens.FIELD]["head_fingerprint"], flush=True)
                 print("[adaptive search] output:", output, flush=True)
         collective(start_output, context)
         runtime = collective(lambda: api._load_retrieval_runtime(target.pipeline_args, context), context)

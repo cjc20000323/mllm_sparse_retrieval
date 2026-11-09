@@ -1,4 +1,4 @@
-"""STC probability aggregation, immutable dictionaries and adaptive pipeline wiring."""
+"""STC ReLU weight aggregation, immutable dictionaries and adaptive pipeline wiring."""
 from contextlib import redirect_stdout
 import copy
 import importlib
@@ -85,28 +85,52 @@ class STCTests(unittest.TestCase):
                 self.assertEqual(mapping[1], mapping[2])
                 self.assertEqual(mapping[3], mapping[4])
 
-    def logits(self):
-        probabilities = torch.tensor([.02, .17, .17, .30, .01, .15, .10, .03, 0., .05])
-        logits = probabilities.clamp_min(1e-30).log()
-        logits[8] = 1000  # a padded head row must not enter the softmax denominator
-        return logits
+    def values(self):
+        weights = torch.tensor([.02, .17, .17, .30, .01, .15, .10, .03, 0., .05])
+        weights[8] = 1000  # a nonexistent padded head row must not contribute.
+        return weights
 
-    def test_sum_before_topk_uses_raw_logits_and_keeps_original_probability_denominator(self):
+    def test_token_topk_precedes_cluster_projection_and_does_not_refill(self):
         self.build()
         data = fixtures.data_args(sparse_length=1)
         encoder = stc.SparseEncoder(self.tokenizer, data, self.args)
-        result = encoder.vector(self.logits()[None])
-        # The two .17 synonyms outrank the single .30 token after summation.
-        self.assertEqual(result, {"stc_000000": 3400})
-        self.assertNotEqual(result, {"stc_000000": 10000})
+        result = encoder.vector(self.values()[None])
+        # Only the .30 token wins K=1, regardless of the .17 + .17 cluster.
+        self.assertEqual(result, {"stc_000001": 30})
+        encoder = stc.SparseEncoder(self.tokenizer, fixtures.data_args(sparse_length=3), self.args)
+        self.assertEqual(encoder.vector(self.values()[None]), {"stc_000000": 34, "stc_000001": 30})
+
+    def test_nonpositive_logits_are_zero_and_ignored_tokens_do_not_normalize_weights(self):
+        self.build()
+        encoder = stc.SparseEncoder(self.tokenizer, fixtures.data_args(sparse_length=4), self.args)
+        self.assertEqual(encoder.vector(torch.zeros(1, 10)), {})
+        self.assertEqual(encoder.vector(torch.full((1, 10), -3.)), {})
+        logits = self.values()[None]
+        expected = encoder.vector(logits)
+        logits[:, [0, 7, 8, 9]] = 1e6  # special, blank and nonexistent IDs.
+        # Selected unmappable tokens consume their original budget; no refill.
+        self.assertLessEqual(sum(encoder.vector(logits).values()), sum(expected.values()))
+        logits[:, [1, 2]] = torch.tensor([-1., 0.])
+        self.assertNotIn("stc_000000", encoder.vector(logits))
+
+    def test_half_activation_precision_matches_non_stc_and_quantizes_x100(self):
+        self.build()
+        encoder = stc.SparseEncoder(self.tokenizer, fixtures.data_args(sparse_length=1), self.args)
+        logits = torch.full((1, 10), -1., dtype=torch.float16)
+        logits[0, 1] = 1000
+        values = torch.log1p(torch.relu(logits))
+        result = encoder.vector(values)
+        self.assertEqual(result, {"stc_000000": round(values[0, 1].float().item() * 100)})
 
     def test_view_merge_mean_quantization_and_invalid_logits(self):
         self.build()
-        for merge, mean, weight in (("sum", False, 6800), ("max", False, 3400),
-                                     ("replace", False, 3400), ("sum", True, 3400)):
+        values = self.values().repeat(2, 1)
+        values[:, 3] = .304  # round per view: 30 + 30, not round(60.8).
+        for merge, mean, weight in (("sum", False, 60), ("max", False, 30),
+                                     ("replace", False, 30), ("sum", True, 30)):
             data = fixtures.data_args(sparse_length=1, sparse_value_type=merge, sparse_value_mean=mean)
-            result = stc.SparseEncoder(self.tokenizer, data, self.args).vector(self.logits().repeat(2, 1))
-            self.assertEqual(result, {"stc_000000": weight})
+            result = stc.SparseEncoder(self.tokenizer, data, self.args).vector(values)
+            self.assertEqual(result, {"stc_000001": weight})
         encoder = stc.SparseEncoder(self.tokenizer, fixtures.data_args(), self.args)
         with self.assertRaisesRegex(ValueError, "Non-finite"):
             encoder.vector(torch.full((1, 10), float("nan")))
@@ -128,10 +152,68 @@ class STCTests(unittest.TestCase):
         self.assertEqual(path, stc.mark_path(path, config))
         self.assertTrue(str(path).endswith("_llava_base_dense_freeret_pre_mlp_freeret_full_prompt_v2"))
         self.assertNotEqual(path, stc.mark_path("result_llava_base_dense_freeret_pre_mlp_freeret_full_prompt_v2",
-                                              dict(config, weight_scale=100)))
+                                              dict(config, weight_scale=10000)))
         (target / stc.BUNDLE / "token_to_cluster.npz").write_bytes(b"broken")
         with self.assertRaisesRegex(ValueError, "corrupt"):
             stc.validate_bundle(target, config)
+
+    def test_weighting_changes_artifact_fingerprint_but_reuses_clustering_cache(self):
+        vocabulary = self.build()
+        cached_request, _ = stc.request(self.args, tokenizer=self.tokenizer)
+        self.assertEqual(cached_request, vocabulary.manifest["request"])
+        current = stc.configuration(self.args)
+        self.assertEqual(current["weight_transform"], "log1p_relu")
+        self.assertEqual(current["weighting_version"], 3)
+        previous = dict(current, method="cluster_probability_sum_then_topk")
+        previous.pop("weight_transform")
+        previous.pop("weighting_version")
+        previous.pop("term_mapping")
+        previous.update(weight_scale=10000, quantization="round_after_view_merge_min_one")
+        self.assertEqual(previous["mapping_fingerprint"], current["mapping_fingerprint"])
+        self.assertNotEqual(stc.mark_path("corpus", previous), stc.mark_path("corpus", current))
+        root = self.root / "old_corpus"
+        stc.publish_bundle(root, vocabulary)
+        views.atomic_json(root / views.MANIFEST, dict(configuration={stc.FIELD: previous}))
+        for action in (lambda: stc.validate_bundle(root, previous),
+                       lambda: stc.bind_search(NS(use_stc_sparse=True), root, previous),
+                       lambda: stc.bind_corpus(NS(use_stc_sparse=True, stage1_sparse_index=str(root)))):
+            with self.assertRaisesRegex(ValueError, "weighting mismatch.*Re-encode.*rebuild"):
+                action()
+        stc.validate_bundle(root, current)
+        with patch.object(stc, "_build_new", side_effect=AssertionError("must reuse mapping")), \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(stc.build(self.args).fingerprint, vocabulary.fingerprint)
+
+    def test_zero_integer_weights_and_floor_mean_happen_before_projection(self):
+        self.build()
+        values = torch.zeros(2, 10)
+        values[0, [1, 2]] = .0149  # two terms of weight 1, each becomes 0 after //2.
+        data = fixtures.data_args(sparse_length=2, sparse_value_mean=True)
+        encoder = stc.SparseEncoder(self.tokenizer, data, self.args)
+        self.assertEqual(encoder.vector(values), {})
+        data.sparse_value_mean = False
+        values[0, [1, 2]] = .004  # both round to 0, never promoted to 1.
+        self.assertEqual(encoder.vector(values), {})
+
+    def test_cluster_projection_sums_final_terms_after_max_or_replace(self):
+        self.build()
+        values = torch.zeros(2, 10)
+        values[0, 1], values[1, 2] = .2, .3
+        for merge in ("sum", "max", "replace"):
+            with self.subTest(merge=merge):
+                data = fixtures.data_args(sparse_length=1, sparse_value_type=merge)
+                encoder = stc.SparseEncoder(self.tokenizer, data, self.args)
+                self.assertEqual(encoder.vector(values), {"stc_000000": 50})
+
+    def test_legacy_scale_is_rejected_and_mapping_request_does_not_depend_on_it(self):
+        self.build()
+        bad = copy.copy(self.args)
+        bad.stc_weight_scale = 10000
+        with self.assertRaisesRegex(ValueError, "STC_WEIGHT_SCALE must be 100"):
+            stc.validate(bad)
+        self.assertEqual(stc.request(bad)[0], stc.request(self.args)[0])
+        with self.assertRaisesRegex(ValueError, "STC_WEIGHT_SCALE must be 100"):
+            stc.environment_controls(dict(USE_STC_SPARSE="true", STC_WEIGHT_SCALE="10000"))
 
     def test_disabled_mode_does_not_change_namespace_paths_or_configuration(self):
         target = NS(existing="unchanged")
@@ -249,7 +331,7 @@ class ModelTests(unittest.TestCase):
                 old_args = fixtures.model_args(mode != "normal", str(root))
                 old_args.use_freeret_prompt_constraints = mode == "constraints"
                 old_args.use_freeret_full_prompt = mode == "full"
-                data = fixtures.data_args(sparse_length=2)
+                data = fixtures.data_args(sparse_length=2, print_sparse=False)
                 old = encoding.AdaptiveEncoder(model, processor, old_args, data, "ir", selection)
                 args = copy.copy(old_args)
                 stc.copy_options(options, args, dtype="float32")
@@ -258,7 +340,7 @@ class ModelTests(unittest.TestCase):
                 handle = model.register_forward_pre_hook(lambda _, inputs, kwargs: calls.append(kwargs), with_kwargs=True)
                 try:
                     values, dense = old.encode(records)
-                    raw, new_dense = replacement.encode(records)
+                    new_values, new_dense = replacement.encode(records)
                 finally:
                     handle.remove()
                 self.assertEqual(len(calls), 2)
@@ -266,13 +348,17 @@ class ModelTests(unittest.TestCase):
                 self.assertTrue(torch.equal(calls[0]["attention_mask"], calls[1]["attention_mask"]))
                 self.assertEqual(old.last_prompts, replacement.last_prompts)
                 self.assertTrue(torch.equal(dense, new_dense), (family, mode))
-                for legacy, new in zip(values, raw):
-                    self.assertTrue(torch.equal(legacy, torch.log1p(torch.relu(new))), (family, mode))
-                vectors = encoding.sparse_vectors(replacement, records, raw)
-                self.assertTrue(all(vector and all(key.startswith("stc_") for key in vector) for vector in vectors))
+                for legacy, new in zip(values, new_values):
+                    self.assertTrue(torch.equal(legacy, new), (family, mode))
+                vectors = encoding.sparse_vectors(replacement, records, new_values)
+                terms = encoding.uncompressed_sparse_vectors(old, records, values,
+                    allowed_token_ids=replacement.stc_encoder.allowed_token_ids)
+                self.assertEqual(vectors, [replacement.stc_encoder.project(row) for row in terms])
+                for vector, original in zip(vectors, terms):
+                    self.assertEqual(sum(vector.values()), sum(original.values()))
                 self.assertEqual(replacement.stc_encoder.vocabulary.fingerprint, vocabulary.fingerprint)
 
-    def test_five_real_tiny_transformers_preserve_prompts_masks_dense_and_use_raw_sparse_logits(self):
+    def test_five_real_tiny_transformers_share_sparse_algorithm_prompts_masks_and_dense(self):
         case = fixtures.RealModelTests()
         with patch.object(fixtures.RealModelTests, "compare", side_effect=self.check_model):
             case.test_native_and_adaptive_qwen_three_families_with_text_image_and_fused_inputs()
@@ -280,6 +366,18 @@ class ModelTests(unittest.TestCase):
 
 
 class ShellTests(unittest.TestCase):
+    def test_old_scale_is_rejected_before_launching_python(self):
+        bash = "D:/Git/bin/bash.exe" if os.name == "nt" else shutil.which("bash")
+        if not bash or not Path(bash).is_file():
+            self.skipTest("Bash unavailable")
+        for group in ("ir", "tbpr", "fused"):
+            result = subprocess.run([bash, (ROOT / f"scripts/encode_adaptive_views_{group}.sh").as_posix()],
+                cwd=ROOT, env=dict(os.environ, USE_STC_SPARSE="true", STC_WEIGHT_SCALE="10000",
+                                  PYTHON_BIN="python-must-not-be-launched"),
+                text=True, capture_output=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("STC_WEIGHT_SCALE must be 100", result.stderr)
+
     def test_cpu_precompute_precedes_deepspeed_and_forwards_the_resolved_cache_root(self):
         bash = "D:/Git/bin/bash.exe" if os.name == "nt" else shutil.which("bash")
         if not bash or not Path(bash).is_file():
@@ -308,10 +406,10 @@ class ShellTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "scripts").mkdir()
-            for helper in ("freeret_dense_mode.sh", "stage2_retrieval_mode.sh", "stc_sparse_mode.sh"):
+            for helper in ("freeret_dense_mode.sh", "stage2_retrieval_mode.sh", "stc_sparse_mode.sh", "lens_sparse_mode.sh"):
                 shutil.copyfile(ROOT / "scripts" / helper, root / "scripts" / helper)
             capture = root / "capture.sh"
-            capture.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@"\nprintf "stc=%s algo=%s k=%s\\n" "$USE_STC_SPARSE" "$STC_ALGORITHM" "$STC_N_CLUSTERS"\n', encoding="utf-8")
+            capture.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@"\nprintf "stc=%s algo=%s k=%s scale=%s\\n" "$USE_STC_SPARSE" "$STC_ALGORITHM" "$STC_N_CLUSTERS" "$STC_WEIGHT_SCALE"\n', encoding="utf-8")
             names = [f"{prefix}_{group}.sh" for group in ("ir", "tbpr", "fused") for prefix in
                      ("encode_adaptive_views", "sparse_index_adaptive", "three_stage_retrieval_pipeline_adaptive_views")]
             for name in names:
@@ -320,7 +418,7 @@ class ShellTests(unittest.TestCase):
                     env=dict(os.environ, USE_STC_SPARSE="true", STC_ALGORITHM="minibatch_kmeans", STC_N_CLUSTERS="32",
                              PYTHON_BIN=capture.as_posix()), text=True, capture_output=True, timeout=30)
                 self.assertEqual(result.returncode, 0, (name, result.stderr))
-                self.assertIn("stc=true algo=minibatch_kmeans k=32", result.stdout)
+                self.assertIn("stc=true algo=minibatch_kmeans k=32 scale=100", result.stdout)
 
 
 if __name__ == "__main__":

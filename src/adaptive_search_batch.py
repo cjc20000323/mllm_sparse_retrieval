@@ -18,6 +18,7 @@ from adaptive_retrieval_batch import (FAMILIES, namespaces, selection_options, s
     recover_selection_cache, MissingInput)
 import search_adaptive_views as search
 import stc_sparse as stc
+import lens_sparse as lens
 
 SEARCH_DEFAULTS = dict(DEPTH="1000", HYBRID_ALPHA="0.5", SELECT_HYBRID_ALPHA="false",
     RETRIEVAL_BATCH_SIZE="1", THREADS="16", USE_GPU="false", OVERWRITE="false", DRY_RUN="false")
@@ -173,6 +174,11 @@ def prepare_jobs(settings, *, identity_loader=None, backend=None):
                     # The shell's false default is explicit; only direct Python
                     # calls with an omitted flag inherit the corpus mode.
                     argv += ["--use_stc_sparse", c["USE_STC_SPARSE"]]
+                    argv += ["--use_lens_sparse", c["USE_LENS_SPARSE"]]
+                    if c["USE_LENS_SPARSE"] == "true":
+                        for name in lens.NAMES:
+                            if name != "USE_LENS_SPARSE":
+                                argv += ["--" + name.lower(), c[name]]
                     if c["USE_STC_SPARSE"] == "true":
                         for name in stc.NAMES:
                             if name != "USE_STC_SPARSE":

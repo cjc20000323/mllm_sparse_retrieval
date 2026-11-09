@@ -10,9 +10,19 @@ STC_N_CLUSTERS="${STC_N_CLUSTERS-16000}" # semantic clusters; numeric dimensions
 STC_SEED="${STC_SEED-42}"
 STC_BATCH_SIZE="${STC_BATCH_SIZE-4096}"
 STC_MAX_ITER="${STC_MAX_ITER-100}"
-STC_WEIGHT_SCALE="${STC_WEIGHT_SCALE-10000}"
+STC_WEIGHT_SCALE="${STC_WEIGHT_SCALE-100}"
 STC_CACHE_ROOT="${STC_CACHE_ROOT-}" # automatic lookup: SPARSE_OUTPUT_ROOT/stc_vocab
 source "${REPO_ROOT}/scripts/stc_sparse_mode.sh" || exit $?
+# LENS centroid LM head; false preserves the original/STC representation.
+USE_LENS_SPARSE="${USE_LENS_SPARSE-false}"
+LENS_ALGORITHM="${LENS_ALGORITHM-kmeans}" # kmeans / minibatch_kmeans
+LENS_N_CLUSTERS="${LENS_N_CLUSTERS-8000}"
+LENS_SEED="${LENS_SEED-42}"
+LENS_N_INIT="${LENS_N_INIT-1}"
+LENS_MAX_ITER="${LENS_MAX_ITER-300}"
+LENS_BATCH_SIZE="${LENS_BATCH_SIZE-4096}" # MiniBatch only
+LENS_CACHE_ROOT="${LENS_CACHE_ROOT-}" # empty: SPARSE_OUTPUT_ROOT/lens_heads
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lens_sparse_mode.sh" || exit $?
 if (($#)) && ! { (($# == 1)) && [[ "$1" == -h || "$1" == --help ]]; }; then
     echo 'Configure variables below or in the environment; see --help.' >&2
     exit 2
@@ -108,7 +118,7 @@ OVERWRITE="${OVERWRITE-false}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 DEEPSPEED_BIN="${DEEPSPEED_BIN:-deepspeed}"
 command -v "${PYTHON_BIN}" >/dev/null 2>&1 || { echo "Python not found: ${PYTHON_BIN}" >&2; exit 2; }
-BATCH_ENV=("${STC_ENV[@]}")
+BATCH_ENV=("${STC_ENV[@]}" "${LENS_ENV[@]}")
 for name in MODEL_FAMILIES MODEL_FAMILY DATASETS DATASET DATASET_SPLIT IR_QUERY_TYPES IR_QUERY_TYPE \
     CHECKPOINT_ROOT MODEL_PATH_QWEN2 MODEL_PATH_QWEN25 MODEL_PATH_QWEN3 MODEL_PATH_LLAVA_LLAMA MODEL_PATH_LLAVA_MISTRAL MODEL_PATH \
     DATA_ROOT DENSE_OUTPUT_ROOT SPARSE_OUTPUT_ROOT VIEW_SELECTION_ROOT SEARCH_OUTPUT_ROOT OUTPUT_DIR \

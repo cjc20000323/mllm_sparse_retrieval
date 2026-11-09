@@ -35,7 +35,7 @@ class LauncherTests(unittest.TestCase):
         self.root = Path(temporary.name)
         scripts = self.root / "scripts"
         scripts.mkdir()
-        names = [*SCRIPTS.values(), "freeret_dense_mode.sh", "stage2_retrieval_mode.sh", "stc_sparse_mode.sh"]
+        names = [*SCRIPTS.values(), "freeret_dense_mode.sh", "stage2_retrieval_mode.sh", "stc_sparse_mode.sh", "lens_sparse_mode.sh"]
         self.variables = set(DEFAULTS) | {"CHECKPOINT_ROOT", "DATA_ROOT", "DENSE_OUTPUT_ROOT", "SPARSE_OUTPUT_ROOT",
             "ADAPTIVE_OUTPUT_ROOT", "MODEL_FAMILY", "DATASET", "DATASETS", "IR_QUERY_TYPES", "IR_QUERY_TYPE",
             "OUTPUT_DIR", "MODEL_PATH", "STAGE2_MODE_REPORTED", "VIEW_SELECTION_FILE", "DENSE_CORPUS_DIR",

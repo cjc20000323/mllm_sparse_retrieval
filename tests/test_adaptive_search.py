@@ -379,7 +379,7 @@ class BatchTests(unittest.TestCase):
                 env = dict(os.environ, PYTHON_BIN=str(launcher), USE_FREERET_DENSE="true",
                     VIEW_PROBABILITY_MASS_THRESHOLD="0.8", SELECT_HYBRID_ALPHA="true",
                     USE_STC_SPARSE="true", STC_ALGORITHM="minibatch_kmeans", STC_N_CLUSTERS="32",
-                    STC_SEED="17", STC_BATCH_SIZE="256", STC_MAX_ITER="12", STC_WEIGHT_SCALE="5000",
+                    STC_SEED="17", STC_BATCH_SIZE="256", STC_MAX_ITER="12", STC_WEIGHT_SCALE="100",
                     STC_CACHE_ROOT=(Path(directory) / "dictionary").as_posix())
                 result = subprocess.run([bash, str(script)], cwd=ROOT, env=env, check=True, capture_output=True, text=True, timeout=45)
                 config = json.loads(result.stdout)

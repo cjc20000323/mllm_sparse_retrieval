@@ -156,6 +156,8 @@ def _list(env, singular, plural, default, allowed):
 
 def build_jobs(env, project=PROJECT):
     """Resolve the complete matrix before creating outputs or starting workers."""
+    if boolean(env.get("USE_LENS_SPARSE") or False):
+        raise ValueError("LENS sparse mode is not supported by the Top-K experiment")
     if boolean(env.get("USE_STC_SPARSE") or False):
         raise ValueError("STC sparse mode is not supported by the Top-K experiment; use the adaptive encoding/retrieval scripts")
     project = Path(project).resolve()

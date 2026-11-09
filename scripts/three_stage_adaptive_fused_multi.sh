@@ -6,9 +6,19 @@ STC_N_CLUSTERS="${STC_N_CLUSTERS-16000}" # semantic clusters; numeric singleton 
 STC_SEED="${STC_SEED-42}"
 STC_BATCH_SIZE="${STC_BATCH_SIZE-4096}"
 STC_MAX_ITER="${STC_MAX_ITER-100}"
-STC_WEIGHT_SCALE="${STC_WEIGHT_SCALE-10000}"
+STC_WEIGHT_SCALE="${STC_WEIGHT_SCALE-100}"
 STC_CACHE_ROOT="${STC_CACHE_ROOT-}" # empty: SPARSE_OUTPUT_ROOT/stc_vocab
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stc_sparse_mode.sh" || exit $?
+# LENS centroid LM head; false preserves the original/STC representation.
+USE_LENS_SPARSE="${USE_LENS_SPARSE-false}"
+LENS_ALGORITHM="${LENS_ALGORITHM-kmeans}" # kmeans / minibatch_kmeans
+LENS_N_CLUSTERS="${LENS_N_CLUSTERS-8000}"
+LENS_SEED="${LENS_SEED-42}"
+LENS_N_INIT="${LENS_N_INIT-1}"
+LENS_MAX_ITER="${LENS_MAX_ITER-300}"
+LENS_BATCH_SIZE="${LENS_BATCH_SIZE-4096}" # MiniBatch only
+LENS_CACHE_ROOT="${LENS_CACHE_ROOT-}" # empty: SPARSE_OUTPUT_ROOT/lens_heads
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lens_sparse_mode.sh" || exit $?
 STAGE2_METHOD="${STAGE2_METHOD-hybrid}" # hybrid / dense; dense sorts only Stage-1 candidates
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stage2_retrieval_mode.sh" || exit $?
 stage2_mode_configure || exit $?
@@ -86,4 +96,4 @@ export DRY_RUN="${DRY_RUN-false}"
 # OUTPUT_DIR requires one job; otherwise use ADAPTIVE_OUTPUT_ROOT.
 PYTHON_BIN="${PYTHON_BIN:-python}"
 command -v "${PYTHON_BIN}" >/dev/null 2>&1 || { echo "Python not found: ${PYTHON_BIN}; activate the retrieval environment or set PYTHON_BIN." >&2; exit 2; }
-exec env "${STC_ENV[@]}" "USE_VIEW_PROBABILITY_MASS=${USE_VIEW_PROBABILITY_MASS}" "VIEW_PROBABILITY_MASS_THRESHOLD=${VIEW_PROBABILITY_MASS_THRESHOLD}" "VIEW_EXAMPLE_MODE=${VIEW_EXAMPLE_MODE}" "VIEW_EXAMPLE_MAX_TOKENS=${VIEW_EXAMPLE_MAX_TOKENS}" "USE_HIERARCHICAL_VIEWS=${USE_HIERARCHICAL_VIEWS}" "VIEW_SELECTION_RUN_ID=${VIEW_SELECTION_RUN_ID}" "USE_FREERET_DENSE=${USE_FREERET_DENSE}" "USE_FREERET_PROMPT_CONSTRAINTS=${USE_FREERET_PROMPT_CONSTRAINTS}" "USE_FREERET_FULL_PROMPT=${USE_FREERET_FULL_PROMPT}" "${PYTHON_BIN}" -B src/adaptive_retrieval_batch.py --task-group fused "$@"
+exec env "${STC_ENV[@]}" "${LENS_ENV[@]}" "USE_VIEW_PROBABILITY_MASS=${USE_VIEW_PROBABILITY_MASS}" "VIEW_PROBABILITY_MASS_THRESHOLD=${VIEW_PROBABILITY_MASS_THRESHOLD}" "VIEW_EXAMPLE_MODE=${VIEW_EXAMPLE_MODE}" "VIEW_EXAMPLE_MAX_TOKENS=${VIEW_EXAMPLE_MAX_TOKENS}" "USE_HIERARCHICAL_VIEWS=${USE_HIERARCHICAL_VIEWS}" "VIEW_SELECTION_RUN_ID=${VIEW_SELECTION_RUN_ID}" "USE_FREERET_DENSE=${USE_FREERET_DENSE}" "USE_FREERET_PROMPT_CONSTRAINTS=${USE_FREERET_PROMPT_CONSTRAINTS}" "USE_FREERET_FULL_PROMPT=${USE_FREERET_FULL_PROMPT}" "${PYTHON_BIN}" -B src/adaptive_retrieval_batch.py --task-group fused "$@"

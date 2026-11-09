@@ -142,8 +142,16 @@ class AdaptiveViewArguments:
     stc_seed: int = 42
     stc_batch_size: int = 4096
     stc_max_iter: int = 100
-    stc_weight_scale: int = 10000
+    stc_weight_scale: int = 100
     stc_cache_root: str = ""
+    use_lens_sparse: bool = False
+    lens_algorithm: str = "kmeans"
+    lens_n_clusters: int = 8000
+    lens_seed: int = 42
+    lens_n_init: int = 1
+    lens_max_iter: int = 300
+    lens_batch_size: int = 4096
+    lens_cache_root: str = ""
     view_probability_mass: bool = field(default=False, metadata={"help": "Stop before the next probability-ranked view would exceed the threshold; keep at least one; incompatible with overlap"})
     view_probability_mass_threshold: float = field(default=0.9, metadata={"help": "Cumulative normalized probability threshold in [0,1]; 1 selects all views"})
     view_selection_hierarchical: bool = field(default=False, metadata={
@@ -926,6 +934,8 @@ def validate_artifact(path, expected):
     actual = json.loads(manifest.read_text(encoding="utf-8"))
     from stc_sparse import validate_bundle, FIELD as stc_field
     validate_bundle(manifest.parent, actual["configuration"].get(stc_field))
+    from lens_sparse import validate_bundle as validate_lens, FIELD as lens_field
+    validate_lens(manifest.parent, actual["configuration"].get(lens_field))
     from dense_representation import validate_artifact as validate_dense_mode
     validate_dense_mode(path, bool(expected["configuration"].get("dense_representation")),
                         bool(expected["configuration"].get("freeret_prompt_constraints")), bool(expected["configuration"].get("freeret_full_prompt")))
@@ -1004,6 +1014,8 @@ def validate_index_selection(root, manifest, *, resolver=None):
     configuration = manifest["configuration"]
     from stc_sparse import validate_bundle, FIELD as stc_field
     validate_bundle(root, configuration.get(stc_field))
+    from lens_sparse import validate_bundle as validate_lens, FIELD as lens_field
+    validate_lens(root, configuration.get(lens_field))
     from dense_representation import validate_artifact as validate_dense_mode
     validate_dense_mode(root, bool(configuration.get("dense_representation")), bool(configuration.get("freeret_prompt_constraints")), bool(configuration.get("freeret_full_prompt")))
     if manifest.get("fingerprint") != digest(configuration):

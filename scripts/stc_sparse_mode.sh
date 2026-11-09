@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Launchers declare the public settings; this helper only forwards/validates them.
+# STC projects the original token-Top-K, x100 integer sparse vector onto clusters.
 stc_sparse_configure() {
     STC_ARGS=()
     case "${USE_STC_SPARSE,,}" in
@@ -8,6 +9,7 @@ stc_sparse_configure() {
         *) echo 'Error: USE_STC_SPARSE must be true or false.' >&2; return 2 ;;
     esac
     if [[ "${USE_STC_SPARSE}" == true ]]; then
+        [[ "${STC_WEIGHT_SCALE}" == 100 ]] || { echo 'Error: STC_WEIGHT_SCALE must be 100 to match non-STC weighting; replace the old 10000 setting.' >&2; return 2; }
         case "${STC_ALGORITHM}" in agglomerative|minibatch_kmeans) ;; *) echo 'Error: invalid STC_ALGORITHM.' >&2; return 2 ;; esac
         STC_ARGS=(--use_stc_sparse true --stc_algorithm "${STC_ALGORITHM}" --stc_n_clusters "${STC_N_CLUSTERS}"
                   --stc_seed "${STC_SEED}" --stc_batch_size "${STC_BATCH_SIZE}" --stc_max_iter "${STC_MAX_ITER}"

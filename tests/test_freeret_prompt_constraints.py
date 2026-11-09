@@ -406,6 +406,7 @@ class LauncherTests(unittest.TestCase):
             shutil.copyfile(ROOT/"scripts/freeret_dense_mode.sh",scripts/"freeret_dense_mode.sh")
             shutil.copyfile(ROOT / "scripts/stage2_retrieval_mode.sh", scripts / "stage2_retrieval_mode.sh")
             shutil.copyfile(ROOT / "scripts/stc_sparse_mode.sh", scripts / "stc_sparse_mode.sh")
+            shutil.copyfile(ROOT / "scripts/lens_sparse_mode.sh", scripts / "lens_sparse_mode.sh")
             capture=root/"capture.sh"
             capture.write_text('#!/usr/bin/env bash\nprintf \'%s|%s\' "$USE_FREERET_DENSE" "$USE_FREERET_PROMPT_CONSTRAINTS"\n',encoding="utf-8")
             capture.chmod(0o755)
@@ -423,7 +424,9 @@ class LauncherTests(unittest.TestCase):
                             body=body.replace('${USE_FREERET_PROMPT_CONSTRAINTS-false}','${USE_FREERET_PROMPT_CONSTRAINTS-true}')
                         path=scripts/name; path.write_text(body,encoding="utf-8")
                         env={k:v for k,v in os.environ.items() if k not in {"USE_FREERET_DENSE","USE_FREERET_PROMPT_CONSTRAINTS"}}
-                        env.update(PYTHON_BIN=capture.as_posix(),LLAVA_IMAGE_MODE="anyres",DRY_RUN="true")
+                        # Isolate constraints forwarding from the task scripts' full-prompt/dense defaults.
+                        env.update(PYTHON_BIN=capture.as_posix(),LLAVA_IMAGE_MODE="anyres",DRY_RUN="true",
+                                   STAGE2_METHOD="hybrid",USE_FREERET_FULL_PROMPT="false")
                         if not local: env.update(USE_FREERET_DENSE="true",USE_FREERET_PROMPT_CONSTRAINTS="true")
                         result=subprocess.run([bash,path.as_posix()],cwd=root,env=env,capture_output=True,text=True,timeout=30)
                         self.assertEqual(result.returncode,0,result.stderr)

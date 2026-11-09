@@ -248,7 +248,7 @@ class SparseEncoder:
         # Lucene's whitespace analyzer cannot represent a term containing spaces.
         return token if token and not any(char.isspace() for char in token) else None
 
-    def vector(self, logits, record):
+    def vector(self, logits, record, *, allowed_token_ids=None):
         vector = {}
         text_input = record.get("image") is None
         length = self.data.sparse_length
@@ -290,6 +290,10 @@ class SparseEncoder:
                     values = torch.cat([values, extra_values])
             weights = torch.round(values.float() * 100).long().tolist()
             for index, weight in zip(selected_ids.tolist(), weights):
+                # STC drops unmappable IDs after the original token Top-K,
+                # without replacing them with lower-ranked tokens.
+                if allowed_token_ids is not None and index not in allowed_token_ids:
+                    continue
                 term = self._term(self.vocab[index])
                 if weight <= 0:
                     continue

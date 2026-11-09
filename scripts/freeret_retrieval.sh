@@ -44,6 +44,13 @@ ATTN_IMPLEMENTATION="${ATTN_IMPLEMENTATION:-sdpa}"
 # 0 follows the per-dataset values registered in freeret_retrieval.py
 # (official MSCOCO/WebQA values are 256); set a positive value to override.
 MAX_PIXELS="${MAX_PIXELS:-0}"
+# auto: LLaVA-NeXT uses one global image (base); other models keep native processing.
+# Set anyres to restore native LLaVA-NeXT global + local crop processing.
+LLAVA_IMAGE_MODE="${LLAVA_IMAGE_MODE:-auto}"
+case "${LLAVA_IMAGE_MODE}" in
+  auto|base|anyres) ;;
+  *) echo "LLAVA_IMAGE_MODE must be auto, base or anyres." >&2; exit 2 ;;
+esac
 
 TARGET_BATCH_SIZE="${TARGET_BATCH_SIZE:-8}"
 QUERY_BATCH_SIZE="${QUERY_BATCH_SIZE:-4}"
@@ -139,6 +146,7 @@ COMMAND=(
   --device_map "${DEVICE_MAP}"
   --attn_implementation "${ATTN_IMPLEMENTATION}"
   --max_pixels "${MAX_PIXELS}"
+  --llava_image_mode "${LLAVA_IMAGE_MODE}"
   --target_batch_size "${TARGET_BATCH_SIZE}"
   --query_batch_size "${QUERY_BATCH_SIZE}"
   --rerank_batch_size "${RERANK_BATCH_SIZE}"

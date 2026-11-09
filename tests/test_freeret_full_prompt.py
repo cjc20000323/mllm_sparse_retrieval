@@ -276,6 +276,7 @@ class LauncherTests(unittest.TestCase):
             shutil.copyfile(ROOT/"scripts/freeret_dense_mode.sh",scripts/"freeret_dense_mode.sh")
             shutil.copyfile(ROOT / "scripts/stage2_retrieval_mode.sh", scripts / "stage2_retrieval_mode.sh")
             shutil.copyfile(ROOT / "scripts/stc_sparse_mode.sh", scripts / "stc_sparse_mode.sh")
+            shutil.copyfile(ROOT / "scripts/lens_sparse_mode.sh", scripts / "lens_sparse_mode.sh")
             capture=root/"capture.sh"
             capture.write_text('#!/usr/bin/env bash\nprintf "%s" "$USE_FREERET_FULL_PROMPT"\n',encoding="utf-8")
             capture.chmod(0o755)

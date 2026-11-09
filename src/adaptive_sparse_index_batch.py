@@ -145,6 +145,10 @@ def check_artifact(root, manifest, configuration, *, selection=None, resolver=No
     stc_config = configuration.get(stc_field)
     expected_names = {stc_path(Path(name), stc_config).name for name in expected_names}
     validate_bundle(root, stc_config)
+    from lens_sparse import mark_path as lens_path, validate_bundle as validate_lens, FIELD as lens_field
+    lens_config = configuration.get(lens_field)
+    expected_names = {lens_path(Path(name), lens_config).name for name in expected_names}
+    validate_lens(root, lens_config)
     validate_artifact(root, use_dense, bool(configuration.get("freeret_prompt_constraints")), bool(configuration.get("freeret_full_prompt")))
     if root.name not in expected_names:
         raise ValueError(f"Directory/view fingerprint mismatch at {root}; expected {fingerprint[:16]}")

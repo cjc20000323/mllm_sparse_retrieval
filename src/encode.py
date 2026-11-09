@@ -271,7 +271,7 @@ def get_img_valid_tokens_values_with_cluster(tokenizer, logits, vocab_dict, orig
 
 
 def get_img_valid_disassemble_tokens_values(tokenizer, disassemble_logits, vocab_dict, data_args, filtered_ids,
-                                            logits=None, model_args=None):
+                                            logits=None, model_args=None, *, allowed_token_ids=None):
     word_set = set()
     word_values = dict()
     if data_args.sparse_manual:
@@ -296,6 +296,8 @@ def get_img_valid_disassemble_tokens_values(tokenizer, disassemble_logits, vocab
         # 在下面构造token和value时会统一转成小写，并在main中的json构造循环里面再次计算sparse_value_type
         for indice_list, value_list in zip(top_k_indices.cpu().detach().float().numpy(), values):
             for indice, value in zip(indice_list, value_list):
+                if allowed_token_ids is not None and int(indice.item()) not in allowed_token_ids:
+                    continue
                 if int(indice.item()) < len(vocab_dict):
                     if vocab_dict[int(indice.item())] in word_values.keys():
                         if int(indice.item()) < len(vocab_dict):
@@ -582,7 +584,7 @@ def get_text_valid_tokens_values_with_cluster(text, tokenizer, logits, vocab_dic
 
 
 def get_text_valid_disassemble_tokens_values(text, tokenizer, disassemble_logits, vocab_dict, data_args,
-                                             filtered_ids, logits=None, model_args=None):
+                                             filtered_ids, logits=None, model_args=None, *, allowed_token_ids=None):
     word_set = set()
     word_values = dict()
     if data_args.sparse_manual:
@@ -607,6 +609,8 @@ def get_text_valid_disassemble_tokens_values(text, tokenizer, disassemble_logits
         values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
         for indice_list, value_list in zip(token_ids_in_text[top_k_indices.cpu().detach().float().numpy()], values):
             for indice, value in zip(indice_list, value_list):
+                if allowed_token_ids is not None and int(indice.item()) not in allowed_token_ids:
+                    continue
                 if int(indice.item()) < len(vocab_dict):
                     if vocab_dict[int(indice.item())] in word_values.keys():
                         if int(indice.item()) < len(vocab_dict):
@@ -629,6 +633,8 @@ def get_text_valid_disassemble_tokens_values(text, tokenizer, disassemble_logits
             values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
             for indice_list, value_list in zip(top_k_indices.cpu().detach().float().numpy(), values):
                 for indice, value in zip(indice_list, value_list):
+                    if allowed_token_ids is not None and int(indice.item()) not in allowed_token_ids:
+                        continue
                     if int(indice.item()) < len(vocab_dict):
                         if vocab_dict[int(indice.item())] in word_values.keys():
                             if int(indice.item()) < len(vocab_dict):

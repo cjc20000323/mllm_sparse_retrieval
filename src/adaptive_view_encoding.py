@@ -23,6 +23,7 @@ import torch.nn.functional as F
 import adaptive_views as views
 import adaptive_view_shuffle as option_shuffle
 import stc_sparse as stc
+import lens_sparse as lens
 
 
 def pipeline_module():
@@ -77,6 +78,7 @@ def context_and_whole(record, task, data, family=None):
 class AdaptiveEncoder:
     """One packed forward: one whole-input dense view and K isolated sparse views."""
     def __init__(self, model, processor, model_args, data, task, selection):
+        lens.validate(model_args)
         self.model, self.processor, self.model_args, self.data, self.task = model, processor, model_args, data, task
         from dense_representation import configure_model, enabled
         configure_model(model, enabled(model_args), getattr(model_args, "model_name_or_path", ""))
@@ -87,7 +89,9 @@ class AdaptiveEncoder:
             raise ValueError(f"Adaptive encoding requires 1..{count} selected views")
         self.last_prompts = []
         if stc.enabled(model_args):
-            self.stc_encoder = stc.SparseEncoder(processor.tokenizer, data, model_args)
+            self.stc_encoder = stc.SparseEncoder(processor.tokenizer, data, model_args, family=self.family)
+        if lens.enabled(model_args):
+            self.lens_encoder = lens.SparseEncoder(processor.tokenizer, data, model_args, family=self.family)
         configure_processor(model.config, processor, data.reps_loc)
 
     def prepare(self, records):
@@ -135,10 +139,15 @@ class AdaptiveEncoder:
 
     @torch.inference_mode()
     def encode(self, records):
+        if lens.enabled(self.model_args):
+            with self.lens_encoder.activate(self.model):
+                return self._encode(records)
+        return self._encode(records)
+
+    def _encode(self, records):
         import freeret_full_prompt as full_prompt
         if full_prompt.enabled(self.model_args):
-            return full_prompt.encode(self, records, [[view["aspect"] for view in self.selected] for _ in records],
-                                      raw_sparse_logits=stc.enabled(self.model_args))
+            return full_prompt.encode(self, records, [[view["aspect"] for view in self.selected] for _ in records])
         from qwen_vl_encoding import forward_views
         batch = self.prepare(records)
         self.last_prompts = batch.prompts
@@ -168,20 +177,27 @@ class AdaptiveEncoder:
                 ends = torch.tensor([end - 2 for _, end in spans], device=output.logits.device)
                 logits.append(output.logits[row, ends])
                 hidden.append(output.hidden_states[-1][row, ends.to(output.hidden_states[-1].device)])
-        sparse = ([row[1:] for row in logits] if stc.enabled(self.model_args) else
-                  [torch.log1p(torch.relu(row[1:])) for row in logits])
+        sparse = [torch.log1p(torch.relu(row[1:])) for row in logits]
         dense = F.normalize(torch.stack([row[0] for row in hidden]), dim=-1)
         return sparse, dense
 
 
 def sparse_vectors(encoder, records, logits):
+    if lens.enabled(getattr(encoder, "model_args", None)):
+        return [encoder.lens_encoder.vector(row, record) for row, record in zip(logits, records)]
     if stc.enabled(getattr(encoder, "model_args", None)):
         return [encoder.stc_encoder.vector(row, record) for row, record in zip(logits, records)]
+    return uncompressed_sparse_vectors(encoder, records, logits)
+
+
+def uncompressed_sparse_vectors(encoder, records, logits, *, allowed_token_ids=None):
+    """Original per-family sparse algorithm, before optional STC projection."""
     if encoder.family.startswith("qwen"):
         from qwen_vl_encoding import SparseEncoder
         if not hasattr(encoder, "sparse_encoder"):
             encoder.sparse_encoder = SparseEncoder(encoder.processor.tokenizer, encoder.data, concat=True)
-        return [encoder.sparse_encoder.vector(row, record) for row, record in zip(logits, records)]
+        return [encoder.sparse_encoder.vector(row, record, allowed_token_ids=allowed_token_ids)
+                for row, record in zip(logits, records)]
     from encode import get_text_valid_disassemble_tokens_values, get_img_valid_disassemble_tokens_values
     vocabulary = {value: key for key, value in encoder.processor.tokenizer.get_vocab().items()}
     result = []
@@ -189,10 +205,11 @@ def sparse_vectors(encoder, records, logits):
         if record.get("image") is None:
             tokens, weights = get_text_valid_disassemble_tokens_values(
                 record.get("text", ""), encoder.processor.tokenizer, row, vocabulary,
-                encoder.data, None, None, encoder.model_args)
+                encoder.data, None, None, encoder.model_args, allowed_token_ids=allowed_token_ids)
         else:
             tokens, weights = get_img_valid_disassemble_tokens_values(
-                encoder.processor, row, vocabulary, encoder.data, None, None, encoder.model_args)
+                encoder.processor, row, vocabulary, encoder.data, None, None, encoder.model_args,
+                allowed_token_ids=allowed_token_ids)
         vector = {}
         for token, weight in zip(tokens, weights):
             weight = int(weight)
@@ -235,6 +252,8 @@ def encoding_configuration(model_args, data, task, kind, identity, selection):
     configuration = probability_mass.add_metadata(configuration, selection)
     if stc.enabled(model_args):
         configuration[stc.FIELD] = stc.configuration(model_args)
+    if lens.enabled(model_args):
+        configuration[lens.FIELD] = lens.configuration(model_args)
     from dense_representation import configuration as dense_configuration, enabled
     return views.examples.add_configuration(views.add_pool_mode(option_shuffle.add_metadata(
         dense_configuration(configuration, enabled(model_args), prompt_constraints.enabled(model_args), full_prompt.enabled(model_args)),
@@ -256,7 +275,8 @@ def artifact_dirs(model_args, data, training, selection):
         if full_prompt.enabled(model_args) and getattr(data,"llava_image_mode","anyres") == "base":
             bases = [path.with_name(path.name.removesuffix("_llava_base")) for path in bases]
     stc_config = stc.configuration(model_args)
-    return [mode_path(artifact_dir(stc.mark_path(option_shuffle.mark_path(path / "adaptive_views" / selection["views_fingerprint"][:16], selection.get(option_shuffle.FIELD)), stc_config),
+    lens_config = lens.configuration(model_args)
+    return [mode_path(artifact_dir(lens.mark_path(stc.mark_path(option_shuffle.mark_path(path / "adaptive_views" / selection["views_fingerprint"][:16], selection.get(option_shuffle.FIELD)), stc_config), lens_config),
                                   getattr(data, "llava_image_mode", "anyres")), enabled(model_args), prompt_constraints.enabled(model_args), full_prompt.enabled(model_args))
             for path in bases]
 
@@ -274,6 +294,7 @@ def make_args(model_args, data, training, options):
     args = api._parser().parse_args(["--dataset-name", data.dataset_name, "--task-type", task, "--query-type", query])
     args.adaptive_views = True
     stc.copy_options(model_args, args, dtype=getattr(model_args, "stc_dtype", "float16"))
+    lens.copy_options(model_args, args, dtype=getattr(model_args, "lens_dtype", "float16"), data=data)
     args.use_freeret_dense = getattr(model_args, "use_freeret_dense", False)
     args.use_freeret_full_prompt = getattr(model_args, "use_freeret_full_prompt", False)
     args.use_freeret_prompt_constraints = getattr(model_args, "use_freeret_prompt_constraints", False)
@@ -401,6 +422,14 @@ def write_shard(encoder, records, data, roots, rank):
 
 def run_encode(model_args, data, training, options, *, selection_strategy=None):
     from qwen_vl_pipeline import init_process, dataset_records
+    lens.validate(options)
+    if lens.enabled(options):
+        if selection_strategy is not None:
+            raise ValueError("LENS sparse encoding does not support overlap strategies")
+        lens.copy_options(options, model_args,
+            dtype="bfloat16" if training.bf16 else "float16" if training.fp16 else "float32",
+            root=Path(data.sparse_output_dir) / "lens_heads", data=data)
+        lens.load(model_args)
     stc.validate(options)
     if stc.enabled(options):
         if selection_strategy is not None:
@@ -568,6 +597,8 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
         selection = root_action(rank, select)
         if stc.enabled(model_args) and views.is_overlap_selection(selection):
             raise ValueError("STC does not support an overlap view selection file")
+        if lens.enabled(model_args) and views.is_overlap_selection(selection):
+            raise ValueError("LENS does not support an overlap view selection file")
         roots = artifact_dirs(model_args, data, training, selection)
         root_action(rank, lambda: prepare_outputs(roots))
         error = None
@@ -588,6 +619,8 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
             for root in roots:
                 if stc.enabled(model_args):
                     stc.publish_bundle(root, encoder.stc_encoder.vocabulary)
+                if lens.enabled(model_args):
+                    lens.publish_bundle(root, encoder.lens_encoder.head)
                 views.atomic_json(root / views.MANIFEST, completion)
                 from dense_representation import write_manifest, enabled
                 write_manifest(root, enabled(model_args), prompt_constraints.enabled(model_args), full_prompt.enabled(model_args))
@@ -599,6 +632,10 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
             print("Selected views:", [(row["label"], row["aspect"]) for row in selection["selected"]])
             print("Adaptive dense:", roots[0])
             print("Adaptive sparse:", roots[1])
+            if lens.enabled(model_args):
+                print("LENS head:", encoder.lens_encoder.head.directory)
+                print("LENS dimensions:", encoder.lens_encoder.head.manifest["cluster_count"])
+                print("LENS head fingerprint:", encoder.lens_encoder.head.fingerprint)
             if stc.enabled(model_args):
                 print("STC vocabulary:", encoder.stc_encoder.vocabulary.directory)
                 print("STC dimensions:", encoder.stc_encoder.count)
@@ -690,6 +727,7 @@ def preflight(args, api, *, mark_output=True):
             or (stage2_method(args) == "hybrid" and not args.stage2_sparse_index)):
         raise ValueError("Adaptive views require Stage-1 sparse and Stage-2 dense artifacts; hybrid also requires Stage-2 sparse")
     stc.bind_corpus(args)
+    lens.bind_corpus(args)
     if args.rerank_template not in {"relevant", "what_caption_generation"}:
         raise ValueError("Adaptive mode uses what_caption_generation reranking")
     args.rerank_template = "what_caption_generation"
@@ -702,6 +740,8 @@ def preflight(args, api, *, mark_output=True):
     selection = views.load_selection(args.view_selection_file, identity=identity, dataset=args.dataset_name)
     if stc.enabled(args) and views.is_overlap_selection(selection):
         raise ValueError("STC does not support overlap selections")
+    if lens.enabled(args) and views.is_overlap_selection(selection):
+        raise ValueError("LENS does not support overlap selections")
     probability_mass.validate_requested(selection, getattr(args, "view_probability_mass", None),
                                         getattr(args, "view_probability_mass_threshold", None))
     shuffle = selection.get(option_shuffle.FIELD)
@@ -719,6 +759,8 @@ def preflight(args, api, *, mark_output=True):
     expected = metadata(model_args, data, args.task_type, corpus_kind(args.task_type, args.query_type), identity, selection)
     if mark_output and stc.enabled(args) and args.output_dir is not None:
         args.output_dir = str(stc.mark_path(args.output_dir, expected["configuration"][stc.FIELD]))
+    if mark_output and lens.enabled(args) and args.output_dir is not None:
+        args.output_dir = str(lens.mark_path(args.output_dir, expected["configuration"][lens.FIELD]))
     for path, dense in [(args.stage1_sparse_index, False), *stage2_artifact_paths(args)]:
         actual = views.validate_artifact(path, expected)
         if dense:

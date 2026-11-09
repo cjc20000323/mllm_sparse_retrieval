@@ -6,9 +6,19 @@ STC_N_CLUSTERS="${STC_N_CLUSTERS-16000}" # semantic clusters; numeric singleton 
 STC_SEED="${STC_SEED-42}"
 STC_BATCH_SIZE="${STC_BATCH_SIZE-4096}"
 STC_MAX_ITER="${STC_MAX_ITER-100}"
-STC_WEIGHT_SCALE="${STC_WEIGHT_SCALE-10000}"
+STC_WEIGHT_SCALE="${STC_WEIGHT_SCALE-100}"
 STC_CACHE_ROOT="${STC_CACHE_ROOT-}" # empty: SPARSE_OUTPUT_ROOT/stc_vocab
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stc_sparse_mode.sh" || exit $?
+# LENS centroid LM head; false preserves the original/STC representation.
+USE_LENS_SPARSE="${USE_LENS_SPARSE-false}"
+LENS_ALGORITHM="${LENS_ALGORITHM-kmeans}" # kmeans / minibatch_kmeans
+LENS_N_CLUSTERS="${LENS_N_CLUSTERS-8000}"
+LENS_SEED="${LENS_SEED-42}"
+LENS_N_INIT="${LENS_N_INIT-1}"
+LENS_MAX_ITER="${LENS_MAX_ITER-300}"
+LENS_BATCH_SIZE="${LENS_BATCH_SIZE-4096}" # MiniBatch only
+LENS_CACHE_ROOT="${LENS_CACHE_ROOT-}" # empty: SPARSE_OUTPUT_ROOT/lens_heads
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lens_sparse_mode.sh" || exit $?
 STAGE2_METHOD="${STAGE2_METHOD-dense}" # hybrid / dense; dense sorts only Stage-1 candidates
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stage2_retrieval_mode.sh" || exit $?
 stage2_mode_configure || exit $?
@@ -205,7 +215,7 @@ if [[ "${RUN_ONE}" == true ]]; then
     done
     OUTPUT_DIR="${OUTPUT_DIR:-$(stage2_mode_path "${ADAPTIVE_OUTPUT_ROOT}/${MODEL_PATH##*/}/${DATASET}/${QUERY}/${DATASET_SPLIT:-test}${LLAVA_RESULT_SUFFIX}/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}")}"
     printf 'Results: %s\n' "${OUTPUT_DIR}"
-    exec "${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-2}" --num_nodes="${NUM_NODES:-1}" src/three_stage_retrieval_pipeline_adaptive_views.py "${STC_ARGS[@]}" --stage2-method "${STAGE2_METHOD}" --view-probability-mass "${USE_VIEW_PROBABILITY_MASS}" --view-probability-mass-threshold "${VIEW_PROBABILITY_MASS_THRESHOLD}" --view-selection-run-id "${VIEW_SELECTION_RUN_ID}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" \
+    exec "${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-2}" --num_nodes="${NUM_NODES:-1}" src/three_stage_retrieval_pipeline_adaptive_views.py "${STC_ARGS[@]}" "${LENS_ARGS[@]}" --stage2-method "${STAGE2_METHOD}" --view-probability-mass "${USE_VIEW_PROBABILITY_MASS}" --view-probability-mass-threshold "${VIEW_PROBABILITY_MASS_THRESHOLD}" --view-selection-run-id "${VIEW_SELECTION_RUN_ID}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" \
         --retrieval-llava-image-mode "${RETRIEVAL_LLAVA_IMAGE_MODE}" --ranker-llava-image-mode "${RANKER_LLAVA_IMAGE_MODE}" \
         --adaptive-views --view-selection-file "${VIEW_SELECTION_FILE}" --dataset-name "${DATASET}" \
         --dataset-split "${DATASET_SPLIT:-test}" --task-type "${TASK}" --query-type "${QUERY}" \
@@ -229,7 +239,7 @@ fi
 
 # ===== 批量调度：普通变量通过一次 env 集中传给 Python =====
 command -v "${PYTHON_BIN}" >/dev/null 2>&1 || { echo "Python not found: ${PYTHON_BIN}; activate the retrieval environment or set PYTHON_BIN." >&2; exit 2; }
-BATCH_ENV=("${STC_ENV[@]}" "STAGE2_METHOD=${STAGE2_METHOD}" "USE_VIEW_PROBABILITY_MASS=${USE_VIEW_PROBABILITY_MASS}" "VIEW_PROBABILITY_MASS_THRESHOLD=${VIEW_PROBABILITY_MASS_THRESHOLD}" "USE_HIERARCHICAL_VIEWS=${USE_HIERARCHICAL_VIEWS}" "VIEW_SELECTION_RUN_ID=${VIEW_SELECTION_RUN_ID}" "USE_FREERET_DENSE=${USE_FREERET_DENSE}" "USE_FREERET_PROMPT_CONSTRAINTS=${USE_FREERET_PROMPT_CONSTRAINTS}" "USE_FREERET_FULL_PROMPT=${USE_FREERET_FULL_PROMPT}")
+BATCH_ENV=("${STC_ENV[@]}" "${LENS_ENV[@]}" "STAGE2_METHOD=${STAGE2_METHOD}" "USE_VIEW_PROBABILITY_MASS=${USE_VIEW_PROBABILITY_MASS}" "VIEW_PROBABILITY_MASS_THRESHOLD=${VIEW_PROBABILITY_MASS_THRESHOLD}" "USE_HIERARCHICAL_VIEWS=${USE_HIERARCHICAL_VIEWS}" "VIEW_SELECTION_RUN_ID=${VIEW_SELECTION_RUN_ID}" "USE_FREERET_DENSE=${USE_FREERET_DENSE}" "USE_FREERET_PROMPT_CONSTRAINTS=${USE_FREERET_PROMPT_CONSTRAINTS}" "USE_FREERET_FULL_PROMPT=${USE_FREERET_FULL_PROMPT}")
 for name in VIEW_EXAMPLE_MODE VIEW_EXAMPLE_MAX_TOKENS \
     MODEL_FAMILIES MODEL_FAMILY DATASETS DATASET DATASET_SPLIT CHECKPOINT_ROOT MODEL_PATH_QWEN2 \
     MODEL_PATH_QWEN25 MODEL_PATH_QWEN3 MODEL_PATH_LLAVA_LLAMA MODEL_PATH_LLAVA_MISTRAL MODEL_PATH RANKER_MODEL_PATH_QWEN2 RANKER_MODEL_PATH_QWEN25 \

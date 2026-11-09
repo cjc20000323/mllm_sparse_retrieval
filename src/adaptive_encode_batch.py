@@ -125,6 +125,8 @@ def encoding_controls(env):
             raise ValueError(f"{name} must be {'positive' if name in positive else 'nonnegative'}")
     from stc_sparse import environment_controls
     controls.update(environment_controls(env))
+    from lens_sparse import environment_controls as lens_controls
+    controls.update(lens_controls(env))
     return controls
 
 
@@ -203,6 +205,8 @@ class Settings:
             raise ValueError("Selected model paths must have distinct directory names to avoid artifact collisions")
         controls = encoding_controls(env)
         if encoder == "overlap":
+            if controls["USE_LENS_SPARSE"] == "true":
+                raise ValueError("LENS sparse mode does not support the overlap encoder")
             if controls["USE_STC_SPARSE"] == "true":
                 raise ValueError("STC sparse mode does not support the overlap encoder")
             controls.update(overlap_controls(env))

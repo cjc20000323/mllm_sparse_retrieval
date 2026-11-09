@@ -41,6 +41,12 @@ MASTER_PORT="${MASTER_PORT:-29500}"
 ATTN_IMPLEMENTATION="${ATTN_IMPLEMENTATION:-sdpa}"
 # 0 uses the dataset-specific FreeRet image setting.
 MAX_PIXELS="${MAX_PIXELS:-0}"
+# Match retrieval: auto selects base for LLaVA-NeXT, native for other models.
+LLAVA_IMAGE_MODE="${LLAVA_IMAGE_MODE:-auto}"
+case "${LLAVA_IMAGE_MODE}" in
+  auto|base|anyres) ;;
+  *) die "LLAVA_IMAGE_MODE must be auto, base or anyres." ;;
+esac
 TARGET_BATCH_SIZE="${TARGET_BATCH_SIZE:-8}"
 QUERY_BATCH_SIZE="${QUERY_BATCH_SIZE:-4}"
 RERANK_BATCH_SIZE="${RERANK_BATCH_SIZE:-2}"
@@ -122,6 +128,7 @@ COMMAND=(
   --device_map "${DEVICE_MAP}"
   --attn_implementation "${ATTN_IMPLEMENTATION}"
   --max_pixels "${MAX_PIXELS}"
+  --llava_image_mode "${LLAVA_IMAGE_MODE}"
   --target_batch_size "${TARGET_BATCH_SIZE}"
   --query_batch_size "${QUERY_BATCH_SIZE}"
   --rerank_batch_size "${RERANK_BATCH_SIZE}"

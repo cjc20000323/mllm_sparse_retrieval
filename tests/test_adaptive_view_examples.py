@@ -360,6 +360,7 @@ class DownstreamTests(unittest.TestCase):
             shutil.copyfile(ROOT / "scripts/freeret_dense_mode.sh", scripts / "freeret_dense_mode.sh")
             shutil.copyfile(ROOT / "scripts/stage2_retrieval_mode.sh", scripts / "stage2_retrieval_mode.sh")
             shutil.copyfile(ROOT / "scripts/stc_sparse_mode.sh", scripts / "stc_sparse_mode.sh")
+            shutil.copyfile(ROOT / "scripts/lens_sparse_mode.sh", scripts / "lens_sparse_mode.sh")
             capture = root / "capture"
             capture.write_text('#!/usr/bin/env bash\nprintf "mode=%s\\nbudget=%s\\n" "$VIEW_EXAMPLE_MODE" "$VIEW_EXAMPLE_MAX_TOKENS"\nprintf "%s\\n" "$@"\n', encoding="utf-8")
             capture.chmod(0o755)

@@ -30,8 +30,9 @@ RETRIEVAL_DEFAULTS = {
     "HYBRID_ALPHA": "0.5", "SELECT_HYBRID_ALPHA": "false", "OVERWRITE": "true",
 }
 from stc_sparse import NAMES as STC_NAMES
+from lens_sparse import NAMES as LENS_NAMES
 
-PIPELINE_NAMES = (*STC_NAMES,
+PIPELINE_NAMES = (*STC_NAMES, *LENS_NAMES,
     "USE_VIEW_PROBABILITY_MASS", "VIEW_PROBABILITY_MASS_THRESHOLD",
     "VIEW_EXAMPLE_MODE", "VIEW_EXAMPLE_MAX_TOKENS",
     "VIEW_SELECTION_RUN_ID",
@@ -221,6 +222,9 @@ def namespaces(settings, family, dataset, task, kind):
     from stc_sparse import copy_options
     copy_options(SimpleNamespace(**{k.lower(): c[k] for k in STC_NAMES}), model,
                  dtype=c.get("RETRIEVAL_DTYPE", c["DTYPE"]), root=settings.roots["sparse"] / "stc_vocab")
+    from lens_sparse import copy_options as lens_options
+    lens_options(SimpleNamespace(**{k.lower(): c[k] for k in (*LENS_NAMES, "USE_STC_SPARSE")}), model,
+        dtype=c.get("RETRIEVAL_DTYPE", c["DTYPE"]), root=settings.roots["sparse"] / "lens_heads", data=data)
     return model, data, SimpleNamespace(task_type=task, encode_type=kind)
 
 
@@ -438,11 +442,14 @@ def prepare_jobs(settings, *, identity_loader=None, backend=None, auto_modify=Fa
                                    "VIEW_EXAMPLE_MODE", "VIEW_EXAMPLE_MAX_TOKENS", "USE_VIEW_PROBABILITY_MASS", "VIEW_PROBABILITY_MASS_THRESHOLD",
                                   "GPUS", "NUM_NODES", "DEEPSPEED_BIN", "OVERWRITE", "JOB_MODIFY_TYPE", "USE_FREERET_DENSE", "USE_FREERET_PROMPT_CONSTRAINTS", "USE_FREERET_FULL_PROMPT", "SHUFFLE_VIEW_OPTIONS", "VIEW_SELECTION_RUN_ID", "USE_HIERARCHICAL_VIEWS", "STAGE2_METHOD"}})
                 # Cache location and inactive defaults must not alter legacy result IDs.
-                for name in STC_NAMES:
+                for name in (*STC_NAMES, *LENS_NAMES):
                     config["parameters"].pop(name, None)
                 stc_config = expected["configuration"].get("stc_sparse")
                 if stc_config is not None:
                     config["stc_sparse"] = stc_config
+                lens_config = expected["configuration"].get("lens_sparse")
+                if lens_config is not None:
+                    config["lens_sparse"] = lens_config
                 if c["STAGE2_METHOD"] == "dense":
                     config["stage2_method"] = "dense"
                     for name in ("HYBRID_ALPHA", "SELECT_HYBRID_ALPHA"):
@@ -466,6 +473,8 @@ def prepare_jobs(settings, *, identity_loader=None, backend=None, auto_modify=Fa
                 output = mode_path(output, use_dense, boolean(c["USE_FREERET_PROMPT_CONSTRAINTS"], "USE_FREERET_PROMPT_CONSTRAINTS"), boolean(c["USE_FREERET_FULL_PROMPT"], "USE_FREERET_FULL_PROMPT")).resolve()
                 from stc_sparse import mark_path as mark_stc_path
                 output = mark_stc_path(output, stc_config)
+                from lens_sparse import mark_path as mark_lens_path
+                output = mark_lens_path(output, lens_config)
                 if probability_mass.is_selection(selection):
                     output = probability_mass.mark_output(output, selection)
                 if output in seen_outputs:

@@ -16,6 +16,10 @@ state exposed by the official FreeRet model. Qwen2.5-VL and OV-1.5 keep the
 Qwen-style vision-input path; LLaVA-NeXT and OV use their native processor
 and chat template.
 
+LLaVA-NeXT defaults to a single global image (base). Pass
+--llava_image_mode anyres to retain the checkpoint's native AnyRes processing;
+other model families keep their native image processing in auto mode.
+
 Official MSCOCO and WebQA prompts are transcribed from
 mmeb_evaluation/input_format_oneword.py.  Datasets absent from the official
 prompt table have explicit, separately registered prompt adapters with their
@@ -102,6 +106,7 @@ QWEN_MODEL_FAMILY = "qwen2_5_vl"
 LLAVA_NEXT_MODEL_FAMILY = "llava_next"
 LLAVA_ONEVISION_MODEL_FAMILY = "llava_onevision"
 LLAVA_ONEVISION_1_5_MODEL_FAMILY = "llava_onevision_1_5"
+LLAVA_IMAGE_MODES = ("auto", "base", "anyres")
 OV15_TRANSFORMERS_VERSION = Version("4.53.0")
 OV15_FORWARD_INPUT_KEYS = frozenset(
     {
@@ -206,6 +211,54 @@ def _detect_model_family(model_path: str) -> str:
         "Unsupported FreeRet model. This runner supports Qwen2.5-VL, "
         "LLaVA-NeXT, LLaVA-OV, and LLaVA-OV-1.5 checkpoints; "
         f"could not identify model family for {model_path!r}."
+    )
+
+
+def _resolve_llava_image_mode(model_family: str, requested: str = "auto") -> str:
+    if requested not in LLAVA_IMAGE_MODES:
+        raise ValueError(f"llava_image_mode must be one of {LLAVA_IMAGE_MODES}; got {requested!r}")
+    if model_family == LLAVA_NEXT_MODEL_FAMILY:
+        return "base" if requested == "auto" else requested
+    if requested == "base":
+        raise ValueError("llava_image_mode=base requires a LLaVA-NeXT checkpoint")
+    return "native"
+
+
+def _image_mode_metadata(model: Any) -> dict[str, Any]:
+    # Defaults retain compatibility with lightweight model adapters and old caches.
+    native = "anyres" if getattr(model, "model_family", None) == LLAVA_NEXT_MODEL_FAMILY else "native"
+    return {
+        "requested_llava_image_mode": getattr(model, "requested_llava_image_mode", "anyres"),
+        "llava_image_mode": getattr(model, "llava_image_mode", native),
+        "llava_resolution": getattr(model, "llava_resolution", None),
+    }
+
+
+def _target_cache_metadata(model: Any) -> dict[str, Any]:
+    metadata = _image_mode_metadata(model)
+    return {key: metadata[key] for key in ("llava_image_mode", "llava_resolution")}
+
+
+def _target_cache_matches(
+    payload: dict[str, Any], model: Any, task: RetrievalTask,
+    candidate_ids: list[str], max_pixels: int,
+) -> bool:
+    expected = _target_cache_metadata(model)
+    # A legacy cache predates base mode. Only the old native path may reuse it.
+    if "llava_image_mode" not in payload:
+        resolution_matches = expected["llava_image_mode"] != "base" and "llava_resolution" not in payload
+    else:
+        resolution_matches = all(payload.get(key) == value for key, value in expected.items())
+    embeddings = payload.get("embeddings")
+    return (
+        resolution_matches
+        and payload.get("prompt_version") == PROMPT_VERSION
+        and payload.get("prompt_key") == task.prompt_key
+        and payload.get("max_pixels") == max_pixels
+        and payload.get("candidate_ids") == candidate_ids
+        and isinstance(embeddings, torch.Tensor)
+        and embeddings.ndim == 2
+        and embeddings.shape[0] == len(candidate_ids)
     )
 
 
@@ -790,8 +843,16 @@ class FreeRetQwen:
         device_map: str,
         attn_implementation: str,
         max_pixels: int,
+        llava_image_mode: str = "auto",
     ):
         self.model_family = _detect_model_family(model_path)
+        self.requested_llava_image_mode = llava_image_mode
+        self.llava_image_mode = _resolve_llava_image_mode(self.model_family, llava_image_mode)
+        self.llava_resolution = None
+        if self.llava_image_mode == "base":
+            from llava_resolution import validate_checkpoint
+
+            validate_checkpoint(model_path, "base")
         self.transformers_version = transformers.__version__
         if self.model_family == LLAVA_ONEVISION_1_5_MODEL_FAMILY:
             _require_ov15_transformers_version(self.transformers_version)
@@ -935,6 +996,12 @@ class FreeRetQwen:
 
         if self.model_family == LLAVA_NEXT_MODEL_FAMILY:
             self._configure_llava_next_processor()
+            from llava_resolution import configure
+
+            self.processor = configure(self.model, self.processor, self.llava_image_mode)
+            self.llava_resolution = self.model._llava_resolution_report
+
+        print(f"[image-mode] requested={llava_image_mode}; resolved={self.llava_image_mode}")
 
         self.model.eval()
         self.attn_implementation = effective_attn_implementation
@@ -1671,12 +1738,7 @@ def encode_targets(
         cache_started = time.perf_counter() if time_estimate is not None else None
         with _actual_scope(actual_timing, "cache_read_seconds"):
             payload = torch.load(cache_path, map_location="cpu")
-        if (
-            payload.get("prompt_version") == PROMPT_VERSION
-            and payload.get("prompt_key") == task.prompt_key
-            and payload.get("max_pixels") == max_pixels
-            and payload.get("candidate_ids") == candidate_ids
-        ):
+        if _target_cache_matches(payload, model, task, candidate_ids, max_pixels):
             print(f"[cache] loaded target embeddings: {cache_path}")
             with _actual_scope(actual_timing, "cache_read_seconds"):
                 embeddings = payload["embeddings"].float()
@@ -1728,6 +1790,7 @@ def encode_targets(
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             torch.save(
                 {
+                    **_target_cache_metadata(model),
                     "prompt_version": PROMPT_VERSION,
                     "prompt_key": task.prompt_key,
                     "max_pixels": max_pixels,
@@ -1842,6 +1905,16 @@ def _safe_model_tag(model_path: str) -> str:
     model_name = Path(model_path).expanduser().name
     model_tag = re.sub(r"[^A-Za-z0-9_.-]+", "_", model_name).strip("._")
     return model_tag or "model"
+
+
+def _model_output_root(args: argparse.Namespace) -> Path:
+    mode = _resolve_llava_image_mode(
+        _detect_model_family(args.model_path), getattr(args, "llava_image_mode", "auto"),
+    )
+    tag = _safe_model_tag(args.model_path)
+    if mode == "base":
+        tag += "_llava_base"
+    return Path(args.output_dir).expanduser().resolve() / tag
 
 
 def _atomic_torch_save(payload: Any, path: Path) -> None:
@@ -2011,13 +2084,7 @@ class FreeRetDistributedTask:
             started = time.perf_counter()
             with _actual_scope(self.timing, "cache_read_seconds"):
                 payload = torch.load(cache_path, map_location="cpu")
-                if (payload.get("prompt_version") == PROMPT_VERSION
-                        and payload.get("prompt_key") == task.prompt_key
-                        and payload.get("max_pixels") == max_pixels
-                        and payload.get("candidate_ids") == candidate_ids
-                        and isinstance(payload.get("embeddings"), torch.Tensor)
-                        and payload["embeddings"].ndim == 2
-                        and payload["embeddings"].shape[0] == len(candidate_ids)):
+                if _target_cache_matches(payload, model, task, candidate_ids, max_pixels):
                     cached = payload["embeddings"].float()
             cache_elapsed = time.perf_counter() - started
             return cached is not None
@@ -2089,7 +2156,8 @@ class FreeRetDistributedTask:
                     raise RuntimeError("Distributed candidate embeddings have missing rows.")
             with _actual_scope(self.timing, "cache_write_seconds") if cache_path is not None else self.communication():
                 _atomic_torch_save(
-                    {"prompt_version": PROMPT_VERSION, "prompt_key": task.prompt_key,
+                    {**_target_cache_metadata(model),
+                     "prompt_version": PROMPT_VERSION, "prompt_key": task.prompt_key,
                      "max_pixels": max_pixels, "candidate_ids": candidate_ids, "embeddings": full},
                     full_path,
                 )
@@ -2212,6 +2280,7 @@ def _run_task(
     spec = get_prompt_spec(task.prompt_key)
     effective_max_pixels = args.max_pixels if args.max_pixels > 0 else spec.max_pixels
     model.set_max_pixels(effective_max_pixels)
+    image_metadata = _image_mode_metadata(model)
     print(
         f"[prompt] {task.prompt_key}; max_pixels={effective_max_pixels}; "
         f"source={spec.source}"
@@ -2225,6 +2294,7 @@ def _run_task(
         raise RuntimeError(f"No judged queries are available for {task.dataset}.")
     if actual_timing is not None:
         actual_timing.metadata.update(
+            **image_metadata,
             num_queries=len(queries), skipped_unjudged_queries=skipped,
             max_pixels=effective_max_pixels,
         )
@@ -2366,6 +2436,7 @@ def _run_task(
             target_timing["elapsed_seconds"] + query_timing["estimated_total_seconds"]
         )
         report = {
+            **image_metadata,
             "mode": "estimate_time_only",
             "status": query_timing["status"],
             "time_unit": "seconds",
@@ -2426,6 +2497,7 @@ def _run_task(
         return report
 
     metrics: dict[str, Any] = {
+        **image_metadata,
         "dataset": task.dataset,
         "split": task.split,
         "direction": task.direction,
@@ -2455,6 +2527,7 @@ def _run_task(
     with (run_dir / "config.json").open("w", encoding="utf-8") as handle:
         json.dump(
             {
+                **image_metadata,
                 "model_path": args.model_path,
                 "data_root": str(args.data_root),
                 "prompt_version": PROMPT_VERSION,
@@ -2556,6 +2629,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="0 uses the per-dataset FreeRet prompt setting; a positive value overrides it.",
     )
+    parser.add_argument(
+        "--llava_image_mode", choices=LLAVA_IMAGE_MODES, default="auto",
+        help="auto selects base for LLaVA-NeXT and native preprocessing for other models; "
+             "base uses one global image and requires LLaVA-NeXT; anyres restores native preprocessing.",
+    )
     parser.add_argument("--target_batch_size", type=int, default=8)
     parser.add_argument("--query_batch_size", type=int, default=4)
     parser.add_argument("--rerank_batch_size", type=int, default=2)
@@ -2581,6 +2659,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def validate_args(args: argparse.Namespace) -> None:
+    mode = getattr(args, "llava_image_mode", "auto")
+    if mode not in LLAVA_IMAGE_MODES:
+        raise ValueError(f"llava_image_mode must be one of {LLAVA_IMAGE_MODES}")
+    if getattr(args, "model_path", None):
+        _resolve_llava_image_mode(_detect_model_family(args.model_path), mode)
     for name in (
         "target_batch_size",
         "query_batch_size",
@@ -2605,6 +2688,9 @@ def _save_time_estimate_summary(
 ) -> None:
     all_done = len(reports) == requested_tasks
     summary = {
+        **{key: reports[0][key] for key in (
+            "requested_llava_image_mode", "llava_image_mode", "llava_resolution",
+        ) if reports and key in reports[0]},
         "mode": "estimate_time_only",
         "status": (
             "in_progress" if not all_done
@@ -2638,7 +2724,7 @@ def _distributed_main(args: argparse.Namespace, context: Optional[FreeRetDistrib
         torch.manual_seed(args.seed)
         data_root = Path(args.data_root).expanduser().resolve()
         args.data_root = data_root
-        output_root = Path(args.output_dir).expanduser().resolve() / _safe_model_tag(args.model_path)
+        output_root = _model_output_root(args)
         context.primary(lambda: output_root.mkdir(parents=True, exist_ok=True))
         session = context.new_session(output_root)
         datasets = parse_dataset_names(args.datasets)
@@ -2658,10 +2744,10 @@ def _distributed_main(args: argparse.Namespace, context: Optional[FreeRetDistrib
             manifests = {}
             for dataset, direction in specs:
                 manifest = prompt_manifest(prompt_key_for(dataset, direction))
+                manifest.update(_image_mode_metadata(model))
                 manifest["effective_max_pixels"] = args.max_pixels if args.max_pixels > 0 else manifest["max_pixels"]
                 manifests[f"{dataset}/{direction}"] = manifest
             _write_timing_json(output_root / "prompt_manifest.json", manifests)
-        context.primary(save_manifest)
         device_map = str(context.model_device)
         print(f"[rank {rank}/{context.world_size}] model_device={device_map}; one complete model per GPU; --device_map={args.device_map!r} is ignored; output_root={output_root}")
         with actual.model_loading() if actual is not None else nullcontext():
@@ -2669,8 +2755,11 @@ def _distributed_main(args: argparse.Namespace, context: Optional[FreeRetDistrib
                 model_path=args.model_path, dtype=args.dtype, device_map=device_map,
                 attn_implementation=args.attn_implementation,
                 max_pixels=args.max_pixels if args.max_pixels > 0 else 512,
+                llava_image_mode=args.llava_image_mode,
             )
+        context.primary(save_manifest)
         if actual is not None:
+            actual.distributed_metadata.update(_image_mode_metadata(model))
             loading = context.collectives.gather({"rank": rank, "seconds": actual.model_loading_seconds})
             actual.model_loading_seconds = max(item["seconds"] for item in loading)
             actual.distributed_metadata["model_loading_rank_reports"] = loading
@@ -2766,9 +2855,7 @@ def main() -> None:
         torch.manual_seed(args.seed)
         data_root = Path(args.data_root).expanduser().resolve()
         args.data_root = data_root
-        output_base = Path(args.output_dir).expanduser().resolve()
-        model_tag = _safe_model_tag(args.model_path)
-        output_root = output_base / model_tag
+        output_root = _model_output_root(args)
         output_root.mkdir(parents=True, exist_ok=True)
         materializer = ImageMaterializer(output_root / "image_cache", data_root)
 
@@ -2802,11 +2889,6 @@ def main() -> None:
                 args.max_pixels if args.max_pixels > 0 else manifest["max_pixels"]
             )
             selected_prompts[f"{dataset}/{direction}"] = manifest
-        with (output_root / "prompt_manifest.json").open(
-            "w", encoding="utf-8"
-        ) as handle:
-            json.dump(selected_prompts, handle, ensure_ascii=False, indent=2)
-
         with actual_run_timing.model_loading() if actual_run_timing is not None else nullcontext():
             model = FreeRetQwen(
                 model_path=args.model_path,
@@ -2814,7 +2896,14 @@ def main() -> None:
                 device_map=args.device_map,
                 attn_implementation=args.attn_implementation,
                 max_pixels=args.max_pixels if args.max_pixels > 0 else 512,
+                llava_image_mode=args.llava_image_mode,
             )
+        for manifest in selected_prompts.values():
+            manifest.update(_image_mode_metadata(model))
+        with (output_root / "prompt_manifest.json").open("w", encoding="utf-8") as handle:
+            json.dump(selected_prompts, handle, ensure_ascii=False, indent=2)
+        if actual_run_timing is not None:
+            actual_run_timing.distributed_metadata.update(_image_mode_metadata(model))
         print(f"model_family={model.model_family}")
         print(f"model_class={model.model_class_name}")
         print(f"processor_class={model.processor_class_name}")

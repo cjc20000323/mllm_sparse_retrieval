@@ -461,6 +461,7 @@ class LauncherTests(unittest.TestCase):
             shutil.copyfile(ROOT/"scripts/freeret_dense_mode.sh",scripts/"freeret_dense_mode.sh")
             shutil.copyfile(ROOT / "scripts/stage2_retrieval_mode.sh", scripts / "stage2_retrieval_mode.sh")
             shutil.copyfile(ROOT / "scripts/stc_sparse_mode.sh", scripts / "stc_sparse_mode.sh")
+            shutil.copyfile(ROOT / "scripts/lens_sparse_mode.sh", scripts / "lens_sparse_mode.sh")
             for name in names:shutil.copyfile(ROOT/"scripts"/name,scripts/name)
             capture=root/"capture.sh"
             capture.write_text('#!/usr/bin/env bash\nprintf \'%s\\n\' "$@"\nprintf \'run=%s\\n\' "$VIEW_SELECTION_RUN_ID"\n');capture.chmod(0o755)
@@ -491,6 +492,7 @@ class LauncherTests(unittest.TestCase):
             shutil.copyfile(ROOT/"scripts/freeret_dense_mode.sh",scripts/"freeret_dense_mode.sh")
             shutil.copyfile(ROOT / "scripts/stage2_retrieval_mode.sh", scripts / "stage2_retrieval_mode.sh")
             shutil.copyfile(ROOT / "scripts/stc_sparse_mode.sh", scripts / "stc_sparse_mode.sh")
+            shutil.copyfile(ROOT / "scripts/lens_sparse_mode.sh", scripts / "lens_sparse_mode.sh")
             capture=root/"capture.sh";capture.write_text('#!/usr/bin/env bash\nprintf \'%s\\n\' "$@"\nprintf \'flag=%s\\n\' "$SHUFFLE_VIEW_OPTIONS"\n');capture.chmod(0o755)
             for name in names:
                 for local in (False,True):

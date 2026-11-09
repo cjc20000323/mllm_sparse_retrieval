@@ -1294,6 +1294,8 @@ def _retrieval_namespaces(
         model_args.use_freeret_prompt_constraints = True
     from stc_sparse import copy_options
     copy_options(args, model_args, dtype=args.retrieval_dtype)
+    from lens_sparse import copy_options as lens_options
+    lens_options(args, model_args, dtype=args.retrieval_dtype, data=data_args)
     return model_args, data_args
 
 
@@ -3656,6 +3658,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--adaptive-views", action="store_true", help="Use dataset-selected perspectives from the copied encoder.")
     from stc_sparse import add_parser as add_stc_parser
     add_stc_parser(parser)
+    from lens_sparse import add_parser as add_lens_parser
+    add_lens_parser(parser)
     parser.add_argument("--view-probability-mass", "--view_probability_mass", nargs="?", const=True, default=None,
                         type=boolean, help="Require cumulative probability views; omitted inherits the saved selection")
     parser.add_argument("--view-probability-mass-threshold", "--view_probability_mass_threshold", type=float, default=None,
@@ -3670,6 +3674,10 @@ def _validate_args(args: argparse.Namespace) -> None:
     configure_stage2_mode(args)
     from stc_sparse import enabled as stc_enabled, validate as validate_stc
     validate_stc(args)
+    from lens_sparse import validate as validate_lens, enabled as lens_enabled
+    validate_lens(args)
+    if lens_enabled(args) and not args.adaptive_views:
+        raise ValueError("--use-lens-sparse requires --adaptive-views")
     if stc_enabled(args) and not args.adaptive_views:
         raise ValueError("--use-stc-sparse requires --adaptive-views")
     if getattr(args, "view_probability_mass", False) and not getattr(args, "adaptive_views", False):
@@ -4068,6 +4076,10 @@ def main() -> None:
                 if stc_enabled(args):
                     model_args, _ = _retrieval_namespaces(args, eol_type="disassembleeol_separate", calculate_type="concat", sparse_manual=False)
                     metadata["stc_sparse"] = stc_configuration(model_args)
+                from lens_sparse import enabled as lens_enabled, configuration as lens_configuration
+                if lens_enabled(args):
+                    model_args, _ = _retrieval_namespaces(args, eol_type="disassembleeol_separate", calculate_type="concat", sparse_manual=False)
+                    metadata["lens_sparse"] = lens_configuration(model_args)
             with (output_dir / "pipeline_metadata.json").open("w", encoding="utf-8") as handle:
                 json.dump(metadata, handle, ensure_ascii=False, indent=2)
             assert timing_reporter is not None

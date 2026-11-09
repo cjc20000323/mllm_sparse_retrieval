@@ -6,9 +6,19 @@ STC_N_CLUSTERS="${STC_N_CLUSTERS-16000}" # semantic clusters; numeric singleton 
 STC_SEED="${STC_SEED-42}"
 STC_BATCH_SIZE="${STC_BATCH_SIZE-4096}"
 STC_MAX_ITER="${STC_MAX_ITER-100}"
-STC_WEIGHT_SCALE="${STC_WEIGHT_SCALE-10000}"
+STC_WEIGHT_SCALE="${STC_WEIGHT_SCALE-100}"
 STC_CACHE_ROOT="${STC_CACHE_ROOT-}" # empty: SPARSE_OUTPUT_ROOT/stc_vocab
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stc_sparse_mode.sh" || exit $?
+# LENS centroid LM head; false preserves the original/STC representation.
+USE_LENS_SPARSE="${USE_LENS_SPARSE-false}"
+LENS_ALGORITHM="${LENS_ALGORITHM-kmeans}" # kmeans / minibatch_kmeans
+LENS_N_CLUSTERS="${LENS_N_CLUSTERS-8000}"
+LENS_SEED="${LENS_SEED-42}"
+LENS_N_INIT="${LENS_N_INIT-1}"
+LENS_MAX_ITER="${LENS_MAX_ITER-300}"
+LENS_BATCH_SIZE="${LENS_BATCH_SIZE-4096}" # MiniBatch only
+LENS_CACHE_ROOT="${LENS_CACHE_ROOT-}" # empty: SPARSE_OUTPUT_ROOT/lens_heads
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lens_sparse_mode.sh" || exit $?
 # true: stop before the next probability-ranked view would exceed the threshold; keep at least the first.
 USE_VIEW_PROBABILITY_MASS="${USE_VIEW_PROBABILITY_MASS-false}"
 VIEW_PROBABILITY_MASS_THRESHOLD="${VIEW_PROBABILITY_MASS_THRESHOLD-0.9}" # [0,1]; 1 selects all; incompatible with overlap
@@ -176,7 +186,8 @@ if [[ "${RUN_ONE}" == true ]]; then
         case "${!name:-false}" in true|1|yes) EXTRA+=("--${option}") ;; false|0|no) ;; *) printf 'Invalid %s\n' "${name}" >&2; exit 2 ;; esac
     done
     stc_sparse_prepare || exit $?
-    exec "${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/encode_adaptive_views.py "${STC_ARGS[@]}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" --view_selection_hierarchical "${USE_HIERARCHICAL_VIEWS}" "${ADAPTIVE_SHUFFLE_ARGS[@]}" \
+    lens_sparse_prepare || exit $?
+    exec "${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/encode_adaptive_views.py "${STC_ARGS[@]}" "${LENS_ARGS[@]}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" --view_selection_hierarchical "${USE_HIERARCHICAL_VIEWS}" "${ADAPTIVE_SHUFFLE_ARGS[@]}" \
         --llava_image_mode "${LLAVA_IMAGE_MODE:-anyres}" \
         --view_probability_mass "${USE_VIEW_PROBABILITY_MASS}" --view_probability_mass_threshold "${VIEW_PROBABILITY_MASS_THRESHOLD}" --adaptive_views --model_name_or_path "${MODEL_PATH}" --dataset_name "${DATASET}" \
         --dataset_split "${DATASET_SPLIT:-test}" --task_type "${TASK}" --encode_type "${ENCODE_TYPE:-${KIND}}" \
@@ -198,7 +209,7 @@ fi
 # ===== 批量调度：每个任务回到本文件的 --run-one 分支，不再委托单任务脚本 =====
 command -v "${PYTHON_BIN}" >/dev/null 2>&1 || { echo "Python not found: ${PYTHON_BIN}; activate the encoding environment or set PYTHON_BIN." >&2; exit 2; }
 # 配置使用普通变量赋值；只在进入 Python 调度器时集中传入子进程环境。
-BATCH_ENV=("${STC_ENV[@]}" "USE_VIEW_PROBABILITY_MASS=${USE_VIEW_PROBABILITY_MASS}" "VIEW_PROBABILITY_MASS_THRESHOLD=${VIEW_PROBABILITY_MASS_THRESHOLD}" "USE_HIERARCHICAL_VIEWS=${USE_HIERARCHICAL_VIEWS}" "SHUFFLE_VIEW_OPTIONS=${SHUFFLE_VIEW_OPTIONS}" "USE_FREERET_DENSE=${USE_FREERET_DENSE}" "USE_FREERET_PROMPT_CONSTRAINTS=${USE_FREERET_PROMPT_CONSTRAINTS}" "USE_FREERET_FULL_PROMPT=${USE_FREERET_FULL_PROMPT}")
+BATCH_ENV=("${STC_ENV[@]}" "${LENS_ENV[@]}" "USE_VIEW_PROBABILITY_MASS=${USE_VIEW_PROBABILITY_MASS}" "VIEW_PROBABILITY_MASS_THRESHOLD=${VIEW_PROBABILITY_MASS_THRESHOLD}" "USE_HIERARCHICAL_VIEWS=${USE_HIERARCHICAL_VIEWS}" "SHUFFLE_VIEW_OPTIONS=${SHUFFLE_VIEW_OPTIONS}" "USE_FREERET_DENSE=${USE_FREERET_DENSE}" "USE_FREERET_PROMPT_CONSTRAINTS=${USE_FREERET_PROMPT_CONSTRAINTS}" "USE_FREERET_FULL_PROMPT=${USE_FREERET_FULL_PROMPT}")
 for name in VIEW_EXAMPLE_MODE VIEW_EXAMPLE_MAX_TOKENS MODEL_FAMILIES MODEL_FAMILY DATASETS DATASET ENCODE_TYPES ENCODE_TYPE DATASET_SPLIT \
     CHECKPOINT_ROOT MODEL_PATH_QWEN2 MODEL_PATH_QWEN25 MODEL_PATH_QWEN3 MODEL_PATH_LLAVA_LLAMA MODEL_PATH_LLAVA_MISTRAL MODEL_PATH \
     DATA_ROOT DENSE_OUTPUT_ROOT SPARSE_OUTPUT_ROOT ENCODE_LOG_ROOT OUTPUT_DIR \

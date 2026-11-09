@@ -39,7 +39,8 @@ class SearchSTCTests(unittest.TestCase):
                                         [1., 0.], [1., 0.], [1., 1.], [1., 1.], [1., 1.]])
 
     def corpus(self, name, *, algorithm="agglomerative", mode="ordinary", dataset="RSTPReid",
-               split="test", kind=None, query=None, model_dir=None, alternate_mapping=False):
+               split="test", kind=None, query=None, model_dir=None, alternate_mapping=False,
+               zero_tokens=False, legacy=False):
         root = self.root / name
         model_dir = model_dir or root / "checkpoint"
         model_dir.mkdir(parents=True, exist_ok=True)
@@ -56,9 +57,18 @@ class SearchSTCTests(unittest.TestCase):
         options = stc_fixtures.args_at(model_dir, stc_algorithm=algorithm, stc_cache_root=str(cache), stc_dtype="float16")
         stc.copy_options(options, model, dtype="float16")
         request, _ = stc.request(model, tokenizer=self.tokenizer)
+        weights = self.embeddings.clone()
+        if zero_tokens:
+            weights[[1, 5]] = 0  # a semantic token and a numeric token.
         with redirect_stdout(io.StringIO()):
-            vocabulary = stc.build_mapping(self.embeddings, self.embeddings, self.tokenizer, model,
+            vocabulary = stc.build_mapping(weights, weights, self.tokenizer, model,
                                           stc.cache_path(model, request), request)
+        if legacy:
+            from test_stc_zero_embeddings import legacy_copy
+            old_request = dict(request, version=1)
+            old_request.pop("zero_norm_policy")
+            vocabulary = legacy_copy(vocabulary, stc.cache_path(model, old_request))
+            model.stc_vocab_path = str(vocabulary.directory)
         if alternate_mapping:
             # A self-consistent alternative vocabulary must still be rejected
             # when used to tune alpha for a target with another mapping.
@@ -96,6 +106,48 @@ class SearchSTCTests(unittest.TestCase):
                   selection=selection, selection_path=selection_path, expected=expected, roots=roots,
                   vocabulary=vocabulary, args=args, cache=cache)
 
+    def test_zero_filtered_v2_and_legacy_v1_bundles_work_across_search_index_and_pipeline_tasks(self):
+        import adaptive_sparse_index_batch as indexing
+        api = backend.pipeline_module()
+        for dataset in ("flickr", "RSTPReid", "webqa", "remuq", "llava"):
+            for version in (1, 2):
+                with self.subTest(dataset=dataset, version=version):
+                    fixture = self.corpus(f"compat_{dataset}_{version}", dataset=dataset, mode="full",
+                                          algorithm="minibatch_kmeans", zero_tokens=version == 2, legacy=version == 1)
+                    # All read paths use the corpus copy, including v1, after the cache is gone.
+                    self.assertTrue(fixture.cache.resolve().is_relative_to(self.root.resolve()))
+                    shutil.rmtree(fixture.cache)
+                    experiment = self.prepare(fixture)
+                    self.assertEqual(experiment.expected, fixture.expected)
+                    self.assertEqual(experiment.expected["configuration"][stc.FIELD]["version"], version)
+                    a = experiment.pipeline_args
+                    model, data = api._retrieval_namespaces(a, eol_type="disassembleeol_separate",
+                                                           calculate_type="concat", sparse_manual=False)
+                    encoder = stc.SparseEncoder(self.tokenizer, data, model)
+                    if version == 2:
+                        self.assertNotIn(1, encoder.ids.tolist())
+                        self.assertNotIn(5, encoder.ids.tolist())
+                    else:
+                        self.assertIn(1, encoder.ids.tolist())
+                        self.assertIn(5, encoder.ids.tolist())
+                    self.assertEqual(encoder.vector(torch.zeros(1, 10)), {})
+                    self.assertTrue(encoder.vector(torch.ones(1, 10)))
+                    group = "ir" if dataset == "flickr" else "tbpr" if dataset == "RSTPReid" else "fused"
+                    env = dict(MODEL_FAMILY="qwen25", DATASET=dataset,
+                               ENCODE_TYPE="image" if group in {"ir", "tbpr"} else "corpus",
+                               SPARSE_OUTPUT_ROOT=str(fixture.roots[1]), USE_FREERET_DENSE="true",
+                               USE_FREERET_FULL_PROMPT="true", USE_FREERET_PROMPT_CONSTRAINTS="false")
+                    jobs, missing = indexing.discover(indexing.Settings.from_environment(group, env))
+                    self.assertFalse(missing)
+                    self.assertEqual([job.existing_index for job in jobs], [fixture.roots[1] / "collection/index"])
+                    a.stage1_method, a.stage2_method = "sparse_concat", "dense"
+                    a.stage1_sparse_index = str(fixture.roots[1] / "collection/index")
+                    a.stage2_dense_index = str(fixture.roots[0])
+                    a.stage2_sparse_index = None
+                    with patch.object(backend, "load_model_identity", return_value=fixture.identity):
+                        locked = backend.preflight(a, api, mark_output=False)
+                    self.assertEqual(locked["fingerprint"], fixture.selection["fingerprint"])
+
     def test_legacy_root_shards_index_without_changing_stc_or_freeret_fingerprints(self):
         import adaptive_sparse_index_batch as indexing
         from test_adaptive_sparse_layout import flatten, files, lucene
@@ -125,6 +177,42 @@ class SearchSTCTests(unittest.TestCase):
     def prepare(self, fixture, args=None):
         return search.prepare(args or fixture.args, identity_loader=lambda *a, **k: fixture.identity)
 
+    def test_old_weighting_is_rejected_by_index_search_and_pipeline(self):
+        import adaptive_sparse_index_batch as indexing
+        api = backend.pipeline_module()
+        for version, previous_mode in ((1, "softmax"), (2, "softmax"), (2, "cluster_relu")):
+            with self.subTest(mapping_version=version, weighting=previous_mode):
+                fixture = self.corpus(f"old_{previous_mode}_{version}", legacy=version == 1)
+                args = self.prepare(fixture).pipeline_args
+                args.stage1_method, args.stage2_method = "sparse_concat", "dense"
+                args.stage1_sparse_index = str(fixture.roots[1] / "collection/index")
+                args.stage2_dense_index, args.stage2_sparse_index = str(fixture.roots[0]), None
+                old = copy.deepcopy(fixture.expected)
+                weights = old["configuration"][stc.FIELD]
+                weights.pop("term_mapping")
+                weights["quantization"] = "round_after_view_merge_min_one"
+                if previous_mode == "softmax":
+                    weights["method"] = "cluster_probability_sum_then_topk"
+                    weights["weight_scale"] = 10000
+                    weights.pop("weight_transform")
+                    weights.pop("weighting_version")
+                else:
+                    weights["method"] = "cluster_log1p_relu_sum_then_topk"
+                    weights["weighting_version"] = 2
+                    # Lowering an old corpus's scale alone must not make it compatible.
+                    weights["weight_scale"] = 100
+                old["fingerprint"] = views.digest(old["configuration"])
+                for root in fixture.roots:
+                    manifest = json.loads((root / views.MANIFEST).read_text(encoding="utf-8"))
+                    manifest.update(old)
+                    views.atomic_json(root / views.MANIFEST, manifest)
+                manifest = json.loads((fixture.roots[1] / views.MANIFEST).read_text(encoding="utf-8"))
+                for action in (lambda: indexing.check_artifact(fixture.roots[1], manifest, old["configuration"]),
+                               lambda: self.prepare(fixture, copy.deepcopy(fixture.args)),
+                               lambda: backend.preflight(args, api, mark_output=False)):
+                    with self.assertRaisesRegex(ValueError, "weighting mismatch.*Re-encode.*rebuild"):
+                        action()
+
     def test_inherit_both_algorithms_freeret_modes_and_dense_sparse_only(self):
         for algorithm in ("agglomerative", "minibatch_kmeans"):
             for mode in ("ordinary", "dense", "constraints", "full"):
@@ -140,7 +228,7 @@ class SearchSTCTests(unittest.TestCase):
                         self.assertTrue(experiment.args.use_stc_sparse)
                         self.assertEqual(experiment.args.stc_algorithm, algorithm)
                         self.assertEqual(experiment.args.stc_n_clusters, 2)
-                        self.assertEqual(experiment.args.stc_weight_scale, 10000)
+                        self.assertEqual(experiment.args.stc_weight_scale, 100)
                         self.assertEqual(experiment.expected, fixture.expected)
                         source = fixture.roots[0] if route == "dense" else fixture.roots[1]
                         self.assertEqual(Path(experiment.pipeline_args.stc_vocab_path), source / stc.BUNDLE)
@@ -219,7 +307,7 @@ class SearchSTCTests(unittest.TestCase):
                     SEARCH_OUTPUT_ROOT=str(fixture.root / "results"), SPARSE_LENGTH="20",
                     VIEW_EXAMPLE_MODE="fixed", VIEW_SELECTION_ROUNDS="2", VIEW_TEXTS_PER_ROUND="2", VIEW_IMAGES_PER_ROUND="1",
                     USE_STC_SPARSE="true", STC_ALGORITHM=fixture.model.stc_algorithm, STC_N_CLUSTERS="2",
-                    STC_SEED="42", STC_BATCH_SIZE="8", STC_MAX_ITER="15", STC_WEIGHT_SCALE="10000",
+                    STC_SEED="42", STC_BATCH_SIZE="8", STC_MAX_ITER="15", STC_WEIGHT_SCALE="100",
                     STC_CACHE_ROOT=str(fixture.cache), DRY_RUN="true")
 
     def test_three_task_batches_locate_the_encoder_path_and_forward_every_option(self):
@@ -291,7 +379,7 @@ class SearchSTCTests(unittest.TestCase):
             self.assertEqual(Path(model_args.stc_vocab_path), fixture.roots[1] / stc.BUNDLE)
             encoder = NS(model_args=model_args, stc_encoder=stc.SparseEncoder(self.tokenizer, data, model_args),
                          last_prompts=["STC query prompt"])
-            raw = torch.zeros(len(selection["selected"]), 10)
+            raw = torch.ones(len(selection["selected"]), 10)
             encoder.encode = lambda records: ([raw.clone() for _ in records], torch.tensor([[1., 0.]] * len(records)))
             return encoder
         release = Mock()
