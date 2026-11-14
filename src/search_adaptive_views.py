@@ -67,6 +67,9 @@ def parser():
                  "view_probability_mass", "view_selection_hierarchical", "view_selection_pmi"):
         add(name, type=boolean, nargs="?", const=True)
     add("view_probability_mass_threshold", type=float)
+    add("view_selection_token_variants", type=boolean, nargs="?", const=True, default=False)
+    add("view_selection_prefix_tokens", type=boolean, nargs="?", const=True, default=False)
+    add("view_pmi_prior_prompt_mode", choices=("false", "instruction_only"))
     add("view_selection_modality", choices=("text", "image", "both"))
     stc.add_parser(p, inherit=True)
     lens.add_parser(p, inherit=True)
@@ -136,7 +139,7 @@ def prepare(args, *, identity_loader=None, backend=None):
             raise ValueError("Overlap artifacts are not supported by search_adaptive_views")
         if args.view_selection_file:
             manifest = dict(manifest, selection_file=str(Path(args.view_selection_file).expanduser().resolve()))
-        selection = views.validate_index_selection(root, manifest, resolver=resolver)
+        selection = views.validate_index_selection(root, manifest, resolver=resolver, view_selection_token_variants=getattr(args, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(args, "view_selection_prefix_tokens", False))
         if views.is_overlap_selection(selection):
             raise ValueError("Overlap artifacts are not supported by search_adaptive_views")
         reference = Path(manifest["selection_file"]).expanduser()
@@ -183,8 +186,8 @@ def prepare(args, *, identity_loader=None, backend=None):
     stc.bind_search(args, roots[1] or roots[0], config.get(stc.FIELD))
     lens.bind_search(args, roots[1] or roots[0], config.get(lens.FIELD))
     views.load_selection(reference, dataset=args.dataset_name, selection_modality=args.view_selection_modality,
-        view_selection_pmi=args.view_selection_pmi, view_selection_hierarchical=args.view_selection_hierarchical,
-        view_probability_mass=args.view_probability_mass, view_probability_mass_threshold=args.view_probability_mass_threshold)
+        view_selection_pmi=args.view_selection_pmi, view_pmi_prior_prompt_mode=getattr(args, "view_pmi_prior_prompt_mode", None), view_selection_hierarchical=args.view_selection_hierarchical,
+        view_probability_mass=args.view_probability_mass, view_probability_mass_threshold=args.view_probability_mass_threshold, view_selection_token_variants=getattr(args, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(args, "view_selection_prefix_tokens", False))
     if args.view_selection_run_id:
         from adaptive_view_shuffle import FIELD, validate_run_id
         if selection.get(FIELD, {}).get("run_id") != validate_run_id(args.view_selection_run_id):
@@ -200,6 +203,7 @@ def prepare(args, *, identity_loader=None, backend=None):
     for name in (*ENCODING_DEFAULTS, "use_freeret_dense", "use_freeret_prompt_constraints", "use_freeret_full_prompt"):
         setattr(a, name, getattr(args, name))
     a.view_selection_file = str(reference)
+    a.view_selection_token_variants = args.view_selection_token_variants
     stc.copy_options(args, a, dtype=args.dtype)
     lens.copy_options(args, a, dtype=args.dtype)
     model, data = api._retrieval_namespaces(a, eol_type="disassembleeol_separate", calculate_type="concat", sparse_manual=False)
@@ -221,7 +225,7 @@ def prepare(args, *, identity_loader=None, backend=None):
     if roots[1] is not None:
         from adaptive_sparse_index_batch import check_artifact
         sparse_manifest = json.loads((roots[1] / views.MANIFEST).read_text(encoding="utf-8"))
-        check_artifact(roots[1], sparse_manifest, expected["configuration"], selection=selection, resolver=resolver)
+        check_artifact(roots[1], sparse_manifest, expected["configuration"], selection=selection, resolver=resolver, view_selection_token_variants=getattr(args, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(args, "view_selection_prefix_tokens", False))
         index = resolve_sparse_index(args.sparse_index).resolve()
     args.view_selection_file = str(reference)
     return Experiment(args, a, selection, reference, expected, *roots, index)
@@ -244,7 +248,7 @@ def prepare_validation(args, target, **kwargs):
     val.dataset_split = args.validation_split
     # An independent saved selection supplies its own pool, PMI, run and threshold.
     for name in ("view_probability_mass", "view_probability_mass_threshold", "view_selection_hierarchical",
-                 "view_selection_pmi", "view_selection_modality", "view_selection_run_id"):
+                 "view_selection_pmi", "view_pmi_prior_prompt_mode", "view_selection_modality", "view_selection_run_id"):
         setattr(val, name, None)
     val = prepare(val, **kwargs)
     if val.args.task_type != target.args.task_type:

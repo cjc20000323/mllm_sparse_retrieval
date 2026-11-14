@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # 仅运行示例采样和视角概率分配；不同 seed 共用模型、数据池及选项映射。
 set -euo pipefail
+# Opt in to summing all vocabulary variants of each view option; match this across encoding/index/search.
+export USE_VIEW_TOKEN_VARIANTS="${USE_VIEW_TOKEN_VARIANTS-false}"
+# Optional PMI prior prompt: false keeps the candidate list; instruction_only removes it.
+# VIEW_PMI_PRIOR_PROMPT_MODE=false
+if [[ -v VIEW_PMI_PRIOR_PROMPT_MODE ]]; then
+    case "${VIEW_PMI_PRIOR_PROMPT_MODE,,}" in
+        false|instruction_only) export VIEW_PMI_PRIOR_PROMPT_MODE="${VIEW_PMI_PRIOR_PROMPT_MODE,,}" ;;
+        *) echo 'Invalid VIEW_PMI_PRIOR_PROMPT_MODE: use false or instruction_only' >&2; exit 2 ;;
+    esac
+fi
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
@@ -46,6 +56,9 @@ if ((${#SEEDS[@]} == 0)); then echo 'VIEW_SELECTION_SEEDS must not be empty' >&2
 EXTRA=()
 [[ -z "${MODEL_PATH}" ]] || EXTRA+=(--model-path "${MODEL_PATH}")
 [[ -z "${LORA_MODEL_PATH}" ]] || EXTRA+=(--lora-model-path "${LORA_MODEL_PATH}")
+if [[ -v VIEW_PMI_PRIOR_PROMPT_MODE ]]; then
+    EXTRA+=(--view-pmi-prior-prompt-mode "${VIEW_PMI_PRIOR_PROMPT_MODE}")
+fi
 exec "${PYTHON_BIN}" -B src/adaptive_views_seed_experiment.py \
     --model-family "${MODEL_FAMILY}" --checkpoint-root "${CHECKPOINT_ROOT}" \
     --dataset "${DATASET}" --dataset-split "${DATASET_SPLIT}" --view-selection-split "${VIEW_SELECTION_SPLIT}" \
@@ -55,6 +68,6 @@ exec "${PYTHON_BIN}" -B src/adaptive_views_seed_experiment.py \
     --view-selection-rounds "${VIEW_SELECTION_ROUNDS}" --view-selection-modality "${VIEW_SELECTION_MODALITY}" \
     --view-example-mode "${VIEW_EXAMPLE_MODE}" --view-example-max-tokens "${VIEW_EXAMPLE_MAX_TOKENS}" \
     --view-texts-per-round "${VIEW_TEXTS_PER_ROUND}" --view-images-per-round "${VIEW_IMAGES_PER_ROUND}" \
-    --use-view-pmi "${USE_VIEW_PMI}" --use-hierarchical-views "${USE_HIERARCHICAL_VIEWS}" \
+    --use-view-token-variants "${USE_VIEW_TOKEN_VARIANTS}" --use-view-pmi "${USE_VIEW_PMI}" --use-hierarchical-views "${USE_HIERARCHICAL_VIEWS}" \
     --shuffle-view-options "${SHUFFLE_VIEW_OPTIONS}" --view-selection-run-id "${VIEW_SELECTION_RUN_ID}" \
     --dry-run "${DRY_RUN}" "${EXTRA[@]}" "$@"

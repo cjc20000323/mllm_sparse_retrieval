@@ -134,7 +134,9 @@ class PromptRepsLLMDataArguments(tevatron.retriever.arguments.DataArguments):
     dataset_suffix: str = field(default='no')
     sparse_value_type: str = field(default='replace')
     sparse_lower_or_upper: str = field(default='lower')
-    prompt_type: str = field(default='prompt_5')
+    prompt_type: str = field(default='prompt_5', metadata={
+        "help": "View prompts; prompt_shared_5 reuses Flickr/COCO's five views for IR/TBPR/fused (disassembleeol_separate + concat only)."
+    })
     random_view_seed: int = field(
         default=42,
         metadata={

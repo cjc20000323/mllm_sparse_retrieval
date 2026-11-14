@@ -234,6 +234,7 @@ for LLAVA_MODE in "${RETRIEVAL_LLAVA_IMAGE_MODE}" "${RANKER_LLAVA_IMAGE_MODE}"; 
     case "${LLAVA_MODE}" in anyres|base) ;; *) die "LLaVA image mode must be anyres or base." ;; esac
 done
 
+# prompt_shared_5: shared five views; use sparse_concat (or a precomputed run) for sparse Stage 1.
 PROMPT_TYPE="${PROMPT_TYPE:-prompt_5}"
 SPARSE_LENGTH="${SPARSE_LENGTH:-40}"
 TEXT_SPARSE_LENGTH="${TEXT_SPARSE_LENGTH:-${SPARSE_LENGTH}}"

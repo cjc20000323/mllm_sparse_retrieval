@@ -39,6 +39,8 @@ DEFAULTS = {
     "DEEPSPEED_BIN": "deepspeed", "USE_FREERET_DENSE": "false", "USE_FREERET_PROMPT_CONSTRAINTS": "false", "USE_FREERET_FULL_PROMPT": "false",
     "SHUFFLE_VIEW_OPTIONS": "false",
     "USE_HIERARCHICAL_VIEWS": "false",
+    "USE_VIEW_TOKEN_VARIANTS": "false",
+    "USE_VIEW_PREFIX_TOKENS": "false",
     "USE_VIEW_PROBABILITY_MASS": "false", "VIEW_PROBABILITY_MASS_THRESHOLD": "0.9",
 }
 
@@ -85,12 +87,19 @@ def encoding_controls(env):
             raise ValueError("Cumulative probability selection and overlap are mutually exclusive")
     for name in ("TEXT_SPARSE_LENGTH", "IMAGE_SPARSE_LENGTH"):
         controls[name] = env.get(name) or controls["SPARSE_LENGTH"]
-    for name in ("VIEW_SELECTION_MODALITY", "USE_VIEW_PMI"):
+    for name in ("VIEW_SELECTION_MODALITY", "USE_VIEW_PMI", "VIEW_PMI_PRIOR_PROMPT_MODE"):
         if name in env and (env[name] or name == "USE_VIEW_PMI"):
             controls[name] = env[name]
-    for name in ("IS_FILTERED", "SPARSE_VALUE_MEAN", "USE_VIEW_PMI", "USE_FREERET_DENSE", "USE_FREERET_PROMPT_CONSTRAINTS", "USE_FREERET_FULL_PROMPT", "SHUFFLE_VIEW_OPTIONS", "USE_HIERARCHICAL_VIEWS"):
+    if controls.get("VIEW_PMI_PRIOR_PROMPT_MODE"):
+        from adaptive_views import resolve_pmi_prior_prompt_mode
+        controls["VIEW_PMI_PRIOR_PROMPT_MODE"] = resolve_pmi_prior_prompt_mode(controls["VIEW_PMI_PRIOR_PROMPT_MODE"],
+            pmi=boolean(controls["USE_VIEW_PMI"], "USE_VIEW_PMI") if "USE_VIEW_PMI" in controls else None)
+    for name in ("IS_FILTERED", "SPARSE_VALUE_MEAN", "USE_VIEW_PMI", "USE_VIEW_TOKEN_VARIANTS", "USE_VIEW_PREFIX_TOKENS", "USE_FREERET_DENSE", "USE_FREERET_PROMPT_CONSTRAINTS", "USE_FREERET_FULL_PROMPT", "SHUFFLE_VIEW_OPTIONS", "USE_HIERARCHICAL_VIEWS"):
         if name in controls:
             controls[name] = str(boolean(controls[name], name)).lower()
+    if controls["USE_VIEW_PREFIX_TOKENS"] == "true":
+        from adaptive_views import resolve_prefix_tokens
+        resolve_prefix_tokens(True, token_variants=controls["USE_VIEW_TOKEN_VARIANTS"])
     if controls["USE_FREERET_PROMPT_CONSTRAINTS"] == "true" and controls["USE_FREERET_DENSE"] != "true":
         raise ValueError("USE_FREERET_PROMPT_CONSTRAINTS=true requires USE_FREERET_DENSE=true")
     if controls["USE_FREERET_FULL_PROMPT"] == "true" and controls["USE_FREERET_DENSE"] != "true":
@@ -204,6 +213,9 @@ class Settings:
         if not all(tags) or len(tags) != len(set(tags)):
             raise ValueError("Selected model paths must have distinct directory names to avoid artifact collisions")
         controls = encoding_controls(env)
+        if group in {"ir", "fused"} and encoder == "ordinary":
+            from prepare_rerank_prior_cache import encoding_prior_controls
+            controls.update(encoding_prior_controls(env, project))
         if encoder == "overlap":
             if controls["USE_LENS_SPARSE"] == "true":
                 raise ValueError("LENS sparse mode does not support the overlap encoder")
@@ -298,6 +310,8 @@ def report_summary(jobs, skipped, completed, planned, failed=0):
 
 
 def run(settings, *, runner=None, launcher=None):
+    if launcher is None and settings.controls.get("USE_RERANK_PRIOR_CACHE") == "true":
+        launcher = settings.project / "scripts" / f"encode_adaptive_views_{settings.group}.sh"
     if launcher is None:
         name = "encode_adaptive_views_overlap.sh" if settings.encoder == "overlap" else "encode_adaptive_views.sh"
         command = [settings.bash, "scripts/" + name]
@@ -327,6 +341,15 @@ def run(settings, *, runner=None, launcher=None):
     runner = subprocess.run if runner is None else runner
     for index, job in enumerate(jobs, 1):
         print(f"\nJob [{index}/{len(jobs)}]: {job.key}", flush=True)
+        if settings.controls.get("USE_RERANK_PRIOR_CACHE") == "true":
+            from prepare_rerank_prior_cache import encoding_prior_task
+            if encoding_prior_task(job.dataset, job.kind) is not None:
+                print("[prior-cache] prepare after encoding: "
+                      f"template={settings.controls['RERANK_TEMPLATE']} "
+                      f"cache={settings.controls['RERANK_PRIOR_CACHE_DIR']}", flush=True)
+            else:
+                print("[prior-cache] skipped: this task has no supported text-candidate correction branch; "
+                      "corpus encoding continues normally.", flush=True)
         print(shlex.join(["env", *(f"{name}={value}" for name, value in job.variables.items()), *command]), flush=True)
         if settings.dry_run:
             planned += 1
@@ -367,21 +390,31 @@ ENCODE_LOG_ROOT=./adaptive_encode_logs creates per-family/checkpoint/dataset/spl
 OUTPUT_DIR requires one job. VIEW_SELECTION_FILE requires one model/dataset pair (both IR modalities allowed).
 VIEW_EXAMPLE_MODE=auto|fixed defaults auto. VIEW_EXAMPLE_MAX_TOKENS=0 uses the model context limit.
 Positive budgets may lower that limit; one answer token is reserved. Auto mode ignores fixed per-round counts.
-Fixed mode preserves legacy cache/artifact fingerprints; set it to reuse existing fixed-count selections.
+Fixed mode retains fixed per-round sampling; the new vocabulary-variant scorer still requires new caches.
 USE_VIEW_PROBABILITY_MASS=true selects a ranked probability prefix; VIEW_PROBABILITY_MASS_THRESHOLD=0.9.
 Stop before adding a view would exceed the threshold; equality is accepted. Keep at least the first view.
 Rule v2 uses comparison=le and a minimum-one fallback; 0 selects one, 1 selects all.
 Thresholds reuse immutable probability scores and isolate derived selection/encoding fingerprints. Incompatible with overlap.
 Overlap launchers use encode_adaptive_views_overlap.py and default USE_VIEW_OVERLAP_SELECTION=true.
 USE_VIEW_PMI=true can be combined with overlap; corrected probabilities determine the probe order.
+USE_VIEW_TOKEN_VARIANTS=false preserves original single-token scoring/caches; true sums vocabulary variants. Match it for saved files.
 USE_HIERARCHICAL_VIEWS=true replaces A-T with the ten primary/secondary dimensions A-J (default false).
 It can be combined with PMI, overlap and SHUFFLE_VIEW_OPTIONS; overlap count must then be 1-10.
 VIEW_SELECTED_COUNT=5 VIEW_OVERLAP_THRESHOLD=0.1 VIEW_OVERLAP_SAMPLES=20 VIEW_OVERLAP_SEED=42.
 Overlap is shared tokens / candidate unique tokens; accept strictly below threshold. Raise it to relax selection.
-New overlap/PMI+overlap versions are 16/17; old versions 13/15 cannot be reused.
+Overlap/PMI+overlap versions are 22/23; old single-token scoring caches cannot be reused.
+View selection sums whitespace/case token variants over the full vocabulary, then normalizes over options.
+Both probability spaces are saved; PMI uses the raw vocabulary log masses.
 Omitted PMI/modality/overlap options inherit a named selection file. Probes use top-30 sparse terms.
 GPUS=1 NUM_NODES=1 DTYPE=float16 LLAVA_IMAGE_MODE=anyres PER_DEVICE_BATCH_SIZE=1 SPARSE_LENGTH=40.
 All encoding environment settings documented by scripts/encode_adaptive_views.sh are forwarded unchanged.
+The ordinary IR/fused task launchers also accept USE_RERANK_PRIOR_CACHE=false (default).
+When true, successful text-corpus IR and ReMuQ/LLaVA jobs then precompute caption priors with the same checkpoint.
+IR image corpora and WebQA encode normally and report that prior preparation is skipped.
+RERANK_PRIOR_CACHE_DIR defaults to <project>/cache/rerank_prior; RERANK_TEMPLATE=what_caption_generation,
+RERANK_BATCH_SIZE=1 and RERANK_REPS_LOC=after_pad. Preparation uses modify_single and pointwise scoring.
+The prior model is loaded after the encoding process exits; it uses DTYPE and the current image/pixel settings.
+Later reranking must enable the prior cache with matching model/template/split settings to reuse it.
 DRY_RUN=true|false (default false) prints runnable jobs/commands and missing inputs without writing output.
 Missing model config.json/annotation files are skipped and summarized; zero runnable jobs is an error.
 Each runnable job ALWAYS re-encodes, replacing old shards and backing up old indexes through the encoder.

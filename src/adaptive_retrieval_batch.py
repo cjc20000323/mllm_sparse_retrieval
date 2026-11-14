@@ -33,6 +33,7 @@ from stc_sparse import NAMES as STC_NAMES
 from lens_sparse import NAMES as LENS_NAMES
 
 PIPELINE_NAMES = (*STC_NAMES, *LENS_NAMES,
+    "USE_VIEW_TOKEN_VARIANTS", "USE_VIEW_PREFIX_TOKENS",
     "USE_VIEW_PROBABILITY_MASS", "VIEW_PROBABILITY_MASS_THRESHOLD",
     "VIEW_EXAMPLE_MODE", "VIEW_EXAMPLE_MAX_TOKENS",
     "VIEW_SELECTION_RUN_ID",
@@ -56,9 +57,13 @@ def selection_options(env, controls):
         view_example_mode=controls["VIEW_EXAMPLE_MODE"], view_example_max_tokens=int(controls["VIEW_EXAMPLE_MAX_TOKENS"]),
         view_selection_hierarchical=boolean(controls["USE_HIERARCHICAL_VIEWS"], "USE_HIERARCHICAL_VIEWS"),
         view_selection_pmi=boolean(env.get("USE_VIEW_PMI", "false"), "USE_VIEW_PMI"),
+        view_pmi_prior_prompt_mode=env.get("VIEW_PMI_PRIOR_PROMPT_MODE") or None,
+        view_selection_token_variants=boolean(controls["USE_VIEW_TOKEN_VARIANTS"], "USE_VIEW_TOKEN_VARIANTS"), view_selection_prefix_tokens=boolean(controls.get("USE_VIEW_PREFIX_TOKENS", "false"), "USE_VIEW_PREFIX_TOKENS"),
         view_overlap_selection=boolean(env.get("USE_VIEW_OVERLAP_SELECTION", "false"), "USE_VIEW_OVERLAP_SELECTION"),
         **{name.lower(): int(controls[name]) for name in (
             "VIEW_SELECTION_ROUNDS", "VIEW_TEXTS_PER_ROUND", "VIEW_IMAGES_PER_ROUND", "VIEW_SELECTION_SEED")})
+    views.resolve_prefix_tokens(options.view_selection_prefix_tokens, token_variants=options.view_selection_token_variants)
+    views.resolve_pmi_prior_prompt_mode(options.view_pmi_prior_prompt_mode, pmi=options.view_selection_pmi)
     if controls["VIEW_SELECTION_RUN_ID"]:
         options.view_selection_shuffle = True
         options.view_selection_shuffle_run_id = option_shuffle.validate_run_id(controls["VIEW_SELECTION_RUN_ID"])
@@ -240,10 +245,10 @@ def selection_location(settings, model, data, training, identity):
     example_policy = views.examples.configuration_for_path(settings.options, model.model_name_or_path)
     key = views.selection_cache_key(identity, data.dataset_name, settings.selection_split, mode,
                                     views.selection_sampling(settings.options, mode, example_configuration=example_policy), settings.roots["data"],
-                                    pmi=settings.options.view_selection_pmi,
+                                    pmi=settings.options.view_selection_pmi, prior_prompt_mode=getattr(settings.options, "view_pmi_prior_prompt_mode", None),
                                     strategy=strategy.configuration if strategy else None,
                                     shuffle=option_shuffle.for_options(settings.options,identity,data.dataset_name,views.view_pool(candidate_mode)),
-                                    pool_mode=candidate_mode)
+                                    pool_mode=candidate_mode, token_variants=getattr(settings.options, "view_selection_token_variants", False), prefix_tokens=getattr(settings.options, "view_selection_prefix_tokens", False))
     return views.selection_cache_path(settings.roots["sparse"], model.model_name_or_path, data.dataset_name, key), key, strategy
 
 
@@ -256,10 +261,10 @@ def recover_selection_cache(settings, model, data, training, identity, expected_
     pmi = settings.options.view_selection_pmi
     mode = settings.options.view_selection_modality
     overlap = settings.options.view_overlap_selection
-    version = (views.PMI_OVERLAP_VERSION if pmi else views.OVERLAP_VERSION) if overlap else (
-        views.PMI_VERSION if pmi else views.VERSION)
-    if probability_mass.enabled(settings.options):
-        version = probability_mass.PMI_VERSION if pmi else probability_mass.VERSION
+    token_variants = settings.options.view_selection_token_variants
+    prefix_tokens = getattr(settings.options, "view_selection_prefix_tokens", False)
+    version = views.selection_version(pmi=pmi, overlap=overlap,
+        probability_mass=probability_mass.enabled(settings.options), token_variants=token_variants, prefix_tokens=prefix_tokens)
     candidate_mode = views.options_pool_mode(settings.options)
     probe = views.add_pool_mode(dict(version=version, selected=[], selection_modality=mode, views_fingerprint="0" * 64), candidate_mode)
     if probability_mass.enabled(settings.options):
@@ -269,7 +274,8 @@ def recover_selection_cache(settings, model, data, training, identity, expected_
     shuffle = option_shuffle.for_options(settings.options,identity,data.dataset_name,views.view_pool(candidate_mode))
     probe = option_shuffle.add_metadata(probe,shuffle)
     if pmi:
-        probe["calibration"] = dict(configuration=views.pmi_configuration(shuffle, pool_mode=candidate_mode))
+        probe["calibration"] = dict(configuration=views.pmi_configuration(shuffle, pool_mode=candidate_mode, token_variants=token_variants, prefix_tokens=prefix_tokens,
+            prior_prompt_mode=getattr(settings.options, "view_pmi_prior_prompt_mode", None)))
     parent = backend.artifact_dirs(model, data, training, probe)[1].parent.resolve()
     expected_tail = tuple(os.path.normcase(part) for part in expected_path.as_posix().split("/")[-5:])
     matches = []
@@ -318,7 +324,7 @@ def recover_selection_cache(settings, model, data, training, identity, expected_
         if not actual_path.exists():
             actual_path = resolver.recover(actual_path, root, manifest)
         checked = dict(manifest, selection_file=str(actual_path))
-        selection = views.validate_index_selection(root, checked, resolver=resolver)
+        selection = views.validate_index_selection(root, checked, resolver=resolver, view_selection_token_variants=getattr(settings.options, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(settings.options, "view_selection_prefix_tokens", False))
     except FileNotFoundError as exc:
         raise MissingInput(f"Cannot recover original selection for {expected_path}: {exc}") from exc
     print(f"[adaptive retrieval] recovered exact selection cache: {expected_path} -> {actual_path}; "
@@ -396,10 +402,10 @@ def prepare_jobs(settings, *, identity_loader=None, backend=None, auto_modify=Fa
                     else:
                         selection = views.load_selection(selection_path, identity=identity, dataset=dataset,
                                                          selection_modality=settings.options.view_selection_modality,
-                                                         view_selection_pmi=settings.options.view_selection_pmi,
+                                                         view_selection_pmi=settings.options.view_selection_pmi, view_pmi_prior_prompt_mode=getattr(settings.options, "view_pmi_prior_prompt_mode", None),
                                                          view_selection_hierarchical=settings.options.view_selection_hierarchical,
                                                          view_example_mode=settings.options.view_example_mode,
-                                                         view_example_max_tokens=settings.options.view_example_max_tokens)
+                                                         view_example_max_tokens=settings.options.view_example_max_tokens, view_selection_token_variants=getattr(settings.options, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(settings.options, "view_selection_prefix_tokens", False))
                     if settings.overlap_only and not views.is_overlap_selection(selection):
                         raise ValueError(f"Expected an overlap selection (16/17): {selection_path}")
                     views.require_equal(dict(split=selection.get("selection_split")), dict(split=settings.selection_split),
@@ -442,7 +448,7 @@ def prepare_jobs(settings, *, identity_loader=None, backend=None, auto_modify=Fa
                                    "VIEW_EXAMPLE_MODE", "VIEW_EXAMPLE_MAX_TOKENS", "USE_VIEW_PROBABILITY_MASS", "VIEW_PROBABILITY_MASS_THRESHOLD",
                                   "GPUS", "NUM_NODES", "DEEPSPEED_BIN", "OVERWRITE", "JOB_MODIFY_TYPE", "USE_FREERET_DENSE", "USE_FREERET_PROMPT_CONSTRAINTS", "USE_FREERET_FULL_PROMPT", "SHUFFLE_VIEW_OPTIONS", "VIEW_SELECTION_RUN_ID", "USE_HIERARCHICAL_VIEWS", "STAGE2_METHOD"}})
                 # Cache location and inactive defaults must not alter legacy result IDs.
-                for name in (*STC_NAMES, *LENS_NAMES):
+                for name in (*STC_NAMES, *LENS_NAMES, "USE_VIEW_TOKEN_VARIANTS", "USE_VIEW_PREFIX_TOKENS"):
                     config["parameters"].pop(name, None)
                 stc_config = expected["configuration"].get("stc_sparse")
                 if stc_config is not None:
@@ -556,10 +562,11 @@ VIEW_SELECTION_MODALITY=both VIEW_SELECTION_ROUNDS=20 VIEW_SELECTION_SEED=42.
 VIEW_EXAMPLE_MODE=auto|fixed defaults auto; VIEW_EXAMPLE_MAX_TOKENS=0 uses the model context budget.
 Match encoding mode/budget. Fixed mode uses VIEW_TEXTS_PER_ROUND=8 VIEW_IMAGES_PER_ROUND=2 and preserves old caches.
 USE_VIEW_PMI=false USE_VIEW_OVERLAP_SELECTION=false; enable both to retrieve PMI-calibrated overlap artifacts.
+USE_VIEW_TOKEN_VARIANTS=false; set true only for vocabulary-variant selection/encoding files. Modes must match strictly.
  USE_VIEW_PROBABILITY_MASS=false VIEW_PROBABILITY_MASS_THRESHOLD=0.9; match encoding when using cumulative views.
  Cumulative mode reads the locked selection and never resamples; it cannot be combined with overlap.
 Overlap: VIEW_SELECTED_COUNT=5 VIEW_OVERLAP_THRESHOLD=0.1 VIEW_OVERLAP_SAMPLES=20 VIEW_OVERLAP_SEED=42.
-Overlap versions 16/17 use shared tokens / candidate unique tokens, accepting strictly below threshold.
+Overlap versions 16/17 (token variants: 22/23) use shared tokens / candidate unique tokens, accepting strictly below threshold.
 Old overlap versions 13/15 are incompatible; reselect, re-encode and rebuild their indexes.
 The exact encoding selection-cache hash is recomputed; its locked views determine the corpus fingerprint/path.
 No latest/all-fingerprint experiment selection is performed. Single-job artifact path variables are recomputed.

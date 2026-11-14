@@ -1,5 +1,6 @@
 
 import freeret_full_prompt as full_prompt
+import shared_five_views
 import freeret_prompt_constraints as prompt_constraints
 import json
 import os
@@ -855,6 +856,7 @@ def main():
     parser = HfArgumentParser((ModelArguments, PromptRepsLLMDataArguments, TrainingArguments))
 
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    shared_five_views.validate_entry(model_args, data_args, training_args.task_type)
     # Corpus directories follow the checkpoint basename, including custom/relative paths.
     model_output_name = os.path.basename(os.path.normpath(model_args.model_name_or_path))
     dense_mode.prepare_entry(model_args, data_args, training_args)
@@ -1539,7 +1541,7 @@ def main():
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                 prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
                                     _freeret_templates.person_retrieval_img_prompt_for_concat)
-                            if data_args.prompt_type == 'prompt_5':
+                            if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                 if data_args.prompt_generation:
                                     for llava_mistral_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat_llama_generation:
                                         content_element = _freeret_templates.llava_mistral_template_content_element.format(
@@ -1626,7 +1628,7 @@ def main():
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                 prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(
                                     _freeret_templates.person_retrieval_img_prompt_for_concat)
-                            if data_args.prompt_type == 'prompt_5':
+                            if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                 for llava_vicuna_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat:
                                     content_element = _freeret_templates.llava_vicuna_template_content_element.format(
                                         llava_vicuna_retrieval_disassemble_image_prompt)
@@ -1718,7 +1720,7 @@ def main():
                             if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                 prompt_template += _freeret_templates.llama3_template_content_element.format(
                                     _freeret_templates.person_retrieval_img_prompt_for_concat)
-                            if data_args.prompt_type == 'prompt_5':
+                            if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                 if data_args.prompt_generation:
                                     for llama3_retrieval_disassemble_image_prompt in _freeret_templates.retrieval_disassemble_image_prompts_person_retrieval_for_concat_llama_generation:
                                         content_element = _freeret_templates.llama3_template_content_element.format(
@@ -1821,7 +1823,7 @@ def main():
                         if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                             logit = logits[img_indice]
                         text = texts[img_indice]
-                        if data_args.prompt_type in {'prompt_5', _freeret_templates.RANDOM_VIEW_PROMPT_TYPE}:
+                        if data_args.prompt_type in {'prompt_5', 'prompt_shared_5', _freeret_templates.RANDOM_VIEW_PROMPT_TYPE}:
                             length = 5
                         elif data_args.prompt_type == 'prompt_1':
                             length = 1
@@ -1865,7 +1867,7 @@ def main():
                                 vector[token] = int(v)
                         if data_args.sparse_value_mean:
                             for token in vector.keys():
-                                if data_args.prompt_type in {'prompt_5', _freeret_templates.RANDOM_VIEW_PROMPT_TYPE}:
+                                if data_args.prompt_type in {'prompt_5', 'prompt_shared_5', _freeret_templates.RANDOM_VIEW_PROMPT_TYPE}:
                                     vector[token] //= 5
                                 elif data_args.prompt_type == 'prompt_1':
                                     vector[token] //= 1
@@ -2337,7 +2339,7 @@ def main():
                             )
                         elif 'llava-hf-llava-v1.6-mistral-7b-hf' in model_args.model_name_or_path:
 
-                            if data_args.prompt_type == 'prompt_5':
+                            if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                 prompt_template = _freeret_templates.llava_mistral_template_image_prefix
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                     prompt_template += _freeret_templates.llava_mistral_template_content_element.format(
@@ -2416,7 +2418,7 @@ def main():
                                 pass
 
                         elif 'llava-hf-llava-v1.6-vicuna-7b-hf' in model_args.model_name_or_path or 'llava-hf-llava-v1.6-vicuna-13b-hf' in model_args.model_name_or_path:
-                            if data_args.prompt_type == 'prompt_5':
+                            if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                 prompt_template = _freeret_templates.llava_vicuna_template_image_prefix
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                     prompt_template += _freeret_templates.llava_vicuna_template_content_element.format(
@@ -2494,7 +2496,7 @@ def main():
                             else:
                                 pass
                         elif 'llava-hf-llava-v1.6-34b-hf' in model_args.model_name_or_path:
-                            if data_args.prompt_type == 'prompt_5':
+                            if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                 prompt_template = _freeret_templates.llava_34b_template_image_prefix
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                     prompt_template += _freeret_templates.llava_34b_template_content_element.format(
@@ -2524,7 +2526,7 @@ def main():
                             else:
                                 pass
                         elif 'Qwen2.5-VL-7B-Instruct' in model_args.model_name_or_path:
-                            if data_args.prompt_type == 'prompt_5':
+                            if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                 prompt_template = _freeret_templates.qwen2_5_template_image_prefix
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                     prompt_template += _freeret_templates.qwen2_5_template_content_element.format(
@@ -2552,7 +2554,7 @@ def main():
                                         qwen2_5_retrieval_disassemble_image_prompt)
                                     prompt_template += content_element
                         elif 'Qwen3-VL-8B-Instruct' in model_args.model_name_or_path:
-                            if data_args.prompt_type == 'prompt_5':
+                            if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                 prompt_template = _freeret_templates.qwen3_template_image_prefix
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                     prompt_template += _freeret_templates.qwen3_template_content_element.format(
@@ -2582,7 +2584,7 @@ def main():
                             else:
                                 pass
                         else:
-                            if data_args.prompt_type == 'prompt_5':
+                            if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                 prompt_template = _freeret_templates.llama3_template_image_prefix
                                 if 'concrete' in model_args.eol_type or 'all' not in model_args.eol_type:
                                     prompt_template += _freeret_templates.llama3_template_content_element.format(_freeret_templates.img_prompt_for_concat)
@@ -2678,7 +2680,7 @@ def main():
                     reps = F.normalize(reps, dim=-1)
                     if model_args.eol_type == 'all_disassembleeol' or model_args.eol_type == 'all_disassembleeol_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                         if model_args.calculate_type == 'concat':
-                            if data_args.prompt_type == 'prompt_5':
+                            if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                 prompt_length = 5
                             elif data_args.prompt_type == 'prompt_1':
                                 prompt_length = 1
@@ -2715,7 +2717,7 @@ def main():
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         logit = logits[text_indice]
                                     text = texts[text_indice]
-                                    if data_args.prompt_type == 'prompt_5':
+                                    if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                         length = 5
                                     elif data_args.prompt_type == 'prompt_1':
                                         length = 1
@@ -2766,7 +2768,7 @@ def main():
                                             vector[token] = int(v)
                                     if data_args.sparse_value_mean:
                                         for token in vector.keys():
-                                            if data_args.prompt_type == 'prompt_5':
+                                            if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                                 vector[token] //= 5
                                             elif data_args.prompt_type == 'prompt_1':
                                                 vector[token] //= 1
@@ -2826,7 +2828,7 @@ def main():
                                     if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                         logit = logits[text_indice]
                                     text = texts[text_indice]
-                                    if data_args.prompt_type == 'prompt_5':
+                                    if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                         length = 5
                                     elif data_args.prompt_type == 'prompt_1':
                                         length = 1
@@ -2875,7 +2877,7 @@ def main():
                                             vector[token] = int(v)
                                     if data_args.sparse_value_mean:
                                         for token in vector.keys():
-                                            if data_args.prompt_type == 'prompt_5':
+                                            if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                                 vector[token] //= 5
                                             elif data_args.prompt_type == 'prompt_1':
                                                 vector[token] //= 1
@@ -2904,7 +2906,7 @@ def main():
                                 if model_args.eol_type == 'disassembleeol_concrete' or model_args.eol_type == 'disassembleeol_concrete_origin_text' or model_args.eol_type == 'all_disassembleeol_concrete' or model_args.eol_type == 'all_disassembleeol_concrete_origin_text':
                                     logit = logits[img_indice]
                                 text = texts[img_indice]
-                                if data_args.prompt_type == 'prompt_5':
+                                if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                     length = 5
                                 elif data_args.prompt_type == 'prompt_1':
                                     length = 1
@@ -2950,7 +2952,7 @@ def main():
                                         vector[token] = int(v)
                                 if data_args.sparse_value_mean:
                                     for token in vector.keys():
-                                        if data_args.prompt_type == 'prompt_5':
+                                        if data_args.prompt_type in {'prompt_5', 'prompt_shared_5'}:
                                             vector[token] //= 5
                                         elif data_args.prompt_type == 'prompt_1':
                                             vector[token] //= 1

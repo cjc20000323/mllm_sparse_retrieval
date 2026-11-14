@@ -41,6 +41,23 @@ USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.sh" || exit $?
 # Run one adaptive encoding configuration across models/datasets through all three retrieval stages.
 set -euo pipefail
+# Opt in to summing all vocabulary variants of each view option; match this across encoding/index/search.
+export USE_VIEW_TOKEN_VARIANTS="${USE_VIEW_TOKEN_VARIANTS-false}"
+# Exact uppercase prefix token for LLaVA only; incompatible with vocabulary variant sums.
+export USE_VIEW_PREFIX_TOKENS="${USE_VIEW_PREFIX_TOKENS-false}"
+case "${USE_VIEW_PREFIX_TOKENS,,}" in
+    true|1|yes) USE_VIEW_PREFIX_TOKENS=true ;;
+    false|0|no) USE_VIEW_PREFIX_TOKENS=false ;;
+    *) echo 'Invalid USE_VIEW_PREFIX_TOKENS: use true or false' >&2; exit 2 ;;
+esac
+# Optional PMI prior prompt: false keeps the candidate list; instruction_only removes it.
+# VIEW_PMI_PRIOR_PROMPT_MODE=false
+if [[ -v VIEW_PMI_PRIOR_PROMPT_MODE ]]; then
+    case "${VIEW_PMI_PRIOR_PROMPT_MODE,,}" in
+        false|instruction_only) export VIEW_PMI_PRIOR_PROMPT_MODE="${VIEW_PMI_PRIOR_PROMPT_MODE,,}" ;;
+        *) echo 'Invalid VIEW_PMI_PRIOR_PROMPT_MODE: use false or instruction_only' >&2; exit 2 ;;
+    esac
+fi
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 if (($#)) && ! { (($# == 1)) && [[ "$1" == -h || "$1" == --help ]]; }; then

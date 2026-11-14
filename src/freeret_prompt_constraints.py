@@ -129,10 +129,19 @@ class Templates:
     def __init__(self, args, data, *, input_type=None):
         self.use = enabled(args)
         self.prefix = instruction(data.dataset_name, input_type=input_type) + "\n" if self.use else ""
+        import shared_five_views
+        self.shared_five = shared_five_views.enabled(data) or shared_five_views.enabled(args)
+        self.dataset = getattr(data, "dataset_name", None)
+        self.input_type = input_type
 
     def __getattr__(self, name):
         import template
         value = getattr(template, name)
+        if self.shared_five:
+            from shared_five_views import template_override
+            replacement = template_override(name, self.dataset, self.input_type)
+            if replacement is not None:
+                value = replacement
         if not self.use:
             return value
         if name == "build_random_view_prompts":

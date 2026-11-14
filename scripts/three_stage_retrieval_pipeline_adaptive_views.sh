@@ -38,12 +38,32 @@ USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prep
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.sh" || exit $?
 # Step 3: read the locked views and the encoded/indexed artifacts printed in Step 1.
 set -euo pipefail
+# 将下行默认值 false 改为 true 可启用词表变体模式；须与编码及索引使用相同的值。
+# 外部环境变量可覆盖此默认值，显式 Python 命令行参数优先。
+export USE_VIEW_TOKEN_VARIANTS="${USE_VIEW_TOKEN_VARIANTS-false}"
+# Exact uppercase prefix token for LLaVA only; incompatible with vocabulary variant sums.
+export USE_VIEW_PREFIX_TOKENS="${USE_VIEW_PREFIX_TOKENS-false}"
+case "${USE_VIEW_PREFIX_TOKENS,,}" in
+    true|1|yes) USE_VIEW_PREFIX_TOKENS=true ;;
+    false|0|no) USE_VIEW_PREFIX_TOKENS=false ;;
+    *) echo 'Invalid USE_VIEW_PREFIX_TOKENS: use true or false' >&2; exit 2 ;;
+esac
+# Optional PMI prior prompt: false keeps the candidate list; instruction_only removes it.
+# VIEW_PMI_PRIOR_PROMPT_MODE=false
+if [[ -v VIEW_PMI_PRIOR_PROMPT_MODE ]]; then
+    case "${VIEW_PMI_PRIOR_PROMPT_MODE,,}" in
+        false|instruction_only) export VIEW_PMI_PRIOR_PROMPT_MODE="${VIEW_PMI_PRIOR_PROMPT_MODE,,}" ;;
+        *) echo 'Invalid VIEW_PMI_PRIOR_PROMPT_MODE: use false or instruction_only' >&2; exit 2 ;;
+    esac
+fi
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
     cat <<'USAGE'
 Usage: [environment] bash scripts/three_stage_retrieval_pipeline_adaptive_views.sh [extra pipeline arguments]
 Required: VIEW_SELECTION_FILE, DENSE_CORPUS_DIR, SPARSE_CORPUS_DIR (from adaptive encode).
+USE_VIEW_TOKEN_VARIANTS=false|true (default false); edit the default in this script to match encoding/indexing.
+Explicit --view-selection-token-variants overrides the script/environment setting; this pipeline reuses locked views.
 Build collection/index before this step. SPARSE_CORPUS_DIR accepts a leaf, collection or index.
 LLAVA_IMAGE_MODE=anyres|base; RETRIEVAL_LLAVA_IMAGE_MODE/RANKER_LLAVA_IMAGE_MODE override each stage.
 MODEL_FAMILY=qwen2|qwen25|qwen3|llava_llama|llava_mistral, or set MODEL_PATH explicitly.
@@ -142,7 +162,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-$(stage2_mode_path "./three_stage_adaptive_results/${M
 printf 'Results: %s\n' "${OUTPUT_DIR}"
 "${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/three_stage_retrieval_pipeline_adaptive_views.py "${STC_ARGS[@]}" "${LENS_ARGS[@]}" --stage2-method "${STAGE2_METHOD}" --view-probability-mass "${USE_VIEW_PROBABILITY_MASS}" --view-probability-mass-threshold "${VIEW_PROBABILITY_MASS_THRESHOLD}" --view-selection-run-id "${VIEW_SELECTION_RUN_ID}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" \
     --retrieval-llava-image-mode "${RETRIEVAL_LLAVA_IMAGE_MODE}" --ranker-llava-image-mode "${RANKER_LLAVA_IMAGE_MODE}" \
-    --adaptive-views --view-selection-file "${VIEW_SELECTION_FILE}" --dataset-name "${DATASET}" \
+    --adaptive-views --view-selection-token-variants "${USE_VIEW_TOKEN_VARIANTS}" --view-selection-file "${VIEW_SELECTION_FILE}" --dataset-name "${DATASET}" \
     --dataset-split "${DATASET_SPLIT:-test}" --task-type "${TASK}" --query-type "${QUERY}" \
     --data-root "${DATA_ROOT:-/root/autodl-tmp}" --tbpr-type "${TBPR_TYPE:-origin_type}" \
     --stage1-method sparse_concat --stage1-sparse-index "${STAGE1_SPARSE_INDEX:-${SPARSE_CORPUS_DIR}}" --stage1-depth "${STAGE1_DEPTH}" \

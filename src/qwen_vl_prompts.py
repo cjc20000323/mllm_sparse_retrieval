@@ -111,6 +111,11 @@ def retrieval_prompt(record, task, data, processor, *, include_views=True):
     context = "<image>\n" if image else ""
     if text:
         context += text + "\n"
+    import shared_five_views
+    if shared_five_views.enabled(data):
+        modality = shared_five_views.record_modality(record, task)
+        views = shared_five_views.instructions(modality) if include_views else []
+        return context, shared_five_views.whole_instruction(modality), views
     whole = baseline.img_prompt_for_concat if image else baseline.text_prompt_for_concat
     if task == "ir":
         if not include_views:

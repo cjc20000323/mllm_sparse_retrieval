@@ -47,6 +47,23 @@ USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prep
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.sh" || exit $?
 # 普通 adaptive / PMI 批量编码：全部配置及实际启动参数均在本文件中展开。
 set -euo pipefail
+# Opt in to summing all vocabulary variants of each view option; match this across encoding/index/search.
+export USE_VIEW_TOKEN_VARIANTS="${USE_VIEW_TOKEN_VARIANTS-false}"
+# Exact uppercase prefix token for LLaVA only; incompatible with vocabulary variant sums.
+export USE_VIEW_PREFIX_TOKENS="${USE_VIEW_PREFIX_TOKENS-false}"
+case "${USE_VIEW_PREFIX_TOKENS,,}" in
+    true|1|yes) USE_VIEW_PREFIX_TOKENS=true ;;
+    false|0|no) USE_VIEW_PREFIX_TOKENS=false ;;
+    *) echo 'Invalid USE_VIEW_PREFIX_TOKENS: use true or false' >&2; exit 2 ;;
+esac
+# Optional PMI prior prompt: false keeps the candidate list; instruction_only removes it.
+# VIEW_PMI_PRIOR_PROMPT_MODE=false
+if [[ -v VIEW_PMI_PRIOR_PROMPT_MODE ]]; then
+    case "${VIEW_PMI_PRIOR_PROMPT_MODE,,}" in
+        false|instruction_only) export VIEW_PMI_PRIOR_PROMPT_MODE="${VIEW_PMI_PRIOR_PROMPT_MODE,,}" ;;
+        *) echo 'Invalid VIEW_PMI_PRIOR_PROMPT_MODE: use false or instruction_only' >&2; exit 2 ;;
+    esac
+fi
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_PATH="${REPO_ROOT}/scripts/${BASH_SOURCE[0]##*/}"
 cd "${REPO_ROOT}"
@@ -97,6 +114,25 @@ DRY_RUN="${DRY_RUN-false}"               # true 仅预检并打印任务，不�
 PYTHON_BIN="${PYTHON_BIN:-python}"
 BASH_BIN="${BASH_BIN:-bash}"
 DEEPSPEED_BIN="${DEEPSPEED_BIN:-deepspeed}"
+
+# ===== Optional caption prior preparation after successful encoding =====
+# IR text candidates and ReMuQ/LLaVA are supported; other tasks encode and skip priors.
+USE_RERANK_PRIOR_CACHE="${USE_RERANK_PRIOR_CACHE-false}"
+RERANK_PRIOR_CACHE_DIR="${RERANK_PRIOR_CACHE_DIR:-${REPO_ROOT}/cache/rerank_prior}"
+RERANK_TEMPLATE="${RERANK_TEMPLATE-what_caption_generation}"
+RERANK_BATCH_SIZE="${RERANK_BATCH_SIZE-1}"
+RERANK_REPS_LOC="${RERANK_REPS_LOC-after_pad}"
+case "${USE_RERANK_PRIOR_CACHE,,}" in
+    true|1|yes) USE_RERANK_PRIOR_CACHE=true ;;
+    false|0|no) USE_RERANK_PRIOR_CACHE=false ;;
+    *) echo 'Invalid USE_RERANK_PRIOR_CACHE: use true or false' >&2; exit 2 ;;
+esac
+if [[ "${USE_RERANK_PRIOR_CACHE}" == true ]]; then
+    [[ "${RERANK_BATCH_SIZE}" =~ ^0*[1-9][0-9]*$ ]] || { echo 'RERANK_BATCH_SIZE must be a positive integer' >&2; exit 2; }
+    [[ "${RERANK_TEMPLATE}" == *caption_generation* ]] || { echo 'Prior caching requires a caption_generation RERANK_TEMPLATE' >&2; exit 2; }
+    case "${RERANK_REPS_LOC}" in before_pad|after_pad) ;; *) echo 'Invalid RERANK_REPS_LOC' >&2; exit 2 ;; esac
+    [[ ! -e "${RERANK_PRIOR_CACHE_DIR}" || -d "${RERANK_PRIOR_CACHE_DIR}" ]] || { echo 'RERANK_PRIOR_CACHE_DIR must be a directory' >&2; exit 2; }
+fi
 
 # ===== 稀疏编码 =====
 REPS_LOC="${REPS_LOC-after_pad}"         # before_pad / after_pad
@@ -168,6 +204,9 @@ if [[ "${RUN_ONE}" == true ]]; then
     PRECISION=()
     case "${DTYPE:-float16}" in float16) PRECISION+=(--fp16) ;; bfloat16) PRECISION+=(--bf16) ;; float32) ;; *) echo 'Invalid DTYPE' >&2; exit 2 ;; esac
     EXTRA=()
+    if [[ -v VIEW_PMI_PRIOR_PROMPT_MODE ]]; then
+        EXTRA+=(--view_pmi_prior_prompt_mode "${VIEW_PMI_PRIOR_PROMPT_MODE}")
+    fi
     if [[ -v USE_VIEW_PMI ]]; then
         case "${USE_VIEW_PMI,,}" in
             true|1|yes) EXTRA+=(--view_selection_pmi true) ;;
@@ -187,7 +226,7 @@ if [[ "${RUN_ONE}" == true ]]; then
     done
     stc_sparse_prepare || exit $?
     lens_sparse_prepare || exit $?
-    exec "${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/encode_adaptive_views.py "${STC_ARGS[@]}" "${LENS_ARGS[@]}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" --view_selection_hierarchical "${USE_HIERARCHICAL_VIEWS}" "${ADAPTIVE_SHUFFLE_ARGS[@]}" \
+    ENCODE_COMMAND=("${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/encode_adaptive_views.py "${STC_ARGS[@]}" "${LENS_ARGS[@]}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" --view_selection_token_variants "${USE_VIEW_TOKEN_VARIANTS}" --view_selection_prefix_tokens "${USE_VIEW_PREFIX_TOKENS}" --view_selection_hierarchical "${USE_HIERARCHICAL_VIEWS}" "${ADAPTIVE_SHUFFLE_ARGS[@]}" \
         --llava_image_mode "${LLAVA_IMAGE_MODE:-anyres}" \
         --view_probability_mass "${USE_VIEW_PROBABILITY_MASS}" --view_probability_mass_threshold "${VIEW_PROBABILITY_MASS_THRESHOLD}" --adaptive_views --model_name_or_path "${MODEL_PATH}" --dataset_name "${DATASET}" \
         --dataset_split "${DATASET_SPLIT:-test}" --task_type "${TASK}" --encode_type "${ENCODE_TYPE:-${KIND}}" \
@@ -203,7 +242,23 @@ if [[ "${RUN_ONE}" == true ]]; then
         --view_example_mode "${VIEW_EXAMPLE_MODE}" --view_example_max_tokens "${VIEW_EXAMPLE_MAX_TOKENS}" \
         --view_selection_rounds "${VIEW_SELECTION_ROUNDS:-20}" --view_texts_per_round "${VIEW_TEXTS_PER_ROUND:-8}" \
         --view_images_per_round "${VIEW_IMAGES_PER_ROUND:-2}" --view_selection_seed "${VIEW_SELECTION_SEED:-42}" \
-        "${PRECISION[@]}" "${EXTRA[@]}" "$@"
+        "${PRECISION[@]}" "${EXTRA[@]}" "$@")
+    if [[ "${USE_RERANK_PRIOR_CACHE}" == false ]]; then
+        exec "${ENCODE_COMMAND[@]}"
+    fi
+    "${ENCODE_COMMAND[@]}"
+    if [[ "${TASK}" == it2t || ( "${TASK}" == ir && "${ENCODE_TYPE}" == text ) ]]; then
+        exec "${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/prepare_rerank_prior_cache.py \
+            --dataset-name "${DATASET}" --dataset-split "${DATASET_SPLIT:-test}" \
+            --task-type "${TASK}" --query-type image --data-root "${DATA_ROOT:-/root/autodl-tmp}" \
+            --ranker-model-name-or-path "${MODEL_PATH}" --ranker-dtype "${DTYPE:-float16}" \
+            --ranker-llava-image-mode "${LLAVA_IMAGE_MODE:-anyres}" \
+            --ranker-qwen-min-pixels "${QWEN_MIN_PIXELS:-0}" --ranker-qwen-max-pixels "${QWEN_MAX_PIXELS:-0}" \
+            --rerank-template "${RERANK_TEMPLATE}" --rerank-batch-size "${RERANK_BATCH_SIZE}" \
+            --rerank-reps-loc "${RERANK_REPS_LOC}" --rerank-prior-cache-dir "${RERANK_PRIOR_CACHE_DIR}"
+    fi
+    printf '[prior-cache] skipped: %s/%s has no supported text-candidate correction branch.\n' "${DATASET}" "${ENCODE_TYPE}"
+    exit 0
 fi
 
 # ===== 批量调度：每个任务回到本文件的 --run-one 分支，不再委托单任务脚本 =====
@@ -214,6 +269,7 @@ for name in VIEW_EXAMPLE_MODE VIEW_EXAMPLE_MAX_TOKENS MODEL_FAMILIES MODEL_FAMIL
     CHECKPOINT_ROOT MODEL_PATH_QWEN2 MODEL_PATH_QWEN25 MODEL_PATH_QWEN3 MODEL_PATH_LLAVA_LLAMA MODEL_PATH_LLAVA_MISTRAL MODEL_PATH \
     DATA_ROOT DENSE_OUTPUT_ROOT SPARSE_OUTPUT_ROOT ENCODE_LOG_ROOT OUTPUT_DIR \
     GPUS NUM_NODES DTYPE PER_DEVICE_BATCH_SIZE DRY_RUN BASH_BIN DEEPSPEED_BIN \
+    USE_RERANK_PRIOR_CACHE RERANK_PRIOR_CACHE_DIR RERANK_TEMPLATE RERANK_BATCH_SIZE RERANK_REPS_LOC \
     REPS_LOC SPARSE_LENGTH TEXT_SPARSE_LENGTH IMAGE_SPARSE_LENGTH SPARSE_VALUE_TYPE SPARSE_LOWER_OR_UPPER \
     SPARSE_VALUE_MEAN IS_FILTERED NUM_EXPENDED_TOKENS TBPR_TYPE LLAVA_IMAGE_MODE QWEN_MIN_PIXELS QWEN_MAX_PIXELS \
     VIEW_SELECTION_FILE VIEW_SELECTION_SPLIT VIEW_SELECTION_ROUNDS VIEW_TEXTS_PER_ROUND VIEW_IMAGES_PER_ROUND VIEW_SELECTION_SEED; do

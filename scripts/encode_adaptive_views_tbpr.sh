@@ -47,6 +47,23 @@ USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prep
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.sh" || exit $?
 # 普通 adaptive / PMI 批量编码：全部配置及实际启动参数均在本文件中展开。
 set -euo pipefail
+# Opt in to summing all vocabulary variants of each view option; match this across encoding/index/search.
+export USE_VIEW_TOKEN_VARIANTS="${USE_VIEW_TOKEN_VARIANTS-false}"
+# Exact uppercase prefix token for LLaVA only; incompatible with vocabulary variant sums.
+export USE_VIEW_PREFIX_TOKENS="${USE_VIEW_PREFIX_TOKENS-false}"
+case "${USE_VIEW_PREFIX_TOKENS,,}" in
+    true|1|yes) USE_VIEW_PREFIX_TOKENS=true ;;
+    false|0|no) USE_VIEW_PREFIX_TOKENS=false ;;
+    *) echo 'Invalid USE_VIEW_PREFIX_TOKENS: use true or false' >&2; exit 2 ;;
+esac
+# Optional PMI prior prompt: false keeps the candidate list; instruction_only removes it.
+# VIEW_PMI_PRIOR_PROMPT_MODE=false
+if [[ -v VIEW_PMI_PRIOR_PROMPT_MODE ]]; then
+    case "${VIEW_PMI_PRIOR_PROMPT_MODE,,}" in
+        false|instruction_only) export VIEW_PMI_PRIOR_PROMPT_MODE="${VIEW_PMI_PRIOR_PROMPT_MODE,,}" ;;
+        *) echo 'Invalid VIEW_PMI_PRIOR_PROMPT_MODE: use false or instruction_only' >&2; exit 2 ;;
+    esac
+fi
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_PATH="${REPO_ROOT}/scripts/${BASH_SOURCE[0]##*/}"
 cd "${REPO_ROOT}"
@@ -168,6 +185,9 @@ if [[ "${RUN_ONE}" == true ]]; then
     PRECISION=()
     case "${DTYPE:-float16}" in float16) PRECISION+=(--fp16) ;; bfloat16) PRECISION+=(--bf16) ;; float32) ;; *) echo 'Invalid DTYPE' >&2; exit 2 ;; esac
     EXTRA=()
+    if [[ -v VIEW_PMI_PRIOR_PROMPT_MODE ]]; then
+        EXTRA+=(--view_pmi_prior_prompt_mode "${VIEW_PMI_PRIOR_PROMPT_MODE}")
+    fi
     if [[ -v USE_VIEW_PMI ]]; then
         case "${USE_VIEW_PMI,,}" in
             true|1|yes) EXTRA+=(--view_selection_pmi true) ;;
@@ -187,7 +207,7 @@ if [[ "${RUN_ONE}" == true ]]; then
     done
     stc_sparse_prepare || exit $?
     lens_sparse_prepare || exit $?
-    exec "${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/encode_adaptive_views.py "${STC_ARGS[@]}" "${LENS_ARGS[@]}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" --view_selection_hierarchical "${USE_HIERARCHICAL_VIEWS}" "${ADAPTIVE_SHUFFLE_ARGS[@]}" \
+    exec "${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/encode_adaptive_views.py "${STC_ARGS[@]}" "${LENS_ARGS[@]}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" --view_selection_token_variants "${USE_VIEW_TOKEN_VARIANTS}" --view_selection_prefix_tokens "${USE_VIEW_PREFIX_TOKENS}" --view_selection_hierarchical "${USE_HIERARCHICAL_VIEWS}" "${ADAPTIVE_SHUFFLE_ARGS[@]}" \
         --llava_image_mode "${LLAVA_IMAGE_MODE:-anyres}" \
         --view_probability_mass "${USE_VIEW_PROBABILITY_MASS}" --view_probability_mass_threshold "${VIEW_PROBABILITY_MASS_THRESHOLD}" --adaptive_views --model_name_or_path "${MODEL_PATH}" --dataset_name "${DATASET}" \
         --dataset_split "${DATASET_SPLIT:-test}" --task_type "${TASK}" --encode_type "${ENCODE_TYPE:-${KIND}}" \

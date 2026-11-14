@@ -20,7 +20,8 @@ EOL_TYPE=disassembleeol_separate
 SPARSE_VALUE_TYPE=sum
 SPARSE_LOWER_OR_UPPER=lower
 CALCULATE_TYPE=concat
-PROMPT_TYPE=prompt_5
+# prompt_shared_5: match the candidate corpus encoded with the shared five views.
+PROMPT_TYPE="${PROMPT_TYPE:-prompt_5}"
 USE_MEAN=no_mean
 # Set USE_FIXED_ALPHA=true to use ALPHA directly; false keeps existing selection logic.
 ALPHA="${ALPHA:-0.9}"
@@ -70,5 +71,5 @@ deepspeed --num_gpus=$GPUS --num_nodes=$NUM_NODES src/search.py --use_freeret_de
     --sparse_lower_or_upper lower \
     --sparse_length 40 \
     --calculate_type concat \
-    --prompt_type prompt_5 \
+    --prompt_type "${PROMPT_TYPE}" \
     "${GENERATED_VALIDATION_ARGS[@]}"

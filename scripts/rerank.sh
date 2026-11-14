@@ -20,7 +20,8 @@ EOL_TYPE=disassembleeol_separate
 SPARSE_VALUE_TYPE=sum
 SPARSE_LOWER_OR_UPPER=lower
 CALCULATE_TYPE=concat
-PROMPT_TYPE=prompt_5
+# prompt_shared_5: changes retrieval encoding views; rerank_template is independent.
+PROMPT_TYPE="${PROMPT_TYPE:-prompt_5}"
 USE_MEAN=no_mean
 DATASET_SPLIT=test
 # Set USE_FIXED_ALPHA=true to use ALPHA directly; false keeps existing selection logic.
@@ -91,7 +92,7 @@ deepspeed --num_gpus=$GPUS --num_nodes=$NUM_NODES src/rerank.py --use_freeret_de
     --sparse_lower_or_upper lower \
     --sparse_length 20 \
     --calculate_type concat \
-    --prompt_type prompt_5 \
+    --prompt_type "${PROMPT_TYPE}" \
     --rerank_type pointwise \
     --rerank_num 5 \
     --rerank_batch_size "${RERANK_BATCH_SIZE}" \

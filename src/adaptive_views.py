@@ -19,6 +19,7 @@ from uuid import uuid4
 
 import adaptive_view_shuffle as option_shuffle
 import adaptive_view_examples as examples
+import adaptive_option_probabilities as option_scoring
 
 VERSION = 12
 OVERLAP_VERSION = 16
@@ -26,8 +27,25 @@ PMI_VERSION = 14
 PMI_OVERLAP_VERSION = 17
 PROBABILITY_MASS_VERSION = 18
 PMI_PROBABILITY_MASS_VERSION = 19
+VARIANT_VERSION = 20
+VARIANT_PMI_VERSION = 21
+VARIANT_OVERLAP_VERSION = 22
+VARIANT_PMI_OVERLAP_VERSION = 23
+VARIANT_PROBABILITY_MASS_VERSION = 24
+VARIANT_PMI_PROBABILITY_MASS_VERSION = 25
+PREFIX_VERSION = 26
+PREFIX_PMI_VERSION = 27
+PREFIX_OVERLAP_VERSION = 28
+PREFIX_PMI_OVERLAP_VERSION = 29
+PREFIX_PROBABILITY_MASS_VERSION = 30
+PREFIX_PMI_PROBABILITY_MASS_VERSION = 31
+PREFIX_VERSIONS = (PREFIX_VERSION, PREFIX_PMI_VERSION, PREFIX_OVERLAP_VERSION,
+                   PREFIX_PMI_OVERLAP_VERSION, PREFIX_PROBABILITY_MASS_VERSION, PREFIX_PMI_PROBABILITY_MASS_VERSION)
+VARIANT_VERSIONS = (VARIANT_VERSION, VARIANT_PMI_VERSION, VARIANT_OVERLAP_VERSION,
+                    VARIANT_PMI_OVERLAP_VERSION, VARIANT_PROBABILITY_MASS_VERSION,
+                    VARIANT_PMI_PROBABILITY_MASS_VERSION)
 SUPPORTED_VERSIONS = (VERSION, OVERLAP_VERSION, PMI_VERSION, PMI_OVERLAP_VERSION,
-                      PROBABILITY_MASS_VERSION, PMI_PROBABILITY_MASS_VERSION)
+                      PROBABILITY_MASS_VERSION, PMI_PROBABILITY_MASS_VERSION, *VARIANT_VERSIONS, *PREFIX_VERSIONS)
 TOP_K = 5
 SELECTION_MODALITIES = ("text", "image", "both")
 MANIFEST = "adaptive_views_manifest.json"
@@ -136,6 +154,8 @@ CHOICE_INSTRUCTION = (
 @dataclass
 class AdaptiveViewArguments:
     adaptive_views: bool = False
+    view_selection_token_variants: bool = field(default=False, metadata={"help": "Opt in to vocabulary-variant probability sums; false preserves the original single-token scorer and caches"})
+    view_selection_prefix_tokens: bool = field(default=False, metadata={"help": "Use only Ġ+uppercase option for llava_llama or ▁+uppercase option for llava_mistral; mutually exclusive with token variants"})
     use_stc_sparse: bool = False
     stc_algorithm: str = "agglomerative"
     stc_n_clusters: int = 16000
@@ -166,6 +186,9 @@ class AdaptiveViewArguments:
     })
     view_selection_pmi: Optional[bool] = field(default=None, metadata={
         "help": "PMI prior correction; new selections default false, omitted values inherit a reused file",
+    })
+    view_pmi_prior_prompt_mode: Optional[str] = field(default=None, metadata={
+        "help": "false preserves the original PMI prior; instruction_only removes its candidate list; omitted values inherit a reused file",
     })
     view_selection_rounds: int = 20
     view_example_mode: str = field(default="auto", metadata={"help": "auto fills the model context budget; fixed uses per-round counts"})
@@ -353,23 +376,132 @@ def selection_sampling(options, mode=None, *, model_config=None, example_configu
     return result
 
 
-def pmi_configuration(shuffle=None, *, pool_mode=None):
+def uses_token_variants(selection):
+    return selection.get("version") in VARIANT_VERSIONS
+
+
+def uses_prefix_tokens(selection):
+    return selection.get("version") in PREFIX_VERSIONS
+
+
+def uses_choice_scoring(selection):
+    return uses_token_variants(selection) or uses_prefix_tokens(selection)
+
+
+def resolve_prefix_tokens(requested=False, *, token_variants=False, selection=None):
+    from dense_representation import boolean
+    try:
+        enabled = boolean(requested or False)
+    except ValueError as exc:
+        raise ValueError("USE_VIEW_PREFIX_TOKENS/--view_selection_prefix_tokens must be true or false") from exc
+    if enabled and boolean(token_variants or False):
+        raise ValueError("USE_VIEW_PREFIX_TOKENS and USE_VIEW_TOKEN_VARIANTS are mutually exclusive")
+    if selection is not None:
+        if enabled != uses_prefix_tokens(selection):
+            raise IncompatibleViewSelectionError("View-selection prefix-token mode mismatch; match USE_VIEW_PREFIX_TOKENS/--view_selection_prefix_tokens to the file")
+        if enabled:
+            option_scoring.prefix_for_family(selection.get("model", {}).get("family"))
+    return enabled
+
+
+def choice_configuration(*, prefix_tokens=False):
+    return option_scoring.prefix_configuration() if resolve_prefix_tokens(prefix_tokens) else option_scoring.configuration()
+
+
+def validate_prefix_model(path, *, prefix_tokens=False, token_variants=False):
+    if resolve_prefix_tokens(prefix_tokens, token_variants=token_variants):
+        from transformers import AutoConfig
+        option_scoring.prefix_for_family(family_of(AutoConfig.from_pretrained(path, local_files_only=True)))
+
+
+def resolve_token_variants(requested=False, *, selection=None):
+    from dense_representation import boolean
+    enabled = boolean(requested or False)
+    if selection is not None and enabled != uses_token_variants(selection):
+        raise IncompatibleViewSelectionError(
+            f"View-selection token-variant mode mismatch: stored={uses_token_variants(selection)}, requested={enabled}; "
+            "set USE_VIEW_TOKEN_VARIANTS/--view_selection_token_variants to match the file or choose a matching selection file.")
+    return enabled
+
+
+def selection_version(*, pmi=False, overlap=False, probability_mass=False, token_variants=False, prefix_tokens=False):
+    if resolve_prefix_tokens(prefix_tokens, token_variants=token_variants):
+        if probability_mass:
+            return PREFIX_PMI_PROBABILITY_MASS_VERSION if pmi else PREFIX_PROBABILITY_MASS_VERSION
+        if overlap:
+            return PREFIX_PMI_OVERLAP_VERSION if pmi else PREFIX_OVERLAP_VERSION
+        return PREFIX_PMI_VERSION if pmi else PREFIX_VERSION
+    if probability_mass:
+        old = PMI_PROBABILITY_MASS_VERSION if pmi else PROBABILITY_MASS_VERSION
+        new = VARIANT_PMI_PROBABILITY_MASS_VERSION if pmi else VARIANT_PROBABILITY_MASS_VERSION
+    elif overlap:
+        old = PMI_OVERLAP_VERSION if pmi else OVERLAP_VERSION
+        new = VARIANT_PMI_OVERLAP_VERSION if pmi else VARIANT_OVERLAP_VERSION
+    else:
+        old, new = (PMI_VERSION if pmi else VERSION), (VARIANT_PMI_VERSION if pmi else VARIANT_VERSION)
+    return new if resolve_token_variants(token_variants) else old
+
+
+def encoding_version(selection):
+    if uses_prefix_tokens(selection):
+        return PREFIX_VERSION
+    return VARIANT_VERSION if uses_token_variants(selection) else VERSION
+
+
+def resolve_pmi_prior_prompt_mode(requested=None, *, selection=None, pmi=None):
+    """Keep legacy configurations unchanged and inherit a locked file when omitted."""
+    def normalize(value):
+        if not isinstance(value, str) or value.lower() not in ("false", "instruction_only"):
+            raise ValueError("view_pmi_prior_prompt_mode must be false or instruction_only")
+        return value.lower()
+    mode = normalize(requested) if requested is not None else None
+    if selection is not None:
+        stored = normalize(selection.get("calibration", {}).get("configuration", {}).get("prior_prompt_mode", "false"))
+        if mode is not None and mode != stored:
+            raise IncompatibleViewSelectionError(
+                f"PMI prior prompt mode mismatch: stored={stored}, requested={mode}; "
+                "omit VIEW_PMI_PRIOR_PROMPT_MODE/--view_pmi_prior_prompt_mode to inherit the file or choose a matching file")
+        mode = stored
+        pmi = is_pmi_selection(selection)
+    mode = mode or "false"
+    if mode != "false" and pmi is False:
+        raise ValueError("instruction_only requires USE_VIEW_PMI=true/--view_selection_pmi true")
+    return mode
+
+
+def pmi_configuration(shuffle=None, *, pool_mode=None, token_variants=False, prior_prompt_mode=None, prefix_tokens=False):
     import template
     pool = option_shuffle.display_pool(view_pool(pool_mode), shuffle)
-    return dict(method="pmi", version=1, normalization="per_round_softmax",
+    result = dict(method="pmi", version=1, normalization="per_round_softmax",
                 prior_prompt_fingerprint=digest(dict(
                     instruction=CHOICE_INSTRUCTION, answer="Answer with one letter:",
                     candidates=[(row["label"], row["aspect"]) for row in pool],
                     llama=template.llama3_template, mistral=template.llava_mistral_template)))
+    if resolve_token_variants(token_variants):
+        result.update(version=2, probability_space="full_vocabulary_variant_mass", choice_scoring=option_scoring.configuration())
+    if resolve_prefix_tokens(prefix_tokens, token_variants=token_variants):
+        result.update(version=3, probability_space="full_vocabulary_prefixed_token", choice_scoring=option_scoring.prefix_configuration())
+    mode = resolve_pmi_prior_prompt_mode(prior_prompt_mode)
+    if mode != "false":
+        result.update(prior_prompt_mode=mode, prior_prompt_fingerprint=digest(dict(
+            instruction=CHOICE_INSTRUCTION, answer="Answer with one letter:",
+            llama=template.llama3_template, mistral=template.llava_mistral_template)))
+    return result
 
 
-def selection_cache_key(identity, dataset, source_split, mode, sampling, data_root, *, pmi=False, strategy=None, shuffle=None, pool_mode=None):
-    """The original encoding cache contract; shared with read-only retrieval lookup."""
+def selection_cache_key(identity, dataset, source_split, mode, sampling, data_root, *, pmi=False, strategy=None, shuffle=None, pool_mode=None, token_variants=False, prior_prompt_mode=None, prefix_tokens=False):
+    """Scorer-aware encoding cache key, shared with read-only retrieval lookup."""
     key = dict(model=identity, dataset=dataset, split=source_split,
                pool=view_pool(pool_mode), selection_modality=mode, sampling=sampling,
-               data_root=str(Path(data_root).resolve()))
+                data_root=str(Path(data_root).resolve()))
+    if resolve_token_variants(token_variants):
+        key["choice_scoring"] = option_scoring.configuration()
+    if resolve_prefix_tokens(prefix_tokens, token_variants=token_variants):
+        option_scoring.prefix_for_family(identity.get("family"))
+        key["choice_scoring"] = option_scoring.prefix_configuration()
+    prior_prompt_mode = resolve_pmi_prior_prompt_mode(prior_prompt_mode, pmi=pmi)
     if pmi:
-        key["calibration"] = pmi_configuration(shuffle, pool_mode=pool_mode)
+        key["calibration"] = pmi_configuration(shuffle, pool_mode=pool_mode, token_variants=token_variants, prior_prompt_mode=prior_prompt_mode, prefix_tokens=prefix_tokens)
     if strategy is not None:
         key["selection_strategy"] = strategy
     return add_pool_mode(option_shuffle.add_metadata(key, shuffle), pool_mode)
@@ -381,11 +513,11 @@ def selection_cache_path(sparse_root, model_path, dataset, key):
 
 
 def is_pmi_selection(selection):
-    return selection.get("version") in {PMI_VERSION, PMI_OVERLAP_VERSION, PMI_PROBABILITY_MASS_VERSION}
+    return selection.get("version") in {PMI_VERSION, PMI_OVERLAP_VERSION, PMI_PROBABILITY_MASS_VERSION, VARIANT_PMI_VERSION, VARIANT_PMI_OVERLAP_VERSION, VARIANT_PMI_PROBABILITY_MASS_VERSION, PREFIX_PMI_VERSION, PREFIX_PMI_OVERLAP_VERSION, PREFIX_PMI_PROBABILITY_MASS_VERSION}
 
 
 def is_overlap_selection(selection):
-    return selection.get("version") in {OVERLAP_VERSION, PMI_OVERLAP_VERSION}
+    return selection.get("version") in {OVERLAP_VERSION, PMI_OVERLAP_VERSION, VARIANT_OVERLAP_VERSION, VARIANT_PMI_OVERLAP_VERSION, PREFIX_OVERLAP_VERSION, PREFIX_PMI_OVERLAP_VERSION}
 
 
 def resolve_pmi(requested=None, *, selection=None):
@@ -398,11 +530,17 @@ def resolve_pmi(requested=None, *, selection=None):
     return stored if selection is not None else bool(requested)
 
 
-def views_fingerprint(selected, selection_modality="both", *, pmi=False, shuffle=None, pool_mode=None, example_configuration=None):
-    configuration = dict(version=PMI_VERSION if pmi else VERSION,
-                         selection_modality=resolve_modality(selection_modality), selected=selected)
+def views_fingerprint(selected, selection_modality="both", *, pmi=False, shuffle=None, pool_mode=None, example_configuration=None, token_variants=False, prior_prompt_mode=None, prefix_tokens=False):
+    prefix_tokens = resolve_prefix_tokens(prefix_tokens, token_variants=token_variants)
+    configuration = dict(version=selection_version(pmi=pmi, token_variants=token_variants, prefix_tokens=prefix_tokens),
+                          selection_modality=resolve_modality(selection_modality), selected=selected)
+    if resolve_token_variants(token_variants):
+        configuration["choice_scoring"] = option_scoring.configuration()
+    if prefix_tokens:
+        configuration["choice_scoring"] = option_scoring.prefix_configuration()
+    prior_prompt_mode = resolve_pmi_prior_prompt_mode(prior_prompt_mode, pmi=pmi)
     if pmi:
-        configuration["calibration"] = pmi_configuration(shuffle, pool_mode=pool_mode)
+        configuration["calibration"] = pmi_configuration(shuffle, pool_mode=pool_mode, token_variants=token_variants, prior_prompt_mode=prior_prompt_mode, prefix_tokens=prefix_tokens)
     return digest(examples.add_configuration(add_pool_mode(option_shuffle.add_metadata(configuration, shuffle), pool_mode), example_configuration))
 
 
@@ -421,11 +559,12 @@ def pmi_probabilities(log_probabilities, prior_log_probabilities):
     return (weights / weights.sum()).tolist(), scores.tolist()
 
 
-def validate_pmi_selection(selection, *, check_selected=True):
+def _legacy_validate_pmi_selection(selection, *, check_selected=True):
     import numpy as np
     calibration = selection.get("calibration", {})
     require_equal(calibration.get("configuration", {}),
-                  pmi_configuration(selection.get(option_shuffle.FIELD), pool_mode=pool_mode(selection)), "PMI configuration")
+                  pmi_configuration(selection.get(option_shuffle.FIELD), pool_mode=pool_mode(selection),
+                                    prior_prompt_mode=resolve_pmi_prior_prompt_mode(selection=selection)), "PMI configuration")
     prior = np.asarray(calibration.get("prior_probabilities"), dtype="float64")
     log_prior = np.asarray(calibration.get("prior_log_probabilities"), dtype="float64")
     count = len(selection["pool"])
@@ -462,6 +601,111 @@ def validate_pmi_selection(selection, *, check_selected=True):
             if ((actual is None) != (expected is None)
                     or (expected is not None and not np.allclose(actual, expected, atol=1e-7))):
                 raise ValueError(f"PMI {name} differs from its corrected probability ranking")
+
+
+def _variant_validate_pmi_selection(selection, *, check_selected=True):
+    import numpy as np
+    calibration = selection.get("calibration", {})
+    require_equal(calibration.get("configuration", {}),
+                  pmi_configuration(selection.get(option_shuffle.FIELD), pool_mode=pool_mode(selection), token_variants=uses_token_variants(selection), prefix_tokens=uses_prefix_tokens(selection),
+                                    prior_prompt_mode=resolve_pmi_prior_prompt_mode(selection=selection)), "PMI configuration")
+    count = len(selection["pool"])
+    prior = np.asarray(calibration.get("prior_probabilities"), dtype="float64")
+    log_prior = np.asarray(calibration.get("prior_log_probabilities"), dtype="float64")
+    vocabulary_prior = calibration.get("prior_vocabulary_probabilities")
+    vocabulary_log_prior = calibration.get("prior_vocabulary_log_probabilities")
+    option_scoring.validate_probabilities(prior, vocabulary_prior, vocabulary_log_prior, count, label="PMI prior")
+    if (log_prior.shape != (count,) or not np.isfinite(log_prior).all() or (log_prior > 1e-8).any()
+            or not np.allclose(prior, np.exp(log_prior), atol=1e-7, rtol=1e-6)
+            or type(calibration.get("prior_tokens")) is not int or calibration["prior_tokens"] < 1
+            or not isinstance(calibration.get("prior_prompt"), str) or not calibration["prior_prompt"]):
+        raise ValueError("Invalid PMI prior diagnostics")
+    log_prior_mass = np.asarray(vocabulary_log_prior, dtype="float64")
+    matrices = {}
+    for modality in enabled_modalities(selection["selection_modality"]):
+        matrices[modality] = []
+        for row in selection.get("rounds", []):
+            log_mass = np.asarray(row.get(modality + "_vocabulary_log_probabilities"), dtype="float64")
+            scores = np.asarray(row.get(modality + "_pmi_scores"), dtype="float64")
+            raw = np.asarray(row.get(modality + "_raw_probabilities"), dtype="float64")
+            option = np.asarray(row.get(modality + "_option_probabilities"), dtype="float64")
+            option_scoring.validate_probabilities(option, row.get(modality + "_vocabulary_probabilities"),
+                                                  log_mass, count, label=modality + " PMI")
+            if (scores.shape != (count,) or log_mass.shape != (count,) or not np.isfinite(scores).all()
+                    or not np.allclose(scores, log_mass - log_prior_mass, atol=1e-7, rtol=0)
+                    or raw.shape != (count,) or not np.allclose(raw, option, atol=1e-7)):
+                raise ValueError(f"Invalid {modality} PMI raw-vocabulary diagnostics")
+            corrected, _ = pmi_probabilities(log_mass, log_prior_mass)
+            if not np.allclose(row[modality + "_probabilities"], corrected, atol=1e-7):
+                raise ValueError(f"Inconsistent {modality} PMI round diagnostics")
+            matrices[modality].append(corrected)
+    ranking = rank_probabilities(matrices.get("text"), matrices.get("image"), selection["pool"],
+                                 selection_modality=selection["selection_modality"])
+    if ((check_selected and ranking["selected"] != selection["selected"])
+            or not np.allclose(ranking["scores"], selection["scores"], atol=1e-7)):
+        raise ValueError("PMI selection differs from its corrected probability ranking")
+    if not check_selected:
+        for name in ("text_mean", "image_mean"):
+            actual, expected = selection.get(name), ranking[name]
+            if ((actual is None) != (expected is None)
+                    or (expected is not None and not np.allclose(actual, expected, atol=1e-7))):
+                raise ValueError(f"PMI {name} differs from its corrected probability ranking")
+
+
+def validate_pmi_selection(selection, *, check_selected=True):
+    validate = _variant_validate_pmi_selection if uses_choice_scoring(selection) else _legacy_validate_pmi_selection
+    return validate(selection, check_selected=check_selected)
+
+
+def aggregate_choice_diagnostics(selection):
+    import numpy as np
+    weights = modality_weights(selection["selection_modality"])
+    active = enabled_modalities(selection["selection_modality"])
+    result = {}
+    for kind in ("vocabulary", "option"):
+        scores = np.zeros(len(selection["pool"]), dtype="float64")
+        for modality in ("text", "image"):
+            mean = None
+            if modality in active:
+                mean = np.asarray([row[f"{modality}_{kind}_probabilities"]
+                                   for row in selection["rounds"]], dtype="float64").mean(axis=0)
+                scores += weights[modality] * mean
+            result[f"{modality}_{kind}_mean"] = None if mean is None else mean.tolist()
+        result[kind + "_scores"] = scores.tolist()
+    return result
+
+
+def validate_choice_selection(selection):
+    import numpy as np
+    if selection.get("choice_scoring") != choice_configuration(prefix_tokens=uses_prefix_tokens(selection)):
+        if uses_prefix_tokens(selection):
+            raise IncompatibleViewSelectionError("View-selection scoring mismatch: model-prefixed single-token scoring is required; reselect views, re-encode and rebuild the corresponding index.")
+        raise IncompatibleViewSelectionError("View-selection scoring mismatch: vocabulary-variant probability sums "
+            "are required; reselect views, re-encode and rebuild the corresponding index.")
+    displayed = option_shuffle.display_pool(selection["pool"], selection.get(option_shuffle.FIELD))
+    mapping = selection.get("option_token_variants")
+    option_scoring.validate_variants(mapping, [row["label"] for row in displayed])
+    if uses_prefix_tokens(selection):
+        option_scoring.validate_prefix_tokens(mapping, [row["label"] for row in displayed], selection.get("model", {}).get("family"))
+    if selection.get("option_token_variants_fingerprint") != digest(mapping):
+        raise ValueError("Option token variants fingerprint mismatch")
+    count = len(selection["pool"])
+    for modality in enabled_modalities(selection["selection_modality"]):
+        if not selection.get("rounds"):
+            raise ValueError("Missing view-selection probability rounds")
+        for row in selection["rounds"]:
+            option_scoring.validate_probabilities(row.get(modality + "_option_probabilities"),
+                row.get(modality + "_vocabulary_probabilities"), row.get(modality + "_vocabulary_log_probabilities"),
+                count, label=modality)
+            if not is_pmi_selection(selection) and not np.allclose(
+                    row[modality + "_probabilities"], row[modality + "_option_probabilities"], atol=1e-7):
+                raise ValueError(f"Ordinary {modality} selection must use option-normalized probabilities")
+    for key, expected in aggregate_choice_diagnostics(selection).items():
+        actual = selection.get(key)
+        if ((actual is None) != (expected is None) or (expected is not None and
+                (np.shape(actual) != np.shape(expected) or not np.allclose(actual, expected, atol=1e-7)))):
+            raise ValueError(f"View-selection {key} differs from its probability rounds")
+
 
 
 def family_of(config):
@@ -562,13 +806,16 @@ def selection_compatibility_details(selection, expected_pool):
             differing += f",... (+{len(labels) - 20})"
     else:
         count, differing = "missing/invalid", "unknown (pool is not a list)"
-    supported = sorted({VERSION, OVERLAP_VERSION, PMI_VERSION, PMI_OVERLAP_VERSION})
+    supported = sorted(SUPPORTED_VERSIONS)
     return (f"stored version={selection.get('version')!r}; supported versions={supported}; "
             f"stored candidates={count}, expected candidates={len(expected_pool)}; "
             f"differing candidate labels={differing}. ")
 
 
 def load_selection(path, *, identity=None, dataset=None, selection_modality=None, view_selection_pmi=None,
+                   view_pmi_prior_prompt_mode=None,
+                   view_selection_token_variants=False,
+                   view_selection_prefix_tokens=False,
                    view_selection_hierarchical=None, view_example_mode=None, view_example_max_tokens=None,
                    view_probability_mass=None, view_probability_mass_threshold=None,
                    allow_legacy_probability_mass_source=False):
@@ -577,6 +824,9 @@ def load_selection(path, *, identity=None, dataset=None, selection_modality=None
     stored = value.get("fingerprint")
     if stored != digest({key: item for key, item in value.items() if key != "fingerprint"}):
         raise ValueError(f"Corrupt adaptive view selection fingerprint: {path}")
+    if value.get("version") in SUPPORTED_VERSIONS:
+        resolve_token_variants(view_selection_token_variants, selection=value)
+        resolve_prefix_tokens(view_selection_prefix_tokens, token_variants=view_selection_token_variants, selection=value)
     example_policy = examples.validate_selection(value, mode=view_example_mode, maximum=view_example_max_tokens)
     candidate_mode = pool_mode(value)
     if view_selection_hierarchical is not None:
@@ -608,11 +858,17 @@ def load_selection(path, *, identity=None, dataset=None, selection_modality=None
     if selection_modality is not None and resolve_modality(selection_modality) != mode:
         raise ValueError(f"View selection modality mismatch: stored={mode}, requested={selection_modality}; "
                          "omit the mode to inherit the file or choose a new selection file")
+    if uses_choice_scoring(value):
+        validate_choice_selection(value)
     selected = value.get("selected", [])
     pmi = resolve_pmi(view_selection_pmi, selection=value)
+    prior_prompt_mode = resolve_pmi_prior_prompt_mode(view_pmi_prior_prompt_mode, selection=value)
     lookup = {row["label"]: row["aspect"] for row in value["pool"]}
     count = TOP_K
     fingerprint = views_fingerprint(selected, mode, pmi=pmi, shuffle=shuffle, pool_mode=candidate_mode,
+                                    prior_prompt_mode=prior_prompt_mode,
+                                    token_variants=uses_token_variants(value),
+                                    prefix_tokens=uses_prefix_tokens(value),
                                     example_configuration=example_policy)
     import adaptive_view_probability_mass as probability_mass
     probability_mass.validate_requested(value, view_probability_mass, view_probability_mass_threshold,
@@ -673,7 +929,7 @@ def sampled_groups(items, count, rounds, seed, modality):
         yield generator.sample(items, min(count, len(items)))
 
 
-def render_choice(processor, family, pool, *, texts=None, image_count=0, prior=False):
+def render_choice(processor, family, pool, *, texts=None, image_count=0, prior=False, prior_prompt_mode=None):
     if prior and (texts is not None or image_count):
         raise ValueError("The PMI prior cannot contain examples or images")
     options = "\n".join(f"{row['label']}. {row['aspect']}" for row in pool)
@@ -682,7 +938,9 @@ def render_choice(processor, family, pool, *, texts=None, image_count=0, prior=F
     if not prior:
         body += ("\nText examples:\n" + examples if texts is not None else
                  f"\nImage examples: {image_count} unordered images.\n")
-    body += "\nCandidate perspectives:\n" + options + "\nAnswer with one letter:"
+    if not prior or resolve_pmi_prior_prompt_mode(prior_prompt_mode) == "false":
+        body += "\nCandidate perspectives:\n" + options
+    body += "\nAnswer with one letter:"
     if family.startswith("qwen"):
         content = [dict(type="image") for _ in range(image_count)] + [dict(type="text", text=body)]
         return processor.apply_chat_template([dict(role="user", content=content)], tokenize=False, add_generation_prompt=True)
@@ -695,14 +953,14 @@ def render_choice(processor, family, pool, *, texts=None, image_count=0, prior=F
     raise ValueError(f"Unsupported choice family: {family}")
 
 
-def prepare_choice_group(processor, family, pool, items, modality, *, prior=False):
+def prepare_choice_group(processor, family, pool, items, modality, *, prior=False, prior_prompt_mode=None):
     from qwen_vl_encoding import read_image
     if prior and items:
         raise ValueError("The PMI prior requires an empty sample group")
     images = [read_image(item["image"]) for item in items] if modality == "image" else []
     prompt = render_choice(processor, family, pool,
                            texts=None if prior or modality == "image" else [item["text"] for item in items],
-                           image_count=len(images), prior=prior)
+                            image_count=len(images), prior=prior, prior_prompt_mode=prior_prompt_mode)
     kwargs = dict(text=[prompt], padding=True, truncation=False, return_tensors="pt", add_special_tokens=family == "llava_mistral")
     if images:
         kwargs["images"] = images
@@ -711,8 +969,8 @@ def prepare_choice_group(processor, family, pool, items, modality, *, prior=Fals
     return dict(inputs=inputs, tokens=length, prompt=prompt)
 
 
-def score_group(model, processor, family, pool, items, modality, *, prior=False, return_details=False,
-                prepared=None, input_limit=None):
+def _legacy_score_group(model, processor, family, pool, items, modality, *, prior=False, return_details=False,
+                prepared=None, input_limit=None, prior_prompt_mode=None, return_token_details=False):
     import torch
     from qwen_vl_encoding import _forward_inputs
     labels = [row["label"] for row in pool]
@@ -723,7 +981,7 @@ def score_group(model, processor, family, pool, items, modality, *, prior=False,
         raise ValueError("Perspective letters cannot be special tokens")
     if prior and items:
         raise ValueError("The PMI prior requires an empty sample group")
-    prepared = prepare_choice_group(processor, family, pool, items, modality, prior=prior) if prepared is None else prepared
+    prepared = prepare_choice_group(processor, family, pool, items, modality, prior=prior, prior_prompt_mode=prior_prompt_mode) if prepared is None else prepared
     inputs, length, prompt = prepared["inputs"], prepared["tokens"], prepared["prompt"]
     text_config = getattr(model.config, "text_config", model.config)
     limit = getattr(text_config, "max_position_embeddings", None)
@@ -754,13 +1012,84 @@ def score_group(model, processor, family, pool, items, modality, *, prior=False,
         log_probabilities = candidate_logits.log_softmax(dim=-1)
         if not torch.isfinite(log_probabilities).all():
             raise ValueError("Non-finite candidate log-probabilities")
-        return dict(probabilities=probabilities.cpu().tolist(), log_probabilities=log_probabilities.cpu().tolist(),
-                    tokens=length, prompt=prompt)
+        result = dict(probabilities=probabilities.cpu().tolist(), log_probabilities=log_probabilities.cpu().tolist(),
+                      tokens=length, prompt=prompt)
+        if return_token_details:
+            tokenizer = processor.tokenizer
+            converter = getattr(tokenizer, "convert_ids_to_tokens", None)
+            vocabulary = {} if converter else {int(value): key for key, value in tokenizer.get_vocab().items()}
+            mapping = [dict(label=label, variants=[dict(token_id=token_id[0],
+                token=converter(token_id[0]) if converter else vocabulary[token_id[0]],
+                decoded=tokenizer.decode(token_id, skip_special_tokens=False, clean_up_tokenization_spaces=False))])
+                for label, token_id in zip(labels, ids)]
+            result["token_probabilities"] = option_scoring.token_probability_details(row, mapping)
+        return result
     return probabilities.cpu().tolist(), length
 
 
+def _variant_score_group(model, processor, family, pool, items, modality, *, prior=False, return_details=False,
+                prepared=None, input_limit=None, option_token_variants=None, prior_prompt_mode=None, return_token_details=False,
+                prefix_tokens=False):
+    import torch
+    from qwen_vl_encoding import _forward_inputs
+    labels = [row["label"] for row in pool]
+    variants = ((option_scoring.prefixed_tokens(processor.tokenizer, labels, family) if prefix_tokens else option_scoring.token_variants(processor.tokenizer, labels))
+                if option_token_variants is None else option_token_variants)
+    option_scoring.validate_variants(variants, labels)
+    if prefix_tokens:
+        option_scoring.validate_prefix_tokens(variants, labels, family)
+    if prior and items:
+        raise ValueError("The PMI prior requires an empty sample group")
+    prepared = prepare_choice_group(processor, family, pool, items, modality, prior=prior, prior_prompt_mode=prior_prompt_mode) if prepared is None else prepared
+    inputs, length, prompt = prepared["inputs"], prepared["tokens"], prepared["prompt"]
+    text_config = getattr(model.config, "text_config", model.config)
+    limit = getattr(text_config, "max_position_embeddings", None)
+    if input_limit is not None:
+        limit = min(limit, input_limit) if limit else input_limit
+    if limit and length > limit:
+        raise ValueError(f"View-selection {modality} group has {length} tokens, context limit={limit}; "
+                         "reduce samples per round or image pixels; inputs are never silently truncated")
+    device = model.get_input_embeddings().weight.device
+    inputs = {key: value.to(device) if torch.is_tensor(value) else value for key, value in inputs.items()}
+    if family.startswith("qwen"):
+        inputs = _forward_inputs(model, inputs)
+    mask = inputs["attention_mask"].bool()
+    last = mask[0].nonzero(as_tuple=True)[0][-1].item()
+    forward = dict(use_cache=False, output_hidden_states=False, return_dict=True)
+    # All supported wrappers accept this in recent Transformers. Older releases
+    # return the full sequence; still select its last valid position explicitly.
+    if "logits_to_keep" in inspect.signature(model.forward).parameters:
+        forward["logits_to_keep"] = torch.tensor([last], device=device)
+    with torch.inference_mode():
+        output = model(**inputs, **forward)
+        row = output.logits[0, 0 if "logits_to_keep" in forward else last]
+        scores = option_scoring.score_logits(row, variants, return_token_details=True) if return_token_details else option_scoring.score_logits(row, variants)
+    if return_details:
+        return dict(scores, tokens=length, prompt=prompt)
+    return scores["probabilities"], length
+
+
+def score_group(model, processor, family, pool, items, modality, *, prior=False, return_details=False,
+                prepared=None, input_limit=None, option_token_variants=None, token_variants=False, prior_prompt_mode=None,
+                return_token_details=False, prefix_tokens=False):
+    common = dict(prior=prior, return_details=return_details, prepared=prepared, input_limit=input_limit)
+    if prior_prompt_mode is not None:
+        common["prior_prompt_mode"] = prior_prompt_mode
+    if return_token_details:
+        common["return_token_details"] = True
+    prefixed = resolve_prefix_tokens(prefix_tokens, token_variants=token_variants)
+    if prefixed:
+        option_scoring.prefix_for_family(family)
+        common["prefix_tokens"] = True
+    if resolve_token_variants(token_variants) or prefixed:
+        return _variant_score_group(model, processor, family, pool, items, modality,
+                                    option_token_variants=option_token_variants, **common)
+    return _legacy_score_group(model, processor, family, pool, items, modality, **common)
+
+
 def log_round_result(pool, probabilities, *, modality, round_index, rounds, sample_ids, tokens,
-                     raw_probabilities=None, prior_probabilities=None, pmi_scores=None):
+                     raw_probabilities=None, prior_probabilities=None, pmi_scores=None,
+                     vocabulary_probabilities=None, option_probabilities=None):
     """Report completed scoring without changing probabilities or candidate order."""
     order = sorted(range(len(pool)), key=lambda index: (-probabilities[index], index))
     prefix = f"[adaptive views] {modality} round {round_index + 1}/{rounds}"
@@ -775,6 +1104,9 @@ def log_round_result(pool, probabilities, *, modality, round_index, rounds, samp
         detail = (f" raw_probability={raw_probabilities[index]:.8f} prior_probability={prior_probabilities[index]:.8f} "
                   f"pmi={pmi_scores[index]:.8f} corrected_probability={probabilities[index]:.8f}"
                   if raw_probabilities is not None else "")
+        if vocabulary_probabilities is not None:
+            detail += (f" vocabulary_probability={vocabulary_probabilities[index]:.8g} "
+                       f"option_probability={option_probabilities[index]:.8f}")
         lines.append(f"{prefix} rank={rank} view={row['label']} ({row['aspect']}) "
                      f"probability={probabilities[index]:.8f}{detail}")
     print("\n".join(lines), flush=True)
@@ -792,7 +1124,10 @@ def log_probability_ranking(selection):
         means = {name: "N/A" if selection[name + "_mean"] is None else f"{selection[name + '_mean'][index]:.8f}"
                  for name in ("text", "image")}
         lines.append(f"{prefix} rank={rank} view={row['label']} ({row['aspect']}) "
-                     f"text_mean={means['text']} image_mean={means['image']} score={scores[index]:.8f}")
+                     f"text_mean={means['text']} image_mean={means['image']} score={scores[index]:.8f}"
+                     + (f" vocabulary_probability={selection['vocabulary_scores'][index]:.8g} "
+                        f"option_probability={selection['option_scores'][index]:.8f}"
+                        if 'vocabulary_scores' in selection else ""))
     print("\n".join(lines), flush=True)
 
 
@@ -820,15 +1155,33 @@ def log_prior(pool, calibration):
     probabilities = calibration["prior_probabilities"]
     order = sorted(range(len(pool)), key=lambda index: (-probabilities[index], index))
     lines = [f"[adaptive PMI prior] no examples; tokens={calibration['prior_tokens']}"]
+    if calibration["configuration"].get("prior_prompt_mode") == "instruction_only":
+        lines[0] += "; prior_prompt_mode=instruction_only"
     for rank, index in enumerate(order, 1):
         row = pool[index]
         lines.append(f"[adaptive PMI prior] rank={rank} view={row['label']} ({row['aspect']}) "
                      f"probability={probabilities[index]:.8f} "
-                     f"log_probability={calibration['prior_log_probabilities'][index]:.8f}")
+                      f"log_probability={calibration['prior_log_probabilities'][index]:.8f}"
+                      + (f" vocabulary_probability={calibration['prior_vocabulary_probabilities'][index]:.8g} "
+                         f"vocabulary_log_probability={calibration['prior_vocabulary_log_probabilities'][index]:.8f}"
+                         if 'prior_vocabulary_probabilities' in calibration else ""))
     print("\n".join(lines), flush=True)
 
 
-def choose_views(model, processor, identity, dataset, source_split, texts, images, options):
+def report_token_probabilities(callback, details, pool, shuffle, *, modality, round_index=0, prior=False):
+    if callback is None:
+        return
+    mapping = ({row["display_label"]: row["canonical_label"] for row in shuffle["mapping"]}
+               if shuffle is not None else {row["label"]: row["label"] for row in pool})
+    aspects = {row["label"]: row["aspect"] for row in pool}
+    order = {row["label"]: i for i, row in enumerate(pool)}
+    rows = [dict(row, phase="prior" if prior else "selection", modality="prior" if prior else modality,
+                 round=0 if prior else round_index + 1, canonical_label=mapping[row["display_label"]],
+                 aspect=aspects[mapping[row["display_label"]]]) for row in details["token_probabilities"]]
+    callback(sorted(rows, key=lambda row: (order[row["canonical_label"]], row["token_id"])))
+
+
+def _legacy_choose_views(model, processor, identity, dataset, source_split, texts, images, options, *, token_probability_callback=None):
     candidate_mode = options_pool_mode(options)
     pool = view_pool(candidate_mode)
     shuffle = option_shuffle.for_options(options, identity, dataset, pool)
@@ -840,7 +1193,10 @@ def choose_views(model, processor, identity, dataset, source_split, texts, image
     sampling = selection_sampling(options, mode, model_config=model.config)
     example_policy = sampling.get(examples.FIELD)
     score_options = dict(input_limit=example_policy["input_limit"]) if example_policy else {}
+    if token_probability_callback is not None:
+        score_options["return_token_details"] = True
     pmi = resolve_pmi(getattr(options, "view_selection_pmi", None))
+    prior_prompt_mode = resolve_pmi_prior_prompt_mode(getattr(options, "view_pmi_prior_prompt_mode", None), pmi=pmi)
     pools = dict(text=texts, image=images)
     for name in active:
         if not pools[name]:
@@ -850,12 +1206,13 @@ def choose_views(model, processor, identity, dataset, source_split, texts, image
             for index in range(sampling["rounds"])]
     calibration = None
     if pmi:
-        prior = score_group(model, processor, family, displayed_pool, [], "text", prior=True, return_details=True, **score_options)
+        prior = score_group(model, processor, family, displayed_pool, [], "text", prior=True, return_details=True, prior_prompt_mode=prior_prompt_mode, **score_options)
+        report_token_probabilities(token_probability_callback, prior, pool, shuffle, modality="prior", prior=True)
         if shuffle is not None:
             display_prior = dict(display_prior_probabilities=prior["probabilities"], display_prior_log_probabilities=prior["log_probabilities"])
             for key in ("probabilities", "log_probabilities"):
                 prior[key] = option_shuffle.canonical_values(prior[key],pool,shuffle)
-        calibration = dict(configuration=pmi_configuration(shuffle, pool_mode=candidate_mode), prior_prompt=prior["prompt"],
+        calibration = dict(configuration=pmi_configuration(shuffle, pool_mode=candidate_mode, prior_prompt_mode=prior_prompt_mode), prior_prompt=prior["prompt"],
                            prior_tokens=prior["tokens"], prior_probabilities=prior["probabilities"],
                            prior_log_probabilities=prior["log_probabilities"])
         if shuffle is not None:
@@ -878,6 +1235,7 @@ def choose_views(model, processor, identity, dataset, source_split, texts, image
                 examples.log_round(diagnostics, modality=name, index=index, rounds=sampling["rounds"])
             if pmi:
                 details = score_group(model, processor, family, displayed_pool, group, name, return_details=True, **group_score_options)
+                report_token_probabilities(token_probability_callback, details, pool, shuffle, modality=name, round_index=index)
                 if shuffle is not None:
                     rows[index][name + "_display_raw_probabilities"] = details["probabilities"]
                     for key in ("probabilities", "log_probabilities"):
@@ -889,6 +1247,10 @@ def choose_views(model, processor, identity, dataset, source_split, texts, image
                 rows[index][name + "_pmi_scores"] = pmi_scores
                 log_details = dict(raw_probabilities=details["probabilities"],
                                    prior_probabilities=calibration["prior_probabilities"], pmi_scores=pmi_scores)
+            elif token_probability_callback is not None:
+                details = score_group(model, processor, family, displayed_pool, group, name, return_details=True, **group_score_options)
+                report_token_probabilities(token_probability_callback, details, pool, shuffle, modality=name, round_index=index)
+                probabilities, length = option_shuffle.canonical_values(details["probabilities"], pool, shuffle), details["tokens"]
             else:
                 probabilities, length = score_group(model, processor, family, displayed_pool, group, name, **group_score_options)
                 probabilities = option_shuffle.canonical_values(probabilities,pool,shuffle)
@@ -912,7 +1274,7 @@ def choose_views(model, processor, identity, dataset, source_split, texts, image
         result["calibration"] = calibration
     if pmi or shuffle is not None or candidate_mode is not None:
         result["views_fingerprint"] = views_fingerprint(result["selected"], mode, pmi=pmi, shuffle=shuffle, pool_mode=candidate_mode,
-                                                       example_configuration=example_policy)
+                                                       example_configuration=example_policy, prior_prompt_mode=prior_prompt_mode)
     elif example_policy:
         result["views_fingerprint"] = views_fingerprint(result["selected"], mode, example_configuration=example_policy)
     result = add_pool_mode(option_shuffle.add_metadata(result,shuffle), candidate_mode)
@@ -920,6 +1282,135 @@ def choose_views(model, processor, identity, dataset, source_split, texts, image
     result["fingerprint"] = digest(result)
     log_probability_ranking(result)
     return result
+
+
+def _variant_choose_views(model, processor, identity, dataset, source_split, texts, images, options, *, token_probability_callback=None):
+    candidate_mode = options_pool_mode(options)
+    pool = view_pool(candidate_mode)
+    shuffle = option_shuffle.for_options(options, identity, dataset, pool)
+    displayed_pool = option_shuffle.display_pool(pool, shuffle)
+    option_shuffle.log_mapping(shuffle)
+    family = family_of(model.config)
+    prefixed = resolve_prefix_tokens(getattr(options, "view_selection_prefix_tokens", False),
+                                     token_variants=getattr(options, "view_selection_token_variants", False))
+    if prefixed:
+        option_scoring.prefix_for_family(family)
+    mode = resolve_modality(options.view_selection_modality)
+    active = enabled_modalities(mode)
+    sampling = selection_sampling(options, mode, model_config=model.config)
+    example_policy = sampling.get(examples.FIELD)
+    score_options = dict(input_limit=example_policy["input_limit"]) if example_policy else {}
+    pmi = resolve_pmi(getattr(options, "view_selection_pmi", None))
+    prior_prompt_mode = resolve_pmi_prior_prompt_mode(getattr(options, "view_pmi_prior_prompt_mode", None), pmi=pmi)
+    pools = dict(text=texts, image=images)
+    for name in active:
+        if not pools[name]:
+            raise ValueError(f"No {name} samples available for adaptive view selection")
+    variants = (option_scoring.prefixed_tokens(processor.tokenizer, [row["label"] for row in displayed_pool], family)
+                if prefixed else option_scoring.token_variants(processor.tokenizer, [row["label"] for row in displayed_pool]))
+    if prefixed:
+        print(f"[adaptive views] prefix_tokens=true family={family} prefix={option_scoring.prefix_for_family(family)!r}", flush=True)
+    score_options["option_token_variants"] = variants
+    score_options["token_variants"] = not prefixed
+    if prefixed:
+        score_options["prefix_tokens"] = True
+    if token_probability_callback is not None:
+        score_options["return_token_details"] = True
+    print("[adaptive views] option_token_variants=" + json.dumps(variants, ensure_ascii=True), flush=True)
+    probability_fields = ("probabilities", "log_probabilities", "vocabulary_probabilities", "vocabulary_log_probabilities")
+    rows = [dict(round=index, text_ids=[], image_ids=[], text_probabilities=None,
+                 image_probabilities=None, text_tokens=None, image_tokens=None)
+            for index in range(sampling["rounds"])]
+    calibration = None
+    if pmi:
+        prior = score_group(model, processor, family, displayed_pool, [], "text", prior=True, return_details=True, prior_prompt_mode=prior_prompt_mode, **score_options)
+        report_token_probabilities(token_probability_callback, prior, pool, shuffle, modality="prior", prior=True)
+        display_prior = {}
+        if shuffle is not None:
+            display_prior = {"display_prior_" + key: prior[key] for key in probability_fields}
+            for key in probability_fields:
+                prior[key] = option_shuffle.canonical_values(prior[key], pool, shuffle)
+        calibration = dict(configuration=pmi_configuration(shuffle, pool_mode=candidate_mode, token_variants=not prefixed, prefix_tokens=prefixed, prior_prompt_mode=prior_prompt_mode), prior_prompt=prior["prompt"],
+                           prior_tokens=prior["tokens"], prior_probabilities=prior["probabilities"],
+                           prior_log_probabilities=prior["log_probabilities"],
+                           prior_vocabulary_probabilities=prior["vocabulary_probabilities"],
+                           prior_vocabulary_log_probabilities=prior["vocabulary_log_probabilities"], **display_prior)
+        log_prior(pool, calibration)
+    # Reuse the one vocabulary scan for every text/image round and the empty prior.
+    for name in active:
+        count = sampling["texts_per_round" if name == "text" else "images_per_round"]
+        groups = (examples.ordered_groups(pools[name], sampling["rounds"], sampling["seed"], name) if example_policy
+                  else sampled_groups(pools[name], count, sampling["rounds"], sampling["seed"], name))
+        for index, group in enumerate(groups):
+            log_details = {}
+            group_score_options = dict(score_options)
+            if example_policy:
+                group, prepared, diagnostics = examples.pack(
+                    group, lambda items: prepare_choice_group(processor, family, displayed_pool, items, name), example_policy, name)
+                group_score_options["prepared"] = prepared
+                rows[index][name + "_examples"] = diagnostics
+                examples.log_round(diagnostics, modality=name, index=index, rounds=sampling["rounds"])
+            details = score_group(model, processor, family, displayed_pool, group, name, return_details=True, **group_score_options)
+            report_token_probabilities(token_probability_callback, details, pool, shuffle, modality=name, round_index=index)
+            if shuffle is not None:
+                for key in ("vocabulary_probabilities", "vocabulary_log_probabilities"):
+                    rows[index][name + "_display_" + key] = details[key]
+                rows[index][name + "_display_option_probabilities"] = details["probabilities"]
+                if pmi:
+                    rows[index][name + "_display_raw_probabilities"] = details["probabilities"]
+                for key in probability_fields:
+                    details[key] = option_shuffle.canonical_values(details[key], pool, shuffle)
+            rows[index][name + "_option_probabilities"] = details["probabilities"]
+            rows[index][name + "_vocabulary_probabilities"] = details["vocabulary_probabilities"]
+            rows[index][name + "_vocabulary_log_probabilities"] = details["vocabulary_log_probabilities"]
+            probabilities = details["probabilities"]
+            if pmi:
+                probabilities, pmi_scores = pmi_probabilities(details["vocabulary_log_probabilities"],
+                                                             calibration["prior_vocabulary_log_probabilities"])
+                rows[index][name + "_raw_probabilities"] = details["probabilities"]
+                rows[index][name + "_pmi_scores"] = pmi_scores
+                log_details = dict(raw_probabilities=details["probabilities"],
+                                   prior_probabilities=calibration["prior_probabilities"], pmi_scores=pmi_scores)
+            if example_policy:
+                group_score_options.pop("prepared")
+                del prepared
+            rows[index][name + "_ids"] = [item["id"] for item in group]
+            rows[index][name + "_probabilities"] = probabilities
+            rows[index][name + "_tokens"] = details["tokens"]
+            option_shuffle.log_round(shuffle, pool, probabilities, modality=name, round_index=index, row=rows[index])
+            log_round_result(pool, probabilities, modality=name, round_index=index, rounds=sampling["rounds"],
+                             sample_ids=rows[index][name + "_ids"], tokens=details["tokens"],
+                             vocabulary_probabilities=details["vocabulary_probabilities"],
+                             option_probabilities=details["probabilities"], **log_details)
+    text_p = [row["text_probabilities"] for row in rows] if "text" in active else None
+    image_p = [row["image_probabilities"] for row in rows] if "image" in active else None
+    ranking = rank_probabilities(text_p, image_p, pool, selection_modality=mode)
+    result = dict(version=selection_version(pmi=pmi, token_variants=not prefixed, prefix_tokens=prefixed), pool=pool, task_views={} if candidate_mode else task_view_mappings(pool),
+                  selection_modality=mode, choice_scoring=choice_configuration(prefix_tokens=prefixed),
+                  option_token_variants=variants, option_token_variants_fingerprint=digest(variants),
+                  model=identity, dataset=dataset, selection_split=source_split,
+                  sampling=sampling, modality_weights=modality_weights(mode), rounds=rows, **ranking)
+    result.update(aggregate_choice_diagnostics(result))
+    if pmi:
+        result["calibration"] = calibration
+    result["views_fingerprint"] = views_fingerprint(result["selected"], mode, pmi=pmi, shuffle=shuffle,
+        pool_mode=candidate_mode, example_configuration=example_policy, token_variants=not prefixed, prefix_tokens=prefixed, prior_prompt_mode=prior_prompt_mode)
+    result = add_pool_mode(option_shuffle.add_metadata(result, shuffle), candidate_mode)
+    result = examples.add_configuration(result, example_policy)
+    result["fingerprint"] = digest(result)
+    log_probability_ranking(result)
+    return result
+
+
+def choose_views(model, processor, identity, dataset, source_split, texts, images, options, *, token_probability_callback=None):
+    prefixed = resolve_prefix_tokens(getattr(options, "view_selection_prefix_tokens", False),
+                                    token_variants=getattr(options, "view_selection_token_variants", False))
+    choose = _variant_choose_views if prefixed or resolve_token_variants(getattr(options, "view_selection_token_variants", False)) else _legacy_choose_views
+    if token_probability_callback is not None:
+        return choose(model, processor, identity, dataset, source_split, texts, images, options,
+                      token_probability_callback=token_probability_callback)
+    return choose(model, processor, identity, dataset, source_split, texts, images, options)
+
 
 
 def artifact_root(path):
@@ -1008,7 +1499,7 @@ class SelectionFileResolver:
                                 f"invalid_matches={invalid_matches}. Restore the original JSON or re-encode the corpus.")
 
 
-def validate_index_selection(root, manifest, *, resolver=None):
+def validate_index_selection(root, manifest, *, resolver=None, view_selection_token_variants=False, view_selection_prefix_tokens=False):
     """Check the locked selection before building or reusing an adaptive index."""
     root = Path(root)
     configuration = manifest["configuration"]
@@ -1020,6 +1511,10 @@ def validate_index_selection(root, manifest, *, resolver=None):
     validate_dense_mode(root, bool(configuration.get("dense_representation")), bool(configuration.get("freeret_prompt_constraints")), bool(configuration.get("freeret_full_prompt")))
     if manifest.get("fingerprint") != digest(configuration):
         raise ValueError(f"Corrupt adaptive configuration fingerprint: {root / MANIFEST}")
+    if (configuration.get("version") == VARIANT_VERSION) != resolve_token_variants(view_selection_token_variants):
+        raise IncompatibleViewSelectionError("Adaptive encoding token-variant mode differs from USE_VIEW_TOKEN_VARIANTS")
+    if (configuration.get("version") == PREFIX_VERSION) != resolve_prefix_tokens(view_selection_prefix_tokens, token_variants=view_selection_token_variants):
+        raise IncompatibleViewSelectionError("Adaptive encoding prefix-token mode differs from USE_VIEW_PREFIX_TOKENS")
     filename = manifest.get("selection_file")
     if not isinstance(filename, str) or not filename:
         raise ValueError(f"Missing selection_file in {root / MANIFEST}; cannot validate the encoding rule")
@@ -1027,11 +1522,11 @@ def validate_index_selection(root, manifest, *, resolver=None):
     if not selection_path.is_absolute():
         selection_path = root / selection_path
     try:
-        selection = load_selection(selection_path, identity=configuration.get("model"), dataset=configuration.get("dataset"))
+        selection = load_selection(selection_path, identity=configuration.get("model"), dataset=configuration.get("dataset"), view_selection_token_variants=view_selection_token_variants, view_selection_prefix_tokens=view_selection_prefix_tokens)
     except FileNotFoundError:
         resolver = resolver if resolver is not None else SelectionFileResolver()
         recovered = resolver.recover(selection_path, root, manifest)
-        selection = load_selection(recovered, identity=configuration.get("model"), dataset=configuration.get("dataset"))
+        selection = load_selection(recovered, identity=configuration.get("model"), dataset=configuration.get("dataset"), view_selection_token_variants=view_selection_token_variants, view_selection_prefix_tokens=view_selection_prefix_tokens)
     if (selection["fingerprint"] != manifest.get("selection_fingerprint")
             or selection["views_fingerprint"] != configuration.get("views_fingerprint")
             or selection["selected"] != configuration.get("selected")
@@ -1045,10 +1540,9 @@ def validate_index_selection(root, manifest, *, resolver=None):
         raise ValueError("Adaptive manifest/selection option shuffle mismatch")
     require_equal(dict(examples=configuration.get(examples.FIELD)), dict(examples=selection.get(examples.FIELD)),
                   "Adaptive index example sampling")
-    from adaptive_view_probability_mass import FIELD as mass_field
+    from adaptive_view_probability_mass import FIELD as mass_field, is_selection as is_mass_selection
     require_equal(dict(strategy=configuration.get("selection_strategy"), mass=configuration.get(mass_field)),
-                  dict(strategy=selection.get("selection_strategy") if selection.get("version") in
-                       {PROBABILITY_MASS_VERSION, PMI_PROBABILITY_MASS_VERSION} else None,
+                  dict(strategy=selection.get("selection_strategy") if is_mass_selection(selection) else None,
                        mass=selection.get(mass_field)), "Adaptive index cumulative probability strategy")
     if is_overlap_selection(selection):
         require_equal(dict(full=selection["overlap_configuration"].get("freeret_full_prompt")),
@@ -1067,6 +1561,8 @@ def main():
     index_parser = commands.add_parser("index", help="Build collection/index from completed adaptive JSONL shards")
     index_parser.add_argument("--sparse-root", required=True)
     index_parser.add_argument("--threads", type=int, default=16)
+    from dense_representation import boolean
+    index_parser.add_argument("--view-selection-token-variants", "--view_selection_token_variants", type=boolean, nargs="?", const=True, default=False)
     index_parser.add_argument("--dry-run", action="store_true", help="Validate and report the layout/build without writing files")
     index_parser.add_argument("--view-selection-root", type=Path, default=os.environ.get("VIEW_SELECTION_ROOT") or None,
                               help="Find exact copies of missing selections here; defaults to the nearest view_selection directory")
@@ -1084,7 +1580,7 @@ def main():
             from adaptive_sparse_index_batch import check_artifact
             manifest = json.loads((root / MANIFEST).read_text(encoding="utf-8"))
             check_artifact(root, manifest, manifest["configuration"],
-                           resolver=SelectionFileResolver(args.view_selection_root))
+                           resolver=SelectionFileResolver(args.view_selection_root), view_selection_token_variants=args.view_selection_token_variants, view_selection_prefix_tokens=getattr(args, "view_selection_prefix_tokens", False))
         except (OSError, ValueError, KeyError, TypeError) as exc:
             parser.error(str(exc))
         from adaptive_sparse_index import build_sparse_index, collection_plan

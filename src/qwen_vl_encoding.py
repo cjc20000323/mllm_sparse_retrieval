@@ -169,6 +169,8 @@ def forward_views(model, batch, *, isolated):
 
 class NativeQwenEncoder:
     def __init__(self, model, processor, model_args, data_args, task):
+        from shared_five_views import validate_entry
+        validate_entry(model_args, data_args, task)
         method = (model_args.eol_type, model_args.calculate_type)
         if method not in METHODS:
             raise ValueError(f"Qwen adapter supports {sorted(METHODS)}, got {method}")

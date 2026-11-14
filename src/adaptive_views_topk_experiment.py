@@ -9,6 +9,10 @@ STOP_AFTER_STAGE2=true skips all ranker setup and execution. Each model/dataset
 shares one probability selection across IR directions; query and candidate
 prefixes always match. Whole-input dense vectors are shared across prefixes.
 Results use the existing retrieval/evaluation algorithms and 0..1 Recall scale.
+SWEEP_HYBRID_ALPHA=true evaluates 0.5..0.9 for every prefix, sharing retrieval
+scores across weights. Each weight has its own result fingerprint and report.
+IR_QUERY_TYPES=auto defaults COCO/Flickr to both directions in multi-dataset
+batches, and to text-to-image for a single dataset. Explicit directions win.
 """
 from __future__ import annotations
 
@@ -32,6 +36,7 @@ from uuid import uuid4
 
 PROJECT = Path(__file__).resolve().parents[1]
 COUNTS = tuple(range(1, 11))
+HYBRID_ALPHA_SWEEP = (0.5, 0.6, 0.7, 0.8, 0.9)
 VERSION = 1
 CHECKPOINTS = {
     "qwen2": "Qwen-Qwen2-VL-7B-Instruct",
@@ -52,11 +57,11 @@ DEFAULTS = {
     "QWEN_MIN_PIXELS": 0, "QWEN_MAX_PIXELS": 0, "VIEW_SELECTION_ROUNDS": 20,
     "VIEW_TEXTS_PER_ROUND": 8, "VIEW_IMAGES_PER_ROUND": 2, "VIEW_SELECTION_SEED": 42,
     "VIEW_EXAMPLE_MODE": "auto", "VIEW_EXAMPLE_MAX_TOKENS": 0,
-    "SHUFFLE_VIEW_OPTIONS": False, "VIEW_SELECTION_RUN_ID": "",
+    "SHUFFLE_VIEW_OPTIONS": False, "VIEW_SELECTION_RUN_ID": "", "FORCE_RESELECT_VIEWS": False,
     "USE_FREERET_DENSE": False, "USE_FREERET_PROMPT_CONSTRAINTS": False,
     "USE_FREERET_FULL_PROMPT": False, "STOP_AFTER_STAGE2": False,
     "STAGE1_DEPTH": 1000, "STAGE2_DEPTH": 1000, "SPARSE_THREADS": 16,
-    "HYBRID_ALPHA": 0.5, "RERANK_NUM": 5, "RERANK_BATCH_SIZE": 1,
+    "HYBRID_ALPHA": 0.5, "SWEEP_HYBRID_ALPHA": False, "RERANK_NUM": 5, "RERANK_BATCH_SIZE": 1,
     "GPUS": 1, "NUM_NODES": 1,
 }
 
@@ -75,6 +80,10 @@ def boolean(value):
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False,
                                      separators=(",", ":")).encode()).hexdigest()
+
+
+def hybrid_alphas(job):
+    return HYBRID_ALPHA_SWEEP if job.get("SWEEP_HYBRID_ALPHA", False) else (job["HYBRID_ALPHA"],)
 
 
 def atomic_json(path, value):
@@ -156,6 +165,8 @@ def _list(env, singular, plural, default, allowed):
 
 def build_jobs(env, project=PROJECT):
     """Resolve the complete matrix before creating outputs or starting workers."""
+    if boolean(env.get("FORCE_RESELECT_VIEWS") or False) and env.get("VIEW_SELECTION_FILE"):
+        raise ValueError("FORCE_RESELECT_VIEWS=true requires an empty VIEW_SELECTION_FILE; clear it to start a new experiment")
     if boolean(env.get("USE_LENS_SPARSE") or False):
         raise ValueError("LENS sparse mode is not supported by the Top-K experiment")
     if boolean(env.get("USE_STC_SPARSE") or False):
@@ -166,18 +177,33 @@ def build_jobs(env, project=PROJECT):
         return str((item if item.is_absolute() else project / item).resolve())
     families = _list(env, "MODEL_FAMILY", "MODEL_FAMILIES", "qwen25", CHECKPOINTS)
     datasets = _list(env, "DATASET", "DATASETS", "flickr", TASKS)
-    directions = _list(env, "IR_QUERY_TYPE", "IR_QUERY_TYPES", "text", ("text", "image"))
+    directions = _list(env, "IR_QUERY_TYPE", "IR_QUERY_TYPES", "auto", ("auto", "text", "image"))
+    if directions == ["auto"]:
+        directions = ["text", "image"] if len(datasets) > 1 else ["text"]
+    elif "auto" in directions:
+        raise ValueError("IR_QUERY_TYPES=auto cannot be combined with explicit text/image directions")
     if env.get("MODEL_PATH") and len(families) != 1:
         raise ValueError("MODEL_PATH requires one model family; use per-family MODEL_PATH_* for a batch")
     if env.get("VIEW_SELECTION_FILE") and len(families) * len(datasets) != 1:
         raise ValueError("VIEW_SELECTION_FILE requires one model/dataset pair (both IR directions are allowed)")
     controls = {}
+    controls["USE_VIEW_TOKEN_VARIANTS"] = boolean(env.get("USE_VIEW_TOKEN_VARIANTS") or False)
+    controls["USE_VIEW_PREFIX_TOKENS"] = boolean(env.get("USE_VIEW_PREFIX_TOKENS") or False)
+    if controls["USE_VIEW_PREFIX_TOKENS"]:
+        import adaptive_views as views
+        views.resolve_prefix_tokens(True, token_variants=controls["USE_VIEW_TOKEN_VARIANTS"])
+        for family in families:
+            views.option_scoring.prefix_for_family(family)
     stop_after_stage2 = boolean(env.get("STOP_AFTER_STAGE2") or False)
     for key, default in DEFAULTS.items():
         raw = default if stop_after_stage2 and key in {"RERANK_NUM", "RERANK_BATCH_SIZE"} else env.get(key, "") or default
         controls[key] = boolean(raw) if isinstance(default, bool) else type(default)(raw)
     for key in ("USE_VIEW_PMI", "USE_HIERARCHICAL_VIEWS"):
         controls[key] = boolean(env[key]) if env.get(key) else None
+    controls["VIEW_PMI_PRIOR_PROMPT_MODE"] = env.get("VIEW_PMI_PRIOR_PROMPT_MODE") or None
+    if controls["VIEW_PMI_PRIOR_PROMPT_MODE"] is not None:
+        import adaptive_views as views
+        controls["VIEW_PMI_PRIOR_PROMPT_MODE"] = views.resolve_pmi_prior_prompt_mode(controls["VIEW_PMI_PRIOR_PROMPT_MODE"], pmi=controls["USE_VIEW_PMI"])
     controls["VIEW_SELECTION_MODALITY"] = env.get("VIEW_SELECTION_MODALITY") or None
     for key in ("TEXT_SPARSE_LENGTH", "IMAGE_SPARSE_LENGTH"):
         controls[key] = int(env.get(key) or controls["SPARSE_LENGTH"])
@@ -217,6 +243,11 @@ def build_jobs(env, project=PROJECT):
     root = path(env.get("OUTPUT_ROOT") or "./adaptive_topk_results")
     data_root = path(env.get("DATA_ROOT") or "/root/autodl-tmp")
     selection_root = path(env.get("SPARSE_OUTPUT_ROOT") or "./sparse_output")
+    if controls["FORCE_RESELECT_VIEWS"]:
+        run_id = uuid4().hex
+        controls["force_reselection_run_id"] = run_id
+        root = str(Path(root) / "reselect_runs" / run_id)
+        selection_root = str(Path(selection_root) / "reselect_runs" / run_id)
     checkpoint_root = Path(path(env.get("CHECKPOINT_ROOT") or "/root/autodl-fs/checkpoints"))
     jobs = []
     for family in families:
@@ -248,6 +279,8 @@ def build_jobs(env, project=PROJECT):
 
 def pipeline_args(job, api):
     args = api._parser().parse_args(["--dataset-name", job["dataset"], "--task-type", job["task"], "--query-type", job["query_type"]])
+    args.view_selection_token_variants = job.get("USE_VIEW_TOKEN_VARIANTS", False)
+    args.view_selection_prefix_tokens = job.get("USE_VIEW_PREFIX_TOKENS", False)
     mapping = {"DATASET_SPLIT": "dataset_split", "REPS_LOC": "retrieval_reps_loc", "DTYPE": "retrieval_dtype",
                "LLAVA_IMAGE_MODE": "retrieval_llava_image_mode", "QWEN_MIN_PIXELS": "retrieval_qwen_min_pixels",
                "QWEN_MAX_PIXELS": "retrieval_qwen_max_pixels", "RETRIEVAL_BATCH_SIZE": "retrieval_batch_size"}
@@ -274,13 +307,15 @@ def pipeline_args(job, api):
 
 def selection_options(job, views):
     options = views.AdaptiveViewArguments()
-    mapping = {"USE_VIEW_PMI": "view_selection_pmi", "USE_HIERARCHICAL_VIEWS": "view_selection_hierarchical",
+    mapping = {"VIEW_PMI_PRIOR_PROMPT_MODE": "view_pmi_prior_prompt_mode", "USE_VIEW_PMI": "view_selection_pmi", "USE_HIERARCHICAL_VIEWS": "view_selection_hierarchical",
+               "USE_VIEW_TOKEN_VARIANTS": "view_selection_token_variants",
+               "USE_VIEW_PREFIX_TOKENS": "view_selection_prefix_tokens",
                "SHUFFLE_VIEW_OPTIONS": "view_selection_shuffle", "VIEW_SELECTION_RUN_ID": "view_selection_shuffle_run_id"}
     for key in ("VIEW_SELECTION_MODALITY", "VIEW_SELECTION_ROUNDS", "VIEW_TEXTS_PER_ROUND", "VIEW_IMAGES_PER_ROUND",
                 "VIEW_SELECTION_SEED", "VIEW_EXAMPLE_MODE", "VIEW_EXAMPLE_MAX_TOKENS"):
         mapping[key] = key.lower()
     for key, target in mapping.items():
-        if job[key] is not None:
+        if job.get(key) is not None:
             setattr(options, target, job[key])
     return options
 
@@ -289,17 +324,24 @@ def resolve_selection(job, args, identity, config, get_runtime, api):
     import adaptive_views as views
     import adaptive_view_encoding as adaptive
     import adaptive_view_shuffle as shuffle
+    import adaptive_token_diagnostics as token_diagnostics
     options = selection_options(job, views)
+    if views.resolve_prefix_tokens(getattr(options, "view_selection_prefix_tokens", False), token_variants=options.view_selection_token_variants):
+        views.option_scoring.prefix_for_family(views.family_of(config))
     explicit = job["VIEW_SELECTION_FILE"]
+    if job.get("FORCE_RESELECT_VIEWS", False) and explicit:
+        raise ValueError("FORCE_RESELECT_VIEWS=true requires an empty VIEW_SELECTION_FILE; clear it to start a new experiment")
     if explicit:
         selection = views.load_selection(explicit, identity=identity, dataset=job["dataset"],
-            selection_modality=job["VIEW_SELECTION_MODALITY"], view_selection_pmi=job["USE_VIEW_PMI"],
-            view_selection_hierarchical=job["USE_HIERARCHICAL_VIEWS"])
+            selection_modality=job["VIEW_SELECTION_MODALITY"], view_selection_pmi=job["USE_VIEW_PMI"], view_pmi_prior_prompt_mode=job.get("VIEW_PMI_PRIOR_PROMPT_MODE"),
+            view_selection_hierarchical=job["USE_HIERARCHICAL_VIEWS"], view_selection_token_variants=job.get("USE_VIEW_TOKEN_VARIANTS", False), view_selection_prefix_tokens=job.get("USE_VIEW_PREFIX_TOKENS", False))
         mapping = selection.get(shuffle.FIELD)
         if job["VIEW_SELECTION_RUN_ID"] and (mapping is None or mapping["run_id"] != shuffle.validate_run_id(job["VIEW_SELECTION_RUN_ID"])):
             raise ValueError("VIEW_SELECTION_FILE does not match VIEW_SELECTION_RUN_ID")
         if job["SHUFFLE_VIEW_OPTIONS"] and mapping is None:
             raise ValueError("SHUFFLE_VIEW_OPTIONS=true requires a source file with a recorded option mapping")
+        diagnostics = token_diagnostics.load(explicit, selection)
+        token_diagnostics.log_records(diagnostics["records"], cached=True)
         # Selection controls belong to the immutable source file. All groups inherit them.
         return selection, str(Path(explicit).resolve())
     mode = views.resolve_modality(options.view_selection_modality)
@@ -308,20 +350,27 @@ def resolve_selection(job, args, identity, config, get_runtime, api):
     permutation = shuffle.for_options(options, identity, job["dataset"], views.view_pool(candidate_mode))
     source_split = job["VIEW_SELECTION_SPLIT"] or job["DATASET_SPLIT"]
     key = views.selection_cache_key(identity, job["dataset"], source_split, mode, sampling, job["data_root"],
-        pmi=bool(options.view_selection_pmi), shuffle=permutation, pool_mode=candidate_mode)
-    location = views.selection_cache_path(job["selection_root"], job["model_path"], job["dataset"], key)
-    if location.is_file():
+        pmi=bool(options.view_selection_pmi), prior_prompt_mode=options.view_pmi_prior_prompt_mode, shuffle=permutation, pool_mode=candidate_mode, token_variants=job.get("USE_VIEW_TOKEN_VARIANTS", False), prefix_tokens=job.get("USE_VIEW_PREFIX_TOKENS", False))
+    base_location = views.selection_cache_path(job["selection_root"], job["model_path"], job["dataset"], key)
+    location = base_location.parent / token_diagnostics.CACHE_DIRECTORY / base_location.name
+    if location.is_file() and location.with_name(token_diagnostics.FILENAME).is_file():
         selection = views.load_selection(location, identity=identity, dataset=job["dataset"], selection_modality=mode,
-            view_selection_pmi=bool(options.view_selection_pmi), view_selection_hierarchical=bool(options.view_selection_hierarchical),
-            view_example_mode=options.view_example_mode, view_example_max_tokens=options.view_example_max_tokens)
+            view_selection_pmi=bool(options.view_selection_pmi), view_pmi_prior_prompt_mode=options.view_pmi_prior_prompt_mode, view_selection_hierarchical=bool(options.view_selection_hierarchical),
+            view_example_mode=options.view_example_mode, view_example_max_tokens=options.view_example_max_tokens, view_selection_token_variants=job.get("USE_VIEW_TOKEN_VARIANTS", False), view_selection_prefix_tokens=job.get("USE_VIEW_PREFIX_TOKENS", False))
         views.require_equal(selection["sampling"], sampling, "Top-K selection sampling")
         views.require_equal(dict(mapping=selection.get(shuffle.FIELD)), dict(mapping=permutation), "Top-K option mapping")
+        diagnostics = token_diagnostics.load(location, selection)
+        token_diagnostics.log_records(diagnostics["records"], cached=True)
         return selection, str(location.resolve())
     source_args = copy.copy(args)
     source_args.dataset_split = source_split
     texts, images = adaptive.source_pools(source_args, api, mode)
     runtime = get_runtime()
-    selection = views.choose_views(runtime.encoder, runtime.processor, identity, job["dataset"], source_split, texts, images, options)
+    collector = token_diagnostics.Collector()
+    selection = views.choose_views(runtime.encoder, runtime.processor, identity, job["dataset"], source_split, texts, images, options,
+                                   token_probability_callback=collector)
+    diagnostics = collector.finish(selection)
+    views.atomic_json(location.with_name(token_diagnostics.FILENAME), diagnostics)
     views.atomic_json(location, selection)
     views.atomic_json(location.with_name("view_pool.json"), selection["pool"])
     if permutation:
@@ -340,12 +389,15 @@ def ranked_views(selection):
     ranking = views.rank_probabilities(matrices["text"], matrices["image"], selection["pool"], selection_modality=mode)
     if not np.allclose(selection["scores"], ranking["scores"], atol=1e-7):
         raise ValueError("Saved candidate probabilities differ from their per-round aggregate")
+    diagnostics = views.aggregate_choice_diagnostics(selection) if views.uses_choice_scoring(selection) else None
     order = sorted(range(len(selection["pool"])), key=lambda index: (-ranking["scores"][index], index))
     if len(order) < max(COUNTS):
         raise ValueError(f"Top-1..{max(COUNTS)} experiment requires at least {max(COUNTS)} candidate perspectives")
     return [dict(rank=rank + 1, **selection["pool"][index], probability=ranking["scores"][index],
                  text_mean=None if ranking["text_mean"] is None else ranking["text_mean"][index],
-                 image_mean=None if ranking["image_mean"] is None else ranking["image_mean"][index])
+                 image_mean=None if ranking["image_mean"] is None else ranking["image_mean"][index],
+                 **(dict(vocabulary_probability=diagnostics["vocabulary_scores"][index],
+                         option_probability=diagnostics["option_scores"][index]) if diagnostics is not None else {}))
             for rank, index in enumerate(order)]
 
 
@@ -356,8 +408,8 @@ def prefix_selection(source, ranking, count):
     result = copy.deepcopy(source)
     result["selected"] = [dict(label=row["label"], aspect=row["aspect"]) for row in ranking[:count]]
     result["views_fingerprint"] = views.views_fingerprint(result["selected"], source["selection_modality"],
-        pmi=views.is_pmi_selection(source), shuffle=source.get(shuffle.FIELD), pool_mode=views.pool_mode(source),
-        example_configuration=source.get(views.examples.FIELD))
+        pmi=views.is_pmi_selection(source), prior_prompt_mode=views.resolve_pmi_prior_prompt_mode(selection=source), shuffle=source.get(shuffle.FIELD), pool_mode=views.pool_mode(source),
+        example_configuration=source.get(views.examples.FIELD), token_variants=views.uses_token_variants(source), prefix_tokens=views.uses_prefix_tokens(source))
     result["fingerprint"] = views.digest({key: value for key, value in result.items() if key != "fingerprint"})
     return result
 
@@ -477,7 +529,7 @@ def ensure_index(root, configuration, *, threads=16):
     stamp(root, configuration, [item for item in index.rglob("*") if item.is_file() and item.name != "write.lock"], name)
 
 
-def retrieve_prefix(args, encoded, sparse_root, dense_root, api):
+def retrieve_prefix(args, encoded, sparse_root, dense_root, api, *, fuse=True):
     """Same three-stage primitives, with independently validated Top-K artifacts."""
     api._validate_encoded_queries(encoded)
     # Top-K artifacts use this layout for every model, without a Qwen/adaptive
@@ -493,7 +545,7 @@ def retrieve_prefix(args, encoded, sparse_root, dense_root, api):
         depth=args.stage2_depth, candidate_filter=candidates, normalize=not args.no_dense_normalize, timing=second)
     sparse = api.retrieve_sparse_topics_from_lucene(index_path, encoded.sparse_topics, list(stage1),
         depth=max(args.stage2_depth, args.stage1_depth), threads=args.sparse_threads, progress_prefix="[stage2]", timing=second)
-    hybrid = api.fuse_restricted_runs(stage1, dense, sparse, args.hybrid_alpha, args.stage1_depth, timing=second)
+    hybrid = api.fuse_restricted_runs(stage1, dense, sparse, args.hybrid_alpha, args.stage1_depth, timing=second) if fuse else {}
     return stage1, dense, sparse, hybrid, first, second
 
 
@@ -528,89 +580,104 @@ def run_prefixes(job, args, context, selection, ranking, experiment, artifacts, 
             return pickle.load(stream)
     ids, dense = rank_action(read_queries)
     summary = []
+    sweep = job.get("SWEEP_HYBRID_ALPHA", False)
     for count in COUNTS:
-        configuration = dict(version=VERSION, encoding=digest(encoding_config), count=count,
-            stop_after_stage2=job["STOP_AFTER_STAGE2"], stage1_depth=args.stage1_depth, stage2_depth=args.stage2_depth,
-            alpha=args.hybrid_alpha, sparse_threads=args.sparse_threads,
-            ranker_identity=None if job["STOP_AFTER_STAGE2"] else views.checkpoint_identity(args.ranker_model_name_or_path),
-            ranker={} if job["STOP_AFTER_STAGE2"] else {key: value for key, value in vars(args).items()
-                if key.startswith("ranker_") or key.startswith("rerank_") or key == "modify_type"})
-        mode = "two_stage" if job["STOP_AFTER_STAGE2"] else "three_stage"
-        result_dir = Path(experiment) / f"top_{count}" / f"stage1_{args.stage1_depth}_stage2_{args.stage2_depth}" / mode / digest(configuration)[:16]
-        ready = adaptive.root_action(context.rank, lambda: completed(result_dir, configuration))
-        if ready:
-            if context.is_main:
+        # Load/score this prefix lazily, only if at least one weight is missing.
+        local = None
+        for alpha in hybrid_alphas(job):
+            point_job = dict(job, HYBRID_ALPHA=alpha)
+            point_args = copy.copy(args)
+            point_args.hybrid_alpha = alpha
+            configuration = dict(version=VERSION, encoding=digest(encoding_config), count=count,
+                stop_after_stage2=job["STOP_AFTER_STAGE2"], stage1_depth=args.stage1_depth, stage2_depth=args.stage2_depth,
+                alpha=alpha, sparse_threads=args.sparse_threads,
+                ranker_identity=None if job["STOP_AFTER_STAGE2"] else views.checkpoint_identity(args.ranker_model_name_or_path),
+                ranker={} if job["STOP_AFTER_STAGE2"] else {key: value for key, value in vars(point_args).items()
+                    if key.startswith("ranker_") or key.startswith("rerank_") or key == "modify_type"})
+            mode = "two_stage" if job["STOP_AFTER_STAGE2"] else "three_stage"
+            result_dir = Path(experiment) / f"top_{count}" / f"stage1_{args.stage1_depth}_stage2_{args.stage2_depth}" / mode / digest(configuration)[:16]
+            ready = adaptive.root_action(context.rank, lambda: completed(result_dir, configuration))
+            if ready:
+                if context.is_main:
+                    report = json.loads((result_dir / "recall_metrics.json").read_text(encoding="utf-8"))
+                    summary.extend(summary_rows(point_job, ranking, count, report, result_dir))
+                    publish_summary(job, summary, experiment)
+                continue
+            if local is None:
+                adaptive.root_action(context.rank, lambda: ensure_index(sparse_roots[count],
+                    dict(version=VERSION, encoding=digest(encoding_config), count=count), threads=job["SPARSE_THREADS"]))
+                def read_topics():
+                    topics = {}
+                    with (Path(artifacts) / "queries" / f"top_{count}" / f"query_{context.rank}.jsonl").open(encoding="utf-8") as stream:
+                        for line in stream:
+                            row = json.loads(line)
+                            if row["id"] in topics:
+                                raise ValueError(f"Duplicate query ID: {row['id']}")
+                            topics[row["id"]] = api._vector_to_topic(row["vector"])
+                    return topics
+                encoded = api.EncodedQueries(ids, dense, rank_action(read_topics))
+                local = rank_action(lambda: retrieve_prefix(point_args, encoded, sparse_roots[count], dense_root, api, fuse=False))
+                del encoded  # Expanded topics are no longer needed for fusion/reranking.
+                first, dense_run, sparse_run = [api._gather_run(run, context) for run in local[:3]]
+                first_timing = api._collect_stage_timing(local[4], context)
+                if sweep:
+                    scoring_timing = api._collect_stage_timing(local[5], context)
+            adaptive.root_action(context.rank, lambda: result_dir.mkdir(parents=True, exist_ok=True))
+            # Never accumulate fusion spans from previous weights. Single-weight
+            # reports retain their original combined Stage-2 timing structure.
+            timer = api.StageTimer() if sweep else copy.deepcopy(local[5])
+            local_hybrid = rank_action(lambda: api.fuse_restricted_runs(
+                local[0], local[1], local[2], alpha, args.stage1_depth, timing=timer))
+            hybrid_run = api._gather_run(local_hybrid, context)
+            timers = {"stage1": first_timing, "stage2": api._collect_stage_timing(timer, context)}
+            if sweep and context.is_main:
+                timers["stage1"] = dict(first_timing, shared_across_weights=True)
+                timers["stage2_shared_scoring"] = dict(scoring_timing, shared_across_weights=True)
+            reporter = None
+            def save_retrieval():
+                nonlocal reporter
+                if not first:
+                    raise ValueError("No query IDs available for Top-K evaluation")
+                api._validate_query_coverage(first, hybrid_run, "Stage 2")
+                reporter = api.RecallReporter(point_args, first, result_dir)
+                for name, run in (("stage1", first), ("stage2_dense", dense_run), ("stage2_sparse", sparse_run), ("stage2_hybrid", hybrid_run)):
+                    api.write_trec_run(run, result_dir / f"{name}_run.trec", name)
+                    api.write_json_run(run, result_dir / f"{name}_run.json")
+                reporter.record("stage1", {"sparse_concat": first})
+                reporter.record("stage2", {"dense": dense_run, "sparse": sparse_run, "hybrid": hybrid_run})
                 report = json.loads((result_dir / "recall_metrics.json").read_text(encoding="utf-8"))
-                summary.extend(summary_rows(job, ranking, count, report, result_dir))
+                publish_summary(job, summary + summary_rows(point_job, ranking, count, report, result_dir), experiment)
+            adaptive.root_action(context.rank, save_retrieval)
+            if not job["STOP_AFTER_STAGE2"]:
+                timer = api.StageTimer()
+                local_ranker = rank_action(lambda: api.run_stage3(point_args, local_hybrid, context, timing=timer))
+                ranked = api._gather_run(local_ranker, context)
+                timers["stage3"] = api._collect_stage_timing(timer, context)
+                def save_ranker():
+                    api._validate_query_coverage(first, ranked, "Stage 3")
+                    api.write_trec_run(ranked, result_dir / "stage3_ranker_run.trec", "stage3_ranker")
+                    api.write_json_run(ranked, result_dir / "stage3_ranker_run.json")
+                    reporter.record("stage3", {"ranker": ranked})
+                adaptive.root_action(context.rank, save_ranker)
+            def finish():
+                metadata = dict(configuration=configuration,
+                    selection_fingerprint=selection["fingerprint"], selected=ranking[:count],
+                    stage3_status="skipped" if job["STOP_AFTER_STAGE2"] else "completed", dense_shared=True,
+                    artifacts=str(artifacts), timing_scope="retrieval/reranking compute; excludes shared encoding, setup and I/O")
+                if sweep:
+                    metadata.update(shared_scoring_group=str(result_dir.parent),
+                        timing_scope="stage2 is this weight's fusion only; stage1 and stage2_shared_scoring are shared across weights and must not be summed across weights; excludes shared encoding, setup and I/O")
+                atomic_json(result_dir / "pipeline_metadata.json", metadata)
+                atomic_json(result_dir / "timing_metrics.json", timers)
+                write_csv(result_dir / "timing_metrics.csv", [dict(stage=stage, seconds=value["compute_seconds"],
+                    **({"shared_across_weights": value.get("shared_across_weights", False)} if sweep else {}))
+                    for stage, value in timers.items()])
+                stamp(result_dir, configuration, [file for file in result_dir.iterdir() if file.is_file() and file.name != "complete.json"])
+                report = json.loads((result_dir / "recall_metrics.json").read_text(encoding="utf-8"))
+                summary.extend(summary_rows(point_job, ranking, count, report, result_dir))
                 publish_summary(job, summary, experiment)
-            continue
-        adaptive.root_action(context.rank, lambda: ensure_index(sparse_roots[count],
-            dict(version=VERSION, encoding=digest(encoding_config), count=count), threads=job["SPARSE_THREADS"]))
-        adaptive.root_action(context.rank, lambda: result_dir.mkdir(parents=True, exist_ok=True))
-        def read_topics():
-            topics = {}
-            with (Path(artifacts) / "queries" / f"top_{count}" / f"query_{context.rank}.jsonl").open(encoding="utf-8") as stream:
-                for line in stream:
-                    row = json.loads(line)
-                    if row["id"] in topics:
-                        raise ValueError(f"Duplicate query ID: {row['id']}")
-                    topics[row["id"]] = api._vector_to_topic(row["vector"])
-            return topics
-        encoded = api.EncodedQueries(ids, dense, rank_action(read_topics))
-        error, local = None, None
-        try:
-            local = retrieve_prefix(args, encoded, sparse_roots[count], dense_root, api)
-        except Exception as exc:
-            error = f"{type(exc).__name__}: {exc}"
-        adaptive.worker_errors(error)
-        del encoded  # Release expanded topics before the next prefix or reranker.
-        first, dense_run, sparse_run, hybrid_run = [api._gather_run(run, context) for run in local[:4]]
-        timers = {"stage1": api._collect_stage_timing(local[4], context), "stage2": api._collect_stage_timing(local[5], context)}
-        reporter = None
-        def save_retrieval():
-            nonlocal reporter
-            if not first:
-                raise ValueError("No query IDs available for Top-K evaluation")
-            api._validate_query_coverage(first, hybrid_run, "Stage 2")
-            reporter = api.RecallReporter(args, first, result_dir)
-            for name, run in (("stage1", first), ("stage2_dense", dense_run), ("stage2_sparse", sparse_run), ("stage2_hybrid", hybrid_run)):
-                api.write_trec_run(run, result_dir / f"{name}_run.trec", name)
-                api.write_json_run(run, result_dir / f"{name}_run.json")
-            reporter.record("stage1", {"sparse_concat": first})
-            reporter.record("stage2", {"dense": dense_run, "sparse": sparse_run, "hybrid": hybrid_run})
-            report = json.loads((result_dir / "recall_metrics.json").read_text(encoding="utf-8"))
-            publish_summary(job, summary + summary_rows(job, ranking, count, report, result_dir), experiment)
-        adaptive.root_action(context.rank, save_retrieval)
-        if not job["STOP_AFTER_STAGE2"]:
-            timer = api.StageTimer()
-            error, local_ranker = None, None
-            try:
-                local_ranker = api.run_stage3(args, local[3], context, timing=timer)
-            except Exception as exc:
-                error = f"{type(exc).__name__}: {exc}"
-            adaptive.worker_errors(error)
-            ranked = api._gather_run(local_ranker, context)
-            timers["stage3"] = api._collect_stage_timing(timer, context)
-            def save_ranker():
-                api._validate_query_coverage(first, ranked, "Stage 3")
-                api.write_trec_run(ranked, result_dir / "stage3_ranker_run.trec", "stage3_ranker")
-                api.write_json_run(ranked, result_dir / "stage3_ranker_run.json")
-                reporter.record("stage3", {"ranker": ranked})
-            adaptive.root_action(context.rank, save_ranker)
-        def finish():
-            atomic_json(result_dir / "pipeline_metadata.json", dict(configuration=configuration,
-                selection_fingerprint=selection["fingerprint"], selected=ranking[:count],
-                stage3_status="skipped" if job["STOP_AFTER_STAGE2"] else "completed", dense_shared=True,
-                artifacts=str(artifacts), timing_scope="retrieval/reranking compute; excludes shared encoding, setup and I/O"))
-            atomic_json(result_dir / "timing_metrics.json", timers)
-            write_csv(result_dir / "timing_metrics.csv", [dict(stage=stage, seconds=value["compute_seconds"])
-                for stage, value in timers.items()])
-            stamp(result_dir, configuration, [file for file in result_dir.iterdir() if file.is_file() and file.name != "complete.json"])
-            report = json.loads((result_dir / "recall_metrics.json").read_text(encoding="utf-8"))
-            summary.extend(summary_rows(job, ranking, count, report, result_dir))
-            publish_summary(job, summary, experiment)
-            print(f"[topk] completed Top-{count}: {result_dir}", flush=True)
-        adaptive.root_action(context.rank, finish)
+                print(f"[topk] completed Top-{count} alpha={alpha:g}: {result_dir}", flush=True)
+            adaptive.root_action(context.rank, finish)
 
 
 def run_worker(job, local_rank=-1):
@@ -650,11 +717,15 @@ def run_worker(job, local_rank=-1):
                 "freeret_prompt_catalog.py", "freeret_prompt_constraints.py", "freeret_full_prompt.py")})
         experiment = Path(job["output_root"]) / job["model_family"] / Path(job["model_path"]).name / job["dataset"] / job["query_type"] / job["DATASET_SPLIT"] / digest(configuration)[:16]
         def prepare():
+            import adaptive_token_diagnostics as token_diagnostics
+            diagnostics = token_diagnostics.load(source_path, selection)
             experiment.mkdir(parents=True, exist_ok=True)
             atomic_json(experiment / "experiment.json", dict(configuration=configuration, fingerprint=digest(configuration), source_file=source_path))
             atomic_json(experiment / "view_selection.json", selection)
             atomic_json(experiment / "view_ranking.json", ranking)
             write_csv(experiment / "view_ranking.csv", ranking)
+            atomic_json(experiment / token_diagnostics.FILENAME, diagnostics)
+            write_csv(experiment / "view_token_probabilities.csv", diagnostics["records"], columns=token_diagnostics.CSV_COLUMNS)
             for count in COUNTS:
                 atomic_json(experiment / f"top_{count}" / "selected_views.json", dict(count=count,
                     source_fingerprint=selection["fingerprint"], selected=ranking[:count]))
@@ -687,7 +758,17 @@ def run_worker(job, local_rank=-1):
 
 
 def run_batch(env, *, runner=subprocess.run):
+    try:
+        master_port = int(env.get("MASTER_PORT") or "29500")
+    except ValueError:
+        raise ValueError("MASTER_PORT must be an integer between 1 and 65535") from None
+    if not 1 <= master_port <= 65535:
+        raise ValueError("MASTER_PORT must be an integer between 1 and 65535")
     jobs = build_jobs(env)
+    if jobs and jobs[0].get("FORCE_RESELECT_VIEWS", False):
+        print(f"[topk] force_reselect_views=true run_id={jobs[0]['force_reselection_run_id']}\n"
+              f"[topk] selection_root: {jobs[0]['selection_root']}\n"
+              f"[topk] output_root: {jobs[0]['output_root']}", flush=True)
     from adaptive_encode_batch import annotation_files
     runnable, missing = [], []
     for job in jobs:
@@ -712,10 +793,12 @@ def run_batch(env, *, runner=subprocess.run):
     for index, job in enumerate(runnable, 1):
         job = dict(job, batch_dir=str(batch), job_index=index)
         path = batch / f"job_{index:05d}.json"
-        command = [env.get("DEEPSPEED_BIN") or "deepspeed", f"--num_gpus={job['GPUS']}", f"--num_nodes={job['NUM_NODES']}",
+        command = [env.get("DEEPSPEED_BIN") or "deepspeed", f"--master_port={master_port}",
+                   f"--num_gpus={job['GPUS']}", f"--num_nodes={job['NUM_NODES']}",
                    str(PROJECT / "src" / "adaptive_views_topk_experiment.py"), "--worker", str(path)]
         print(f"[topk] job {index}/{len(runnable)}: {job['model_family']}/{job['dataset']}/{job['query_type']}; "
-              f"Top-1..{max(COUNTS)}; {'two stages' if job['STOP_AFTER_STAGE2'] else 'three stages'}", flush=True)
+              f"Top-1..{max(COUNTS)}; alphas={list(hybrid_alphas(job))}; "
+              f"{'two stages' if job['STOP_AFTER_STAGE2'] else 'three stages'}", flush=True)
         print(json.dumps(dict(command=command, configuration=job), ensure_ascii=False), flush=True)
         if dry:
             continue

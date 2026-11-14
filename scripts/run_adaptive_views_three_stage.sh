@@ -38,6 +38,23 @@ USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prep
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.sh" || exit $?
 # Run retrieval against completed adaptive-view artifacts and existing Lucene indexes.
 set -euo pipefail
+# Opt in to summing all vocabulary variants of each view option; match this across encoding/index/search.
+export USE_VIEW_TOKEN_VARIANTS="${USE_VIEW_TOKEN_VARIANTS-false}"
+# Exact uppercase prefix token for LLaVA only; incompatible with vocabulary variant sums.
+export USE_VIEW_PREFIX_TOKENS="${USE_VIEW_PREFIX_TOKENS-false}"
+case "${USE_VIEW_PREFIX_TOKENS,,}" in
+    true|1|yes) USE_VIEW_PREFIX_TOKENS=true ;;
+    false|0|no) USE_VIEW_PREFIX_TOKENS=false ;;
+    *) echo 'Invalid USE_VIEW_PREFIX_TOKENS: use true or false' >&2; exit 2 ;;
+esac
+# Optional PMI prior prompt: false keeps the candidate list; instruction_only removes it.
+# VIEW_PMI_PRIOR_PROMPT_MODE=false
+if [[ -v VIEW_PMI_PRIOR_PROMPT_MODE ]]; then
+    case "${VIEW_PMI_PRIOR_PROMPT_MODE,,}" in
+        false|instruction_only) export VIEW_PMI_PRIOR_PROMPT_MODE="${VIEW_PMI_PRIOR_PROMPT_MODE,,}" ;;
+        *) echo 'Invalid VIEW_PMI_PRIOR_PROMPT_MODE: use false or instruction_only' >&2; exit 2 ;;
+    esac
+fi
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
@@ -87,7 +104,7 @@ PIPELINE_ARGS=()
 while (($#)); do
     case "${1%%=*}" in
         -h|--help) usage; exit 0 ;;
-        --stage2-method|--stage2_method|--view-selection-file|--stage1-sparse-index|--stage2-dense-index|--stage2-sparse-index)
+        --stage2-method|--stage2_method|--view-selection-file|--view-selection-token-variants|--view_selection_token_variants|--stage1-sparse-index|--stage2-dense-index|--stage2-sparse-index)
             CLI_OPTION="${1%%=*}"
             if [[ "$1" == *=* ]]; then
                 CLI_VALUE="${1#*=}"
@@ -100,6 +117,7 @@ while (($#)); do
             [[ -n "${CLI_VALUE}" ]] || die "${CLI_OPTION} requires a non-empty value."
             case "${CLI_OPTION}" in
                 --view-selection-file) VIEW_SELECTION_FILE="${CLI_VALUE}" ;;
+                --view-selection-token-variants|--view_selection_token_variants) USE_VIEW_TOKEN_VARIANTS="${CLI_VALUE}" ;;
                 --stage1-sparse-index) STAGE1_SPARSE_INDEX="${CLI_VALUE}" ;;
                 --stage2-dense-index) DENSE_CORPUS_DIR="${CLI_VALUE}" ;;
                 --stage2-sparse-index) SPARSE_CORPUS_DIR="${CLI_VALUE}" ;;
@@ -124,6 +142,7 @@ command -v "${PYTHON_BIN}" >/dev/null 2>&1 || die "Python not found: ${PYTHON_BI
 
 "${PYTHON_BIN}" -B - "${VIEW_SELECTION_FILE}" "${DENSE_CORPUS_DIR}" "${SPARSE_CORPUS_DIR}" "${STAGE1_SPARSE_INDEX}" <<'PY'
 import json
+import os
 from pathlib import Path
 import shlex
 import sys
@@ -152,7 +171,7 @@ try:
     selection_path, dense, sparse, first_sparse = (Path(value).expanduser() for value in sys.argv[1:])
     if not selection_path.is_file():
         fail(f"View selection file does not exist: {selection_path}")
-    selection = load_selection(selection_path)
+    selection = load_selection(selection_path, view_selection_token_variants=os.environ["USE_VIEW_TOKEN_VARIANTS"])
     if not dense.is_dir():
         fail(f"Dense corpus directory does not exist: {dense}")
     dense_manifest = completion(dense, "dense")
@@ -166,7 +185,7 @@ try:
         completion(root, label)
         index = resolve_sparse_index(path, require=False)
         if not any(item.is_file() for item in index.glob("segments_*")):
-            command = shlex.join([sys.executable, "-B", "src/adaptive_views.py", "index", "--sparse-root", str(root)])
+            command = shlex.join([sys.executable, "-B", "src/adaptive_views.py", "index", "--sparse-root", str(root), "--view-selection-token-variants", os.environ["USE_VIEW_TOKEN_VARIANTS"]])
             fail(f"Missing {label} Lucene index (no segments_*) at {index}.\nBuild it separately:\n  {command}")
         print(f"{label}: {index}", flush=True)
 except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:

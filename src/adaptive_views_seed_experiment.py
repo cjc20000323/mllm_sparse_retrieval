@@ -65,6 +65,9 @@ def parser():
     result.add_argument("--view-texts-per-round", type=int, default=8, help="Fixed mode only")
     result.add_argument("--view-images-per-round", type=int, default=2, help="Fixed mode only")
     result.add_argument("--use-view-pmi", type=boolean, default=False)
+    result.add_argument("--view-pmi-prior-prompt-mode", choices=("false", "instruction_only"))
+    result.add_argument("--use-view-token-variants", "--view-selection-token-variants", "--view_selection_token_variants",
+                        type=boolean, nargs="?", const=True, default=False)
     result.add_argument("--use-hierarchical-views", type=boolean, default=False)
     result.add_argument("--shuffle-view-options", type=boolean, default=False)
     result.add_argument("--view-selection-run-id", default="",
@@ -75,6 +78,8 @@ def parser():
 
 
 def validate_args(args):
+    from adaptive_views import resolve_pmi_prior_prompt_mode
+    resolve_pmi_prior_prompt_mode(getattr(args, "view_pmi_prior_prompt_mode", None), pmi=args.use_view_pmi)
     args.model_path = (args.model_path or args.checkpoint_root / CHECKPOINTS[args.model_family]).expanduser().resolve()
     for name in ("data_root", "output_root"):
         setattr(args, name, getattr(args, name).expanduser().resolve())
@@ -121,7 +126,8 @@ def preflight(args):
 
 
 def configuration(args):
-    return {name: str(value) if isinstance(value, Path) else value for name, value in vars(args).items()}
+    return {name: str(value) if isinstance(value, Path) else value for name, value in vars(args).items()
+            if name != "use_view_token_variants" or value}
 
 
 def pipeline_args(args, api):
@@ -134,6 +140,7 @@ def pipeline_args(args, api):
     result.retrieval_model_name_or_path = str(args.model_path)
     result.retrieval_lora_model_path = str(args.lora_model_path) if args.lora_model_path else None
     result.adaptive_views = True
+    result.view_selection_token_variants = args.use_view_token_variants
     result.retrieval_device_map = "none"
     for name in ("device", "dtype", "reps_loc", "llava_image_mode", "qwen_min_pixels", "qwen_max_pixels"):
         setattr(result, "retrieval_" + name, getattr(args, name))
@@ -143,9 +150,11 @@ def pipeline_args(args, api):
 def selection_options(args, views):
     return views.AdaptiveViewArguments(
         adaptive_views=True, view_selection_hierarchical=args.use_hierarchical_views,
+        view_selection_token_variants=args.use_view_token_variants, view_selection_prefix_tokens=getattr(args, "use_view_prefix_tokens", False),
         view_selection_shuffle=args.shuffle_view_options,
         view_selection_shuffle_run_id=args.view_selection_run_id or None,
         view_selection_modality=args.view_selection_modality, view_selection_pmi=args.use_view_pmi,
+        view_pmi_prior_prompt_mode=getattr(args, "view_pmi_prior_prompt_mode", None),
         view_selection_rounds=args.view_selection_rounds, view_example_mode=args.view_example_mode,
         view_example_max_tokens=args.view_example_max_tokens, view_texts_per_round=args.view_texts_per_round,
         view_images_per_round=args.view_images_per_round)

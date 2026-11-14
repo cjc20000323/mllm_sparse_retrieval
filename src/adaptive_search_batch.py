@@ -133,16 +133,16 @@ def prepare_jobs(settings, *, identity_loader=None, backend=None):
                         kind = "text" if task == "ir" and query == "image" else "image" if task in {"ir", "tbpr"} else "corpus"
                         model, data, training = namespaces(settings, family, dataset, task, kind)
                         if selection_file:
-                            locked = views.load_selection(selection_file, identity=identity, dataset=dataset)
+                            locked = views.load_selection(selection_file, identity=identity, dataset=dataset, view_pmi_prior_prompt_mode=getattr(settings.options, "view_pmi_prior_prompt_mode", None), view_selection_token_variants=getattr(settings.options, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(settings.options, "view_selection_prefix_tokens", False))
                         else:
                             location, cache_key, strategy = selection_location(settings, model, data, training, identity)
                             if location.is_file():
                                 locked = views.load_selection(location, identity=identity, dataset=dataset,
                                     selection_modality=settings.options.view_selection_modality,
-                                    view_selection_pmi=settings.options.view_selection_pmi,
+                                    view_selection_pmi=settings.options.view_selection_pmi, view_pmi_prior_prompt_mode=getattr(settings.options, "view_pmi_prior_prompt_mode", None),
                                     view_selection_hierarchical=settings.options.view_selection_hierarchical,
                                     view_example_mode=settings.options.view_example_mode,
-                                    view_example_max_tokens=settings.options.view_example_max_tokens)
+                                    view_example_max_tokens=settings.options.view_example_max_tokens, view_selection_token_variants=getattr(settings.options, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(settings.options, "view_selection_prefix_tokens", False))
                                 views.require_equal(dict(split=locked["selection_split"]), dict(split=settings.selection_split), "Selection source split")
                                 views.require_equal(locked["sampling"], cache_key["sampling"], "Selection sampling")
                                 views.require_equal(dict(shuffle=locked.get(views.option_shuffle.FIELD)),
@@ -186,7 +186,8 @@ def prepare_jobs(settings, *, identity_loader=None, backend=None):
                     for flag, value in (("passage_reps", dense_path), ("sparse_index", sparse_path),
                         ("view_selection_file", selection_file), ("view_selection_root", settings.selection_root),
                         ("view_selection_run_id", c["VIEW_SELECTION_RUN_ID"]),
-                        ("view_selection_pmi", c.get("USE_VIEW_PMI")), ("view_selection_modality", c.get("VIEW_SELECTION_MODALITY"))):
+                        ("view_pmi_prior_prompt_mode", c.get("VIEW_PMI_PRIOR_PROMPT_MODE")), ("view_selection_pmi", c.get("USE_VIEW_PMI")), ("view_selection_modality", c.get("VIEW_SELECTION_MODALITY")),
+                        ("view_selection_prefix_tokens", c.get("USE_VIEW_PREFIX_TOKENS", "false")), ("view_selection_token_variants", c["USE_VIEW_TOKEN_VARIANTS"])):
                         if value is not None and str(value):
                             argv += ["--" + flag, str(value)]
                     for name in ("OUTPUT_DIR", "VAL_PASSAGE_REPS", "VAL_SPARSE_INDEX", "VAL_VIEW_SELECTION_FILE",

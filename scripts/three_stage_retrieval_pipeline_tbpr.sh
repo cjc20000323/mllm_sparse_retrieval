@@ -1,340 +1,69 @@
 #!/usr/bin/env bash
-STAGE2_METHOD="${STAGE2_METHOD-hybrid}" # hybrid / dense; dense sorts only Stage-1 candidates
-source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/stage2_retrieval_mode.sh" || exit $?
-stage2_mode_configure || exit $?
-USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"  # true: FreeRet pre-MLP dense; prompts/sparse unchanged
-USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"  # Complete FreeRet dense/sparse prompts; requires FreeRet dense
-USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prepend FreeRet constraints to all representation views
-source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.sh" || exit $?
-# Default result directories end in stage1_<STAGE1_DEPTH>_stage2_<STAGE2_DEPTH>.
-# Explicit OUTPUT_DIR/--output-dir paths remain unchanged.
-
-# Standalone TBPR entry point: sparse_concat -> hybrid retrieval -> reranking.
-# Launches DeepSpeed directly; does not call the general-purpose shell script.
-# Run one dataset at a time:
-#   bash scripts/three_stage_retrieval_pipeline_tbpr.sh
-#   DATASET=ICFG-PEDES TBPR_TYPE=type bash scripts/three_stage_retrieval_pipeline_tbpr.sh
-#   DATASET=RSTPReid RERANK_NUM=20 bash scripts/three_stage_retrieval_pipeline_tbpr.sh
-#   bash scripts/three_stage_retrieval_pipeline_tbpr.sh --dataset-name CUHK-PEDES --tbpr-type origin_type
-# Precompute the image corpus with encode.py --task_type tbpr --encode_type image,
-# using the same TBPR_TYPE and disassembleeol_separate+concat settings below.
-# Path-related CLI options override environment variables; the last value wins.
-# Explicit output/index paths are kept. Other Python options are forwarded.
-
-# SELECT_HYBRID_ALPHA=true scans 0.1..0.9. Supply both VAL_PASSAGE_REPS and
-# VAL_SPARSE_INDEX to select on validation; omit both to select on the target split.
-# VALIDATION_DATASET_NAME defaults to DATASET; VALIDATION_SPLIT defaults to val.
-# The selected weight alone is used for Stage 3; all weights are reported in CSV.
+# Ordinary LLaVA tbpr retrieve; edit this configuration or override it in the environment.
 set -euo pipefail
+# Single values override the lists; empty single values enable the configured matrix.
+MODEL_FAMILY="${MODEL_FAMILY-}"
+MODEL_FAMILIES="${MODEL_FAMILIES-llava_mistral}" # llava_mistral llava_llama
+MODEL_PATH="${MODEL_PATH-}" # single model only; per-family paths work with a batch
+MODEL_PATH_LLAVA_MISTRAL="${MODEL_PATH_LLAVA_MISTRAL-}"
+MODEL_PATH_LLAVA_LLAMA="${MODEL_PATH_LLAVA_LLAMA-}"
+CHECKPOINT_ROOT="${CHECKPOINT_ROOT-/root/autodl-fs/checkpoints}"
+DATASET="${DATASET-}"
+DATASETS="${DATASETS-CUHK-PEDES}"
+DATASET_SPLIT="${DATASET_SPLIT-test}"
+PROMPT_TYPE="${PROMPT_TYPE-prompt_shared_5}" # set prompt_5 explicitly for the old prompt group
+TBPR_TYPE="${TBPR_TYPE-type}"
+DATA_ROOT="${DATA_ROOT-/root/autodl-tmp}"
+DENSE_OUTPUT_ROOT="${DENSE_OUTPUT_ROOT-./dense_output}"
+SPARSE_OUTPUT_ROOT="${SPARSE_OUTPUT_ROOT-./sparse_output}"
+GPUS="${GPUS-1}"
+NUM_NODES="${NUM_NODES-1}"
+DTYPE="${DTYPE-float16}"
+PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE-1}"
+REPS_LOC="${REPS_LOC-after_pad}"
+SPARSE_LENGTH="${SPARSE_LENGTH-40}"
+TEXT_SPARSE_LENGTH="${TEXT_SPARSE_LENGTH-${SPARSE_LENGTH}}"
+IMAGE_SPARSE_LENGTH="${IMAGE_SPARSE_LENGTH-${SPARSE_LENGTH}}"
+SPARSE_VALUE_TYPE="${SPARSE_VALUE_TYPE-sum}"
+SPARSE_LOWER_OR_UPPER="${SPARSE_LOWER_OR_UPPER-lower}"
+SPARSE_VALUE_MEAN="${SPARSE_VALUE_MEAN-false}"
+IS_FILTERED="${IS_FILTERED-false}"
+NUM_EXPENDED_TOKENS="${NUM_EXPENDED_TOKENS-0}"
+RANDOM_VIEW_SEED="${RANDOM_VIEW_SEED-42}"
+LLAVA_IMAGE_MODE="${LLAVA_IMAGE_MODE-anyres}"
+EOL_TYPE="${EOL_TYPE-disassembleeol_separate}"
+CALCULATE_TYPE="${CALCULATE_TYPE-concat}"
+SPARSE_MANUAL="${SPARSE_MANUAL-false}"
+USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"
+USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"
+USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"
+PYTHON_BIN="${PYTHON_BIN-python}"
+DEEPSPEED_BIN="${DEEPSPEED_BIN-deepspeed}"
+DRY_RUN="${DRY_RUN-false}"
+SPARSE_THREADS="${SPARSE_THREADS-16}"
+SPARSE_CORPUS_DIR="${SPARSE_CORPUS_DIR-}" # optional single-job corpus/index override
+# sparse_concat -> hybrid (or dense) -> the existing pointwise reranker.
+RESULT_ROOT="${RESULT_ROOT-./three_stage_results}"
+STAGE1_METHOD="${STAGE1_METHOD-sparse_concat}"
+STAGE1_DEPTH="${STAGE1_DEPTH-1000}"
+STAGE2_DEPTH="${STAGE2_DEPTH-1000}"
+STAGE2_METHOD="${STAGE2_METHOD-hybrid}"
+HYBRID_ALPHA="${HYBRID_ALPHA-0.5}"
+SELECT_HYBRID_ALPHA="${SELECT_HYBRID_ALPHA-false}"
+RETRIEVAL_BATCH_SIZE="${RETRIEVAL_BATCH_SIZE-1}"
+RETRIEVAL_DTYPE="${RETRIEVAL_DTYPE-${DTYPE}}"
+RANKER_DTYPE="${RANKER_DTYPE-${DTYPE}}"
+RERANK_TEMPLATE="${RERANK_TEMPLATE-caption_generation}"
+RERANK_TYPE="${RERANK_TYPE-pointwise}"
+RERANK_NUM="${RERANK_NUM-5}"
+RERANK_BATCH_SIZE="${RERANK_BATCH_SIZE-1}"
+MODIFY_TYPE="${MODIFY_TYPE-auto}" # auto: TBPR uses no; no/modify_single explicitly override auto
+USE_RERANK_PRIOR_CACHE="${USE_RERANK_PRIOR_CACHE-auto}" # auto follows resolved modify_type (TBPR defaults to no / cache off)
+OVERWRITE="${OVERWRITE-false}"
+OUTPUT_DIR="${OUTPUT_DIR-}" # explicit paths are single-job overrides
+STAGE1_SPARSE_INDEX="${STAGE1_SPARSE_INDEX-}"
+STAGE2_DENSE_INDEX="${STAGE2_DENSE_INDEX-}"
+STAGE2_SPARSE_INDEX="${STAGE2_SPARSE_INDEX-}"
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-cd "${REPO_ROOT}"
-
-die() {
-    echo "Error: $*" >&2
-    exit 2
-}
-
-require_directory() {
-    local path="$1"
-    local description="$2"
-    [[ -d "${path}" ]] || die "${description} directory does not exist: ${path}"
-}
-
-require_file() {
-    local path="$1"
-    local description="$2"
-    [[ -f "${path}" ]] || die "${description} file does not exist: ${path}"
-}
-
-require_lucene_index() {
-    local path="$1"
-    local description="$2"
-    local index_dir="${path}"
-    if [[ -d "${path}/index" ]]; then
-        index_dir="${path}/index"
-    fi
-    require_directory "${index_dir}" "${description}"
-    local -a segments=("${index_dir}"/segments_*)
-    [[ -f "${segments[0]:-}" ]] || die \
-        "no Lucene segments_* file found in ${index_dir}; build it with pyserini.index.lucene"
-}
-
-is_true() {
-    case "${1,,}" in
-        true|1|yes) return 0 ;;
-        false|0|no|"") return 1 ;;
-        *) die "expected a boolean value (true/false), got: $1" ;;
-    esac
-}
-
-# Normalize these options before selecting annotations, indexes and output paths.
-EXTRA_ARGS=()
-while (($# > 0)); do
-    case "${1%%=*}" in
-        --retrieval-llava-image-mode|--ranker-llava-image-mode|--dataset-name|--dataset-split|--task-type|--query-type|--tbpr-type|--data-root|--output-dir|--stage2-method|--stage2_method|--stage1-depth|--stage2-depth|--stage1-sparse-index|--stage2-dense-index|--stage2-sparse-index|--val-passage-reps|--val-sparse-index|--validation-dataset-name|--validation-split|--val-stage1-sparse-index|--val-stage1-run)
-            CLI_OPTION="${1%%=*}"
-            if [[ "$1" == *=* ]]; then
-                CLI_VALUE="${1#*=}"
-                shift
-            else
-                (($# >= 2)) || die "${CLI_OPTION} requires a value."
-                [[ "$2" != --* ]] || die "${CLI_OPTION} requires a value."
-                CLI_VALUE="$2"
-                shift 2
-            fi
-            [[ -n "${CLI_VALUE}" ]] || die "${CLI_OPTION} requires a non-empty value."
-            case "${CLI_OPTION}" in
-                --retrieval-llava-image-mode) RETRIEVAL_LLAVA_IMAGE_MODE="${CLI_VALUE}" ;;
-                --ranker-llava-image-mode) RANKER_LLAVA_IMAGE_MODE="${CLI_VALUE}" ;;
-                --dataset-name) DATASET="${CLI_VALUE}" ;;
-                --dataset-split) DATASET_SPLIT="${CLI_VALUE}" ;;
-                --task-type) TASK_TYPE="${CLI_VALUE}" ;;
-                --query-type) QUERY_TYPE="${CLI_VALUE}" ;;
-                --tbpr-type) TBPR_TYPE="${CLI_VALUE}" ;;
-                --data-root) DATA_ROOT="${CLI_VALUE}" ;;
-                --output-dir) OUTPUT_DIR="${CLI_VALUE}" ;;
-                --stage1-depth) STAGE1_DEPTH="${CLI_VALUE}" ;;
-                --stage2-depth) STAGE2_DEPTH="${CLI_VALUE}" ;;
-                --stage2-method|--stage2_method) STAGE2_METHOD="${CLI_VALUE}" ;;
-                --stage1-sparse-index) STAGE1_SPARSE_INDEX="${CLI_VALUE}" ;;
-                --stage2-dense-index) STAGE2_DENSE_INDEX="${CLI_VALUE}" ;;
-                --stage2-sparse-index) STAGE2_SPARSE_INDEX="${CLI_VALUE}" ;;
-                --val-passage-reps) VAL_PASSAGE_REPS="${CLI_VALUE}" ;;
-                --val-sparse-index) VAL_SPARSE_INDEX="${CLI_VALUE}" ;;
-                --validation-dataset-name) VALIDATION_DATASET_NAME="${CLI_VALUE}" ;;
-                --validation-split) VALIDATION_SPLIT="${CLI_VALUE}" ;;
-                --val-stage1-sparse-index) VAL_STAGE1_SPARSE_INDEX="${CLI_VALUE}" ;;
-                --val-stage1-run) VAL_STAGE1_RUN="${CLI_VALUE}" ;;
-            esac
-            ;;
-        --use-rerank-prior-cache|--use_rerank_prior_cache)
-            die "TBPR does not support the offline rerank prior cache; do not pass $1."
-            ;;
-        --select-hybrid-alpha)
-            [[ "$1" != *=* ]] || die "--select-hybrid-alpha is a flag and does not take a value."
-            SELECT_HYBRID_ALPHA=true
-            stage2_mode_configure || exit $?
-            shift
-            ;;
-        --)
-            EXTRA_ARGS+=("$@")
-            break
-            ;;
-        *)
-            EXTRA_ARGS+=("$1")
-            shift
-            ;;
-    esac
-done
-
-GPUS="${GPUS:-4}"
-NUM_NODES="${NUM_NODES:-1}"
-DEEPSPEED_BIN="${DEEPSPEED_BIN:-deepspeed}"
-DATA_ROOT="${DATA_ROOT:-/root/autodl-tmp}"
-DATASET="${DATASET:-CUHK-PEDES}"
-DATASET_SPLIT="${DATASET_SPLIT:-test}"
-TASK_TYPE="${TASK_TYPE:-tbpr}"
-QUERY_TYPE="${QUERY_TYPE:-text}"
-TBPR_TYPE="${TBPR_TYPE:-origin_type}"
-TARGET_TYPE="image"
-DIRECTION_LABEL="text_to_image"
-
-[[ "${GPUS}" =~ ^[1-9][0-9]*$ ]] || die "GPUS must be a positive integer, got: ${GPUS}"
-[[ "${NUM_NODES}" =~ ^[1-9][0-9]*$ ]] || die "NUM_NODES must be a positive integer, got: ${NUM_NODES}"
-[[ "${TASK_TYPE}" == "tbpr" ]] || die "TBPR launcher requires TASK_TYPE=tbpr, got: ${TASK_TYPE}."
-[[ "${QUERY_TYPE}" == "text" ]] || die "TBPR launcher requires QUERY_TYPE=text, got: ${QUERY_TYPE}."
-[[ "${TBPR_TYPE}" == "origin_type" || "${TBPR_TYPE}" == "type" ]] || \
-    die "TBPR_TYPE must be origin_type or type."
-case "${DATASET}" in
-    CUHK-PEDES) DATASET_FILE="reid_raw.json" ;;
-    ICFG-PEDES) DATASET_FILE="ICFG-PEDES.json" ;;
-    RSTPReid) DATASET_FILE="data_captions.json" ;;
-    *) die "TBPR DATASET must be CUHK-PEDES, ICFG-PEDES or RSTPReid, got: ${DATASET}." ;;
-esac
-
-# Prior correction/cache is only implemented for IR image->text and it2t.
-USE_RERANK_PRIOR_CACHE="${USE_RERANK_PRIOR_CACHE:-false}"
-if is_true "${USE_RERANK_PRIOR_CACHE}"; then
-    die "TBPR does not support the offline rerank prior cache; set USE_RERANK_PRIOR_CACHE=false."
-fi
-
-BASE_MODEL="${BASE_MODEL:-llava-hf-llava-v1.6-mistral-7b-hf}"
-ARTIFACT_MODEL_NAME="${ARTIFACT_MODEL_NAME:-${BASE_MODEL##*/}}"
-RETRIEVAL_MODEL_PATH="${RETRIEVAL_MODEL_PATH:-./checkpoints/${BASE_MODEL}}"
-RANKER_MODEL_PATH="${RANKER_MODEL_PATH:-${RETRIEVAL_MODEL_PATH}}"
-
-# Same defaults as the general launcher; tune these independently as needed.
-STAGE1_DEPTH="${STAGE1_DEPTH:-1000}"
-STAGE2_DEPTH="${STAGE2_DEPTH:-1000}"
-HYBRID_ALPHA="${HYBRID_ALPHA:-0.5}"
-SELECT_HYBRID_ALPHA="${SELECT_HYBRID_ALPHA:-false}"
-stage2_mode_configure || exit $?
-ALPHA_SELECTION_ARGS=()
-ALPHA_OUTPUT_SUFFIX=""
-if is_true "${SELECT_HYBRID_ALPHA}"; then
-    ALPHA_SELECTION_ARGS+=(--select-hybrid-alpha)
-    ALPHA_OUTPUT_SUFFIX=/alpha_select
-fi
-if [[ -n "${VAL_PASSAGE_REPS:-}" ]]; then ALPHA_SELECTION_ARGS+=(--val-passage-reps "${VAL_PASSAGE_REPS}"); fi
-if [[ -n "${VAL_SPARSE_INDEX:-}" ]]; then ALPHA_SELECTION_ARGS+=(--val-sparse-index "${VAL_SPARSE_INDEX}"); fi
-if [[ -n "${VALIDATION_DATASET_NAME:-}" ]]; then ALPHA_SELECTION_ARGS+=(--validation-dataset-name "${VALIDATION_DATASET_NAME}"); fi
-if [[ -n "${VALIDATION_SPLIT:-}" ]]; then ALPHA_SELECTION_ARGS+=(--validation-split "${VALIDATION_SPLIT}"); fi
-if [[ -n "${VAL_STAGE1_SPARSE_INDEX:-}" ]]; then ALPHA_SELECTION_ARGS+=(--val-stage1-sparse-index "${VAL_STAGE1_SPARSE_INDEX}"); fi
-if [[ -n "${VAL_STAGE1_RUN:-}" ]]; then ALPHA_SELECTION_ARGS+=(--val-stage1-run "${VAL_STAGE1_RUN}"); fi
-SPARSE_THREADS="${SPARSE_THREADS:-16}"
-RETRIEVAL_DEVICE="${RETRIEVAL_DEVICE:-auto}"
-RETRIEVAL_DEVICE_MAP="${RETRIEVAL_DEVICE_MAP:-auto}"
-RETRIEVAL_DTYPE="${RETRIEVAL_DTYPE:-float16}"
-RETRIEVAL_BATCH_SIZE="${RETRIEVAL_BATCH_SIZE:-1}"
-RETRIEVAL_REPS_LOC="${RETRIEVAL_REPS_LOC:-after_pad}"
-RETRIEVAL_LLAVA_IMAGE_MODE="${RETRIEVAL_LLAVA_IMAGE_MODE:-${LLAVA_IMAGE_MODE:-anyres}}"
-RANKER_LLAVA_IMAGE_MODE="${RANKER_LLAVA_IMAGE_MODE:-${LLAVA_IMAGE_MODE:-anyres}}"
-for LLAVA_MODE in "${RETRIEVAL_LLAVA_IMAGE_MODE}" "${RANKER_LLAVA_IMAGE_MODE}"; do
-    case "${LLAVA_MODE}" in anyres|base) ;; *) die "LLaVA image mode must be anyres or base." ;; esac
-done
-
-PROMPT_TYPE="${PROMPT_TYPE:-prompt_5}"
-SPARSE_LENGTH="${SPARSE_LENGTH:-40}"
-TEXT_SPARSE_LENGTH="${TEXT_SPARSE_LENGTH:-${SPARSE_LENGTH}}"
-IMAGE_SPARSE_LENGTH="${IMAGE_SPARSE_LENGTH:-${SPARSE_LENGTH}}"
-NUM_EXPENDED_TOKENS="${NUM_EXPENDED_TOKENS:-0}"
-SPARSE_VALUE_TYPE="${SPARSE_VALUE_TYPE:-sum}"
-SPARSE_LOWER_OR_UPPER="${SPARSE_LOWER_OR_UPPER:-lower}"
-
-RANKER_DEVICE_MAP="${RANKER_DEVICE_MAP:-auto}"
-RANKER_DTYPE="${RANKER_DTYPE:-float16}"
-RETRIEVAL_QWEN_MIN_PIXELS="${RETRIEVAL_QWEN_MIN_PIXELS:-0}"
-RETRIEVAL_QWEN_MAX_PIXELS="${RETRIEVAL_QWEN_MAX_PIXELS:-0}"
-RANKER_QWEN_MIN_PIXELS="${RANKER_QWEN_MIN_PIXELS:-0}"
-RANKER_QWEN_MAX_PIXELS="${RANKER_QWEN_MAX_PIXELS:-0}"
-RERANK_NUM="${RERANK_NUM:-5}"
-RERANK_BATCH_SIZE="${RERANK_BATCH_SIZE:-1}"
-RERANK_TEMPLATE="${RERANK_TEMPLATE:-caption_generation}"
-MODIFY_TYPE="${MODIFY_TYPE:-no}"
-RERANK_REPS_LOC="${RERANK_REPS_LOC:-after_pad}"
-
-# Must match the precomputed TBPR image corpus (including TBPR_TYPE).
-FILTER_LABEL="no_filter"
-CALCULATE_TYPE="concat"
-EOL_TYPE="disassembleeol_separate"
-MANUAL_LABEL="no_manual"
-CLUSTER_LABEL="no_cluster"
-USE_MEAN_LABEL="no_mean"
-EXPERIMENT_LEAF="${NUM_EXPENDED_TOKENS}_${MANUAL_LABEL}_${SPARSE_LENGTH}_${SPARSE_VALUE_TYPE}_${CLUSTER_LABEL}_${RETRIEVAL_REPS_LOC}_${EOL_TYPE}_${SPARSE_LOWER_OR_UPPER}_${USE_MEAN_LABEL}"
-if [[ "${RETRIEVAL_LLAVA_IMAGE_MODE}" == base ]] && { [[ "${TARGET_TYPE}" == image ]] || [[ "${TASK_TYPE}" == t2it ]]; }; then
-    EXPERIMENT_LEAF+="_llava_base"
-fi
-INDEX_RELATIVE_PATH="${ARTIFACT_MODEL_NAME}/${DATASET}/${TARGET_TYPE}/${FILTER_LABEL}/${CALCULATE_TYPE}/${PROMPT_TYPE}/${DATASET_SPLIT}/${TBPR_TYPE}/${EXPERIMENT_LEAF}"
-STAGE2_DENSE_INDEX="${STAGE2_DENSE_INDEX:-dense_output/${INDEX_RELATIVE_PATH}}"
-STAGE2_SPARSE_INDEX="${STAGE2_SPARSE_INDEX:-sparse_output/${INDEX_RELATIVE_PATH}}"
-# Stage 2 reuses each rank's sparse_concat query encoding from Stage 1.
-STAGE1_SPARSE_INDEX="${STAGE1_SPARSE_INDEX:-${STAGE2_SPARSE_INDEX}}"
-HAS_EXPLICIT_OUTPUT=false
-if [[ -n "${OUTPUT_DIR:-}" ]]; then HAS_EXPLICIT_OUTPUT=true; fi
-OUTPUT_DIR="${OUTPUT_DIR:-$(stage2_mode_path "./three_stage_results/${ARTIFACT_MODEL_NAME}/${DATASET}/${DIRECTION_LABEL}/${DATASET_SPLIT}/sparse_concat_stage1/${TBPR_TYPE}")}"
-if [[ "${HAS_EXPLICIT_OUTPUT}" == false ]]; then OUTPUT_DIR+="${ALPHA_OUTPUT_SUFFIX}"; fi
-if [[ "${HAS_EXPLICIT_OUTPUT}" == false && ( "${RETRIEVAL_LLAVA_IMAGE_MODE}" == base || "${RANKER_LLAVA_IMAGE_MODE}" == base ) ]]; then
-    OUTPUT_DIR+="_retrieval_${RETRIEVAL_LLAVA_IMAGE_MODE}_ranker_${RANKER_LLAVA_IMAGE_MODE}"
-fi
-if [[ "${HAS_EXPLICIT_OUTPUT}" == false ]]; then
-    OUTPUT_DIR+="/stage1_${STAGE1_DEPTH}_stage2_${STAGE2_DEPTH}"
-fi
-OVERWRITE="${OVERWRITE:-false}"
-
-command -v "${DEEPSPEED_BIN}" >/dev/null 2>&1 || die "DeepSpeed executable was not found: ${DEEPSPEED_BIN}"
-require_file "src/three_stage_retrieval_pipeline.py" "pipeline entrypoint"
-require_directory "${DATA_ROOT}/data/${DATASET}" "dataset"
-require_file "${DATA_ROOT}/data/${DATASET}/${DATASET_FILE}" "dataset annotation"
-require_directory "${RETRIEVAL_MODEL_PATH}" "retrieval checkpoint"
-require_directory "${RANKER_MODEL_PATH}" "ranker checkpoint"
-
-if [[ -f "${STAGE2_DENSE_INDEX}" ]]; then
-    [[ "$(basename -- "${STAGE2_DENSE_INDEX}")" == corpus*.pkl ]] || \
-        die "STAGE2_DENSE_INDEX is a file but is not a corpus*.pkl file: ${STAGE2_DENSE_INDEX}"
-else
-    require_directory "${STAGE2_DENSE_INDEX}" "Stage-2 dense index"
-    shopt -s nullglob
-    dense_corpus_files=("${STAGE2_DENSE_INDEX}"/corpus*.pkl)
-    shopt -u nullglob
-    ((${#dense_corpus_files[@]} > 0)) || die \
-        "no corpus*.pkl found in ${STAGE2_DENSE_INDEX}; generate the candidate index with encode.py --encode_type image --task_type tbpr"
-fi
-require_lucene_index "${STAGE1_SPARSE_INDEX}" "Stage-1 Lucene index"
-[[ "${STAGE2_METHOD}" != hybrid ]] || require_lucene_index "${STAGE2_SPARSE_INDEX}" "Stage-2 Lucene index"
-
-OVERWRITE_ARGS=()
-if is_true "${OVERWRITE}"; then
-    OVERWRITE_ARGS+=(--overwrite)
-fi
-
-COMMAND=(
-    "${DEEPSPEED_BIN}"
-    --num_gpus "${GPUS}"
-    --num_nodes "${NUM_NODES}"
-    src/three_stage_retrieval_pipeline.py --stage2-method "${STAGE2_METHOD}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}"
-    --dataset-name "${DATASET}"
-    --dataset-split "${DATASET_SPLIT}"
-    --task-type "${TASK_TYPE}"
-    --query-type "${QUERY_TYPE}"
-    --tbpr-type "${TBPR_TYPE}"
-    --data-root "${DATA_ROOT}"
-    --stage1-method sparse_concat
-    --stage1-sparse-index "${STAGE1_SPARSE_INDEX}"
-    --stage1-depth "${STAGE1_DEPTH}"
-    --stage2-dense-index "${STAGE2_DENSE_INDEX}"
-    --stage2-sparse-index "${STAGE2_SPARSE_INDEX}"
-    --stage2-depth "${STAGE2_DEPTH}"
-    --hybrid-alpha "${HYBRID_ALPHA}"
-    "${ALPHA_SELECTION_ARGS[@]}"
-    --sparse-threads "${SPARSE_THREADS}"
-    --retrieval-model-name-or-path "${RETRIEVAL_MODEL_PATH}"
-    --retrieval-qwen-min-pixels "${RETRIEVAL_QWEN_MIN_PIXELS}"
-    --retrieval-qwen-max-pixels "${RETRIEVAL_QWEN_MAX_PIXELS}"
-    --retrieval-device "${RETRIEVAL_DEVICE}"
-    --retrieval-device-map "${RETRIEVAL_DEVICE_MAP}"
-    --retrieval-dtype "${RETRIEVAL_DTYPE}"
-    --retrieval-batch-size "${RETRIEVAL_BATCH_SIZE}"
-    --retrieval-reps-loc "${RETRIEVAL_REPS_LOC}"
-    --retrieval-llava-image-mode "${RETRIEVAL_LLAVA_IMAGE_MODE}"
-    --prompt-type "${PROMPT_TYPE}"
-    --sparse-length "${SPARSE_LENGTH}"
-    --text-sparse-length "${TEXT_SPARSE_LENGTH}"
-    --image-sparse-length "${IMAGE_SPARSE_LENGTH}"
-    --num-expended-tokens "${NUM_EXPENDED_TOKENS}"
-    --sparse-value-type "${SPARSE_VALUE_TYPE}"
-    --sparse-lower-or-upper "${SPARSE_LOWER_OR_UPPER}"
-    --ranker-model-name-or-path "${RANKER_MODEL_PATH}"
-    --ranker-qwen-min-pixels "${RANKER_QWEN_MIN_PIXELS}"
-    --ranker-qwen-max-pixels "${RANKER_QWEN_MAX_PIXELS}"
-    --ranker-device-map "${RANKER_DEVICE_MAP}"
-    --ranker-dtype "${RANKER_DTYPE}"
-    --ranker-llava-image-mode "${RANKER_LLAVA_IMAGE_MODE}"
-    --rerank-type pointwise
-    --rerank-num "${RERANK_NUM}"
-    --rerank-batch-size "${RERANK_BATCH_SIZE}"
-    --rerank-template "${RERANK_TEMPLATE}"
-    --modify_type "${MODIFY_TYPE}"
-    --rerank-reps-loc "${RERANK_REPS_LOC}"
-    --output-dir "${OUTPUT_DIR}"
-    "${OVERWRITE_ARGS[@]}"
-    "${EXTRA_ARGS[@]}"
-)
-
-echo "Dataset:            ${DATASET} (${DATASET_SPLIT}, ${DIRECTION_LABEL})"
-echo "Task/query/corpus:  ${TASK_TYPE} / ${QUERY_TYPE} / ${TARGET_TYPE}"
-echo "TBPR view type:     ${TBPR_TYPE}"
-echo "Distributed workers: ${GPUS} GPU process(es) across ${NUM_NODES} node(s)"
-echo "Stage 1:            sparse_concat (query-sharded across workers, local encodings reused by Stage 2)"
-echo "Stage-1 sparse index:${STAGE1_SPARSE_INDEX}"
-echo "Retrieval model:    ${RETRIEVAL_MODEL_PATH}"
-echo "Dense corpus index: ${STAGE2_DENSE_INDEX}"
-echo "Sparse corpus index:${STAGE2_SPARSE_INDEX}"
-echo "Rerank modify type: ${MODIFY_TYPE}"
-echo "Output directory:   ${OUTPUT_DIR}"
-printf 'Command:'
-printf ' %q' "${COMMAND[@]}"
-printf '\n'
-
-exec "${COMMAND[@]}"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/shared_views_task_common.sh"
+shared_views_task_main retrieve tbpr "$@"

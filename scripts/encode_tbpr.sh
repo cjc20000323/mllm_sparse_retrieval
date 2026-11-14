@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Ordinary LLaVA tbpr encode; edit this configuration or override it in the environment.
+set -euo pipefail
+# Single values override the lists; empty single values enable the configured matrix.
+MODEL_FAMILY="${MODEL_FAMILY-}"
+MODEL_FAMILIES="${MODEL_FAMILIES-llava_mistral}" # llava_mistral llava_llama
+MODEL_PATH="${MODEL_PATH-}" # single model only; per-family paths work with a batch
+MODEL_PATH_LLAVA_MISTRAL="${MODEL_PATH_LLAVA_MISTRAL-}"
+MODEL_PATH_LLAVA_LLAMA="${MODEL_PATH_LLAVA_LLAMA-}"
+CHECKPOINT_ROOT="${CHECKPOINT_ROOT-/root/autodl-fs/checkpoints}"
+DATASET="${DATASET-}"
+DATASETS="${DATASETS-CUHK-PEDES}"
+DATASET_SPLIT="${DATASET_SPLIT-test}"
+PROMPT_TYPE="${PROMPT_TYPE-prompt_shared_5}" # set prompt_5 explicitly for the old prompt group
+TBPR_TYPE="${TBPR_TYPE-type}"
+DATA_ROOT="${DATA_ROOT-/root/autodl-tmp}"
+DENSE_OUTPUT_ROOT="${DENSE_OUTPUT_ROOT-./dense_output}"
+SPARSE_OUTPUT_ROOT="${SPARSE_OUTPUT_ROOT-./sparse_output}"
+GPUS="${GPUS-1}"
+NUM_NODES="${NUM_NODES-1}"
+DTYPE="${DTYPE-float16}"
+PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE-1}"
+REPS_LOC="${REPS_LOC-after_pad}"
+SPARSE_LENGTH="${SPARSE_LENGTH-40}"
+TEXT_SPARSE_LENGTH="${TEXT_SPARSE_LENGTH-${SPARSE_LENGTH}}"
+IMAGE_SPARSE_LENGTH="${IMAGE_SPARSE_LENGTH-${SPARSE_LENGTH}}"
+SPARSE_VALUE_TYPE="${SPARSE_VALUE_TYPE-sum}"
+SPARSE_LOWER_OR_UPPER="${SPARSE_LOWER_OR_UPPER-lower}"
+SPARSE_VALUE_MEAN="${SPARSE_VALUE_MEAN-false}"
+IS_FILTERED="${IS_FILTERED-false}"
+NUM_EXPENDED_TOKENS="${NUM_EXPENDED_TOKENS-0}"
+RANDOM_VIEW_SEED="${RANDOM_VIEW_SEED-42}"
+LLAVA_IMAGE_MODE="${LLAVA_IMAGE_MODE-anyres}"
+EOL_TYPE="${EOL_TYPE-disassembleeol_separate}"
+CALCULATE_TYPE="${CALCULATE_TYPE-concat}"
+SPARSE_MANUAL="${SPARSE_MANUAL-false}"
+USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"
+USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"
+USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"
+PYTHON_BIN="${PYTHON_BIN-python}"
+DEEPSPEED_BIN="${DEEPSPEED_BIN-deepspeed}"
+DRY_RUN="${DRY_RUN-false}"
+
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/shared_views_task_common.sh"
+shared_views_task_main encode tbpr "$@"

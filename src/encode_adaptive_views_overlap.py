@@ -849,7 +849,10 @@ def main():
     from adaptive_view_overlap import OverlapViewArguments, OverlapSelectionStrategy
     parser = HfArgumentParser((ModelArguments, PromptRepsLLMDataArguments, TrainingArguments, OverlapViewArguments))
 
+    parser.set_defaults(view_selection_prefix_tokens=os.environ.get("USE_VIEW_PREFIX_TOKENS", "false"))
     model_args, data_args, training_args, adaptive_args = parser.parse_args_into_dataclasses()
+    if adaptive_args.view_selection_prefix_tokens and not adaptive_args.adaptive_views:
+        raise ValueError("--view_selection_prefix_tokens requires --adaptive_views")
     if adaptive_args.use_lens_sparse:
         raise ValueError("LENS sparse mode does not support overlap encoding")
     if adaptive_args.use_stc_sparse:

@@ -1322,7 +1322,7 @@ def _qwen_encoding_settings(args, eol_type, calculate_type, sparse_manual):
                     query_type=args.query_type, dtype=args.retrieval_dtype)
     if getattr(args, "adaptive_views", False):
         from adaptive_views import load_selection
-        settings["adaptive_selection"] = load_selection(args.view_selection_file)["fingerprint"]
+        settings["adaptive_selection"] = load_selection(args.view_selection_file, view_pmi_prior_prompt_mode=getattr(args, "view_pmi_prior_prompt_mode", None), view_selection_token_variants=getattr(args, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(args, "view_selection_prefix_tokens", False))["fingerprint"]
     return settings
 
 
@@ -3302,6 +3302,7 @@ def _alpha_validation_args(args: argparse.Namespace) -> Optional[argparse.Namesp
             # An independently selected validation corpus has its own run ID.
             # Its locked file and manifests still undergo the full preflight.
             validation.view_selection_run_id = None
+            validation.view_pmi_prior_prompt_mode = None
     validation.dataset_split = args.validation_split
     validation.stage1_run = args.val_stage1_run
     validation.stage1_command = None
@@ -3656,6 +3657,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--adaptive-views", action="store_true", help="Use dataset-selected perspectives from the copied encoder.")
+    parser.add_argument("--view-pmi-prior-prompt-mode", "--view_pmi_prior_prompt_mode", choices=("false", "instruction_only"))
+    parser.add_argument("--view-selection-prefix-tokens", "--view_selection_prefix_tokens", type=boolean, nargs="?", const=True, default=False)
+    parser.add_argument("--view-selection-token-variants", "--view_selection_token_variants", type=boolean,
+                        nargs="?", const=True, default=False,
+                        help="Sum vocabulary variants for view options; must match the saved selection (default false)")
     from stc_sparse import add_parser as add_stc_parser
     add_stc_parser(parser)
     from lens_sparse import add_parser as add_lens_parser
@@ -3765,7 +3771,16 @@ def _validate_args(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = _parser()
+    parser.set_defaults(view_selection_token_variants=os.environ.get("USE_VIEW_TOKEN_VARIANTS", "false"), view_selection_prefix_tokens=os.environ.get("USE_VIEW_PREFIX_TOKENS", "false"),
+                        view_pmi_prior_prompt_mode=os.environ.get("VIEW_PMI_PRIOR_PROMPT_MODE") or None)
     args = parser.parse_args()
+    if args.view_selection_prefix_tokens:
+        from adaptive_views import resolve_prefix_tokens, validate_prefix_model
+        resolve_prefix_tokens(True, token_variants=args.view_selection_token_variants)
+        if not args.adaptive_views:
+            raise ValueError("--view-selection-prefix-tokens requires --adaptive-views")
+        if args.retrieval_model_name_or_path:
+            validate_prefix_model(args.retrieval_model_name_or_path, prefix_tokens=True, token_variants=args.view_selection_token_variants)
     if args.output_dir is None:
         args.output_dir = str(
             stage2_output_path(Path("./three_stage_results")
@@ -4068,7 +4083,7 @@ def main() -> None:
                 metadata["files"].extend(["stage2_alpha_sweep.csv", "alpha_selection.json"])
             if getattr(args, "adaptive_views", False):
                 from adaptive_views import load_selection
-                selection = load_selection(args.view_selection_file)
+                selection = load_selection(args.view_selection_file, view_pmi_prior_prompt_mode=getattr(args, "view_pmi_prior_prompt_mode", None), view_selection_token_variants=getattr(args, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(args, "view_selection_prefix_tokens", False))
                 metadata["adaptive_views"] = dict(selection_file=str(Path(args.view_selection_file).resolve()),
                                                    selection_modality=selection["selection_modality"],
                                                    selected=selection["selected"], views_fingerprint=selection["views_fingerprint"])

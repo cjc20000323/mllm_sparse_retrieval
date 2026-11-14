@@ -48,6 +48,24 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.s
 # Step 1: select perspectives and encode one candidate modality. Existing files are unchanged.
 # Example: MODEL_FAMILY=llava_llama DATASET=coco IR_QUERY_TYPE=text bash scripts/encode_adaptive_views.sh
 set -euo pipefail
+# 将下行默认值 false 改为 true 可启用词表变体概率求和；编码、建库和检索须保持一致。
+# 外部环境变量可覆盖此默认值，显式 Python 命令行参数优先。
+export USE_VIEW_TOKEN_VARIANTS="${USE_VIEW_TOKEN_VARIANTS-false}"
+# Exact uppercase prefix token for LLaVA only; incompatible with vocabulary variant sums.
+export USE_VIEW_PREFIX_TOKENS="${USE_VIEW_PREFIX_TOKENS-false}"
+case "${USE_VIEW_PREFIX_TOKENS,,}" in
+    true|1|yes) USE_VIEW_PREFIX_TOKENS=true ;;
+    false|0|no) USE_VIEW_PREFIX_TOKENS=false ;;
+    *) echo 'Invalid USE_VIEW_PREFIX_TOKENS: use true or false' >&2; exit 2 ;;
+esac
+# Optional PMI prior prompt: false keeps the candidate list; instruction_only removes it.
+# VIEW_PMI_PRIOR_PROMPT_MODE=false
+if [[ -v VIEW_PMI_PRIOR_PROMPT_MODE ]]; then
+    case "${VIEW_PMI_PRIOR_PROMPT_MODE,,}" in
+        false|instruction_only) export VIEW_PMI_PRIOR_PROMPT_MODE="${VIEW_PMI_PRIOR_PROMPT_MODE,,}" ;;
+        *) echo 'Invalid VIEW_PMI_PRIOR_PROMPT_MODE: use false or instruction_only' >&2; exit 2 ;;
+    esac
+fi
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
@@ -63,6 +81,8 @@ DENSE_OUTPUT_ROOT=./dense_output SPARSE_OUTPUT_ROOT=./sparse_output.
 SPARSE_LENGTH=40; set TEXT_SPARSE_LENGTH/IMAGE_SPARSE_LENGTH if encoding used different values.
 VIEW_SELECTION_FILE: reuse a locked file; otherwise generate and print a new path.
 VIEW_SELECTION_MODALITY=text|image|both. New selections default to both.
+USE_VIEW_TOKEN_VARIANTS=false|true (default false); edit the default in this script to enable vocabulary variant sums.
+Explicit --view_selection_token_variants overrides the script/environment setting; saved artifacts must match the mode.
 USE_VIEW_PMI=true|false: remove the no-example prior bias using per-round softmax PMI correction.
 New selections default false; an omitted switch inherits an explicitly reused file's setting.
 Explicit PMI/file conflicts fail. PMI selection caches and encoded artifacts are isolated.
@@ -103,6 +123,9 @@ esac
 PRECISION=()
 case "${DTYPE:-float16}" in float16) PRECISION+=(--fp16) ;; bfloat16) PRECISION+=(--bf16) ;; float32) ;; *) echo 'Invalid DTYPE' >&2; exit 2 ;; esac
 EXTRA=()
+if [[ -v VIEW_PMI_PRIOR_PROMPT_MODE ]]; then
+    EXTRA+=(--view_pmi_prior_prompt_mode "${VIEW_PMI_PRIOR_PROMPT_MODE}")
+fi
 if [[ -v USE_VIEW_PMI ]]; then
     case "${USE_VIEW_PMI,,}" in
         true|1|yes) EXTRA+=(--view_selection_pmi true) ;;
@@ -122,7 +145,7 @@ for pair in 'IS_FILTERED:is_filtered' 'SPARSE_VALUE_MEAN:sparse_value_mean'; do
 done
 stc_sparse_prepare || exit $?
 lens_sparse_prepare || exit $?
-"${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/encode_adaptive_views.py "${STC_ARGS[@]}" "${LENS_ARGS[@]}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" --view_selection_hierarchical "${USE_HIERARCHICAL_VIEWS}" "${ADAPTIVE_SHUFFLE_ARGS[@]}" \
+"${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-1}" --num_nodes="${NUM_NODES:-1}" src/encode_adaptive_views.py "${STC_ARGS[@]}" "${LENS_ARGS[@]}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" --view_selection_token_variants "${USE_VIEW_TOKEN_VARIANTS}" --view_selection_prefix_tokens "${USE_VIEW_PREFIX_TOKENS}" --view_selection_hierarchical "${USE_HIERARCHICAL_VIEWS}" "${ADAPTIVE_SHUFFLE_ARGS[@]}" \
     --llava_image_mode "${LLAVA_IMAGE_MODE:-anyres}" \
     --view_probability_mass "${USE_VIEW_PROBABILITY_MASS}" --view_probability_mass_threshold "${VIEW_PROBABILITY_MASS_THRESHOLD}" --adaptive_views --model_name_or_path "${MODEL_PATH}" --dataset_name "${DATASET}" \
     --dataset_split "${DATASET_SPLIT:-test}" --task_type "${TASK}" --encode_type "${ENCODE_TYPE:-${KIND}}" \

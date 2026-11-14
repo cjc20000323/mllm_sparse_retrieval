@@ -130,14 +130,25 @@ def validate_diagnostics(selection):
             if name+"_raw_probabilities" in row:
                 require_vector(row.get(name+"_display_raw_probabilities"),
                                display_values(row[name+"_raw_probabilities"],pool,config),"raw probabilities")
+            for key in ("option_probabilities", "vocabulary_probabilities", "vocabulary_log_probabilities"):
+                if name+"_"+key in row:
+                    require_vector(row.get(name+"_display_"+key),
+                                   display_values(row[name+"_"+key],pool,config), key)
     prior = selection.get("calibration")
     if prior is not None:
-        for key in ("probabilities","log_probabilities"):
+        for key in ("probabilities", "log_probabilities", "vocabulary_probabilities", "vocabulary_log_probabilities"):
+            if "prior_"+key not in prior:
+                continue
             require_vector(prior.get("display_prior_"+key),
                            display_values(prior["prior_"+key],pool,config),"prior "+key)
-        block = "Candidate perspectives:\n"+"\n".join(f"{row['display_label']}. {row['aspect']}" for row in config["mapping"])
-        if block not in prior.get("prior_prompt",""):
-            raise ValueError("PMI prior prompt does not contain the recorded option shuffle mapping")
+        from adaptive_views import resolve_pmi_prior_prompt_mode
+        if resolve_pmi_prior_prompt_mode(selection=selection) == "instruction_only":
+            if "Candidate perspectives:" in prior.get("prior_prompt", ""):
+                raise ValueError("Instruction-only PMI prior cannot contain a candidate list")
+        else:
+            block = "Candidate perspectives:\n"+"\n".join(f"{row['display_label']}. {row['aspect']}" for row in config["mapping"])
+            if block not in prior.get("prior_prompt",""):
+                raise ValueError("PMI prior prompt does not contain the recorded option shuffle mapping")
 
 
 def add_metadata(value, config):

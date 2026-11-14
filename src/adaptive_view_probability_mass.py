@@ -7,6 +7,10 @@ import math
 STRATEGY = "cumulative_probability"
 VERSION = 18
 PMI_VERSION = 19
+VARIANT_VERSION = 24
+VARIANT_PMI_VERSION = 25
+PREFIX_VERSION = 30
+PREFIX_PMI_VERSION = 31
 DEFAULT_THRESHOLD = 0.9
 TOLERANCE = 1e-12
 FIELD = "probability_mass_configuration"
@@ -39,7 +43,7 @@ def configuration(threshold=DEFAULT_THRESHOLD):
 
 
 def is_selection(selection):
-    return selection.get("version") in {VERSION, PMI_VERSION}
+    return selection.get("version") in {VERSION, PMI_VERSION, VARIANT_VERSION, VARIANT_PMI_VERSION, PREFIX_VERSION, PREFIX_PMI_VERSION}
 
 
 def _exceeds(value, threshold):
@@ -100,7 +104,7 @@ def probability_source(selection):
         raise ValueError("Overlap selections cannot supply cumulative probability views")
     source = copy.deepcopy(selection)
     if not is_selection(source):
-        if source.get("version") not in {views.VERSION, views.PMI_VERSION}:
+        if source.get("version") not in {views.VERSION, views.PMI_VERSION, views.VARIANT_VERSION, views.VARIANT_PMI_VERSION, views.PREFIX_VERSION, views.PREFIX_PMI_VERSION}:
             raise ValueError("Expected an ordinary/PMI probability selection")
         return source
     pmi = views.is_pmi_selection(source)
@@ -109,9 +113,10 @@ def probability_source(selection):
     order = sorted(range(len(source["pool"])), key=lambda i: (-source["scores"][i], i))
     source["selected"] = [dict(label=source["pool"][i]["label"], aspect=source["pool"][i]["aspect"])
                           for i in order[:views.TOP_K]]
-    source["version"] = views.PMI_VERSION if pmi else views.VERSION
+    source["version"] = views.selection_version(pmi=pmi, token_variants=views.uses_token_variants(selection), prefix_tokens=views.uses_prefix_tokens(selection))
     source["views_fingerprint"] = views.views_fingerprint(source["selected"], source["selection_modality"],
-        pmi=pmi, shuffle=source.get(views.option_shuffle.FIELD), pool_mode=views.pool_mode(source),
+        token_variants=views.uses_token_variants(source), prefix_tokens=views.uses_prefix_tokens(source),
+        pmi=pmi, prior_prompt_mode=views.resolve_pmi_prior_prompt_mode(selection=source), shuffle=source.get(views.option_shuffle.FIELD), pool_mode=views.pool_mode(source),
         example_configuration=source.get(views.examples.FIELD))
     source["fingerprint"] = views.digest({key: value for key, value in source.items() if key != "fingerprint"})
     return source
@@ -123,6 +128,8 @@ def fingerprint(selection):
         selection_modality=selection["selection_modality"], selected=selection["selected"],
         probability_mass_configuration=selection[FIELD],
         probability_source_fingerprint=selection["probability_source_fingerprint"])
+    if views.uses_choice_scoring(selection):
+        payload["choice_scoring"] = views.choice_configuration(prefix_tokens=views.uses_prefix_tokens(selection))
     return views.digest(views.examples.add_configuration(views.add_pool_mode(views.option_shuffle.add_metadata(
         payload, selection.get(views.option_shuffle.FIELD)), views.pool_mode(selection)), selection.get(views.examples.FIELD)))
 
@@ -131,7 +138,8 @@ def _derive(source, config):
     import adaptive_views as views
     chosen, ranking, cumulative = _select(source["pool"], source["scores"], config)
     result = copy.deepcopy(source)
-    result.update(version=PMI_VERSION if views.is_pmi_selection(source) else VERSION,
+    result.update(version=views.selection_version(pmi=views.is_pmi_selection(source), probability_mass=True,
+                  token_variants=views.uses_token_variants(source), prefix_tokens=views.uses_prefix_tokens(source)),
         selection_strategy=STRATEGY, probability_source_fingerprint=source["fingerprint"],
         probability_mass_configuration=config, selected=chosen,
         probability_mass_ranking=ranking, selected_probability_mass=cumulative, selected_count=len(chosen))
@@ -152,6 +160,8 @@ def derive(selection, threshold=DEFAULT_THRESHOLD):
 def validate_probabilities(selection):
     import numpy as np
     import adaptive_views as views
+    if views.uses_choice_scoring(selection):
+        views.validate_choice_selection(selection)
     matrices = {name: [row[name + "_probabilities"] for row in selection["rounds"]]
                 if name in views.enabled_modalities(selection["selection_modality"]) else None
                 for name in ("text", "image")}
@@ -263,13 +273,13 @@ class ProbabilityMassStrategy:
         shuffle = views.option_shuffle.for_options(options, identity, dataset, views.view_pool(pool_mode))
         sampling = views.selection_sampling(options, mode, model_config=model.config)
         key = views.selection_cache_key(identity, dataset, source_split, mode, sampling,
-            options.adaptive_data_root, pmi=views.resolve_pmi(options.view_selection_pmi), shuffle=shuffle, pool_mode=pool_mode)
+            options.adaptive_data_root, prior_prompt_mode=getattr(options, "view_pmi_prior_prompt_mode", None), pmi=views.resolve_pmi(options.view_selection_pmi), shuffle=shuffle, pool_mode=pool_mode, token_variants=getattr(options, "view_selection_token_variants", False), prefix_tokens=getattr(options, "view_selection_prefix_tokens", False))
         path = views.selection_cache_path(self.data.sparse_output_dir, self.model_args.model_name_or_path, dataset, key)
         if path.is_file():
             source = views.load_selection(path, identity=identity, dataset=dataset, selection_modality=mode,
-                view_selection_pmi=views.resolve_pmi(options.view_selection_pmi), view_selection_hierarchical=pool_mode is not None,
+                view_selection_pmi=views.resolve_pmi(options.view_selection_pmi), view_pmi_prior_prompt_mode=getattr(options, "view_pmi_prior_prompt_mode", None), view_selection_hierarchical=pool_mode is not None,
                 view_example_mode=options.view_example_mode, view_example_max_tokens=options.view_example_max_tokens,
-                view_probability_mass=False)
+                view_probability_mass=False, view_selection_token_variants=getattr(options, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(options, "view_selection_prefix_tokens", False))
             views.require_equal(source["sampling"], sampling, "Probability source sampling")
             views.require_equal(dict(mapping=source.get(views.option_shuffle.FIELD)), dict(mapping=shuffle), "Probability source shuffle")
             print(f"[adaptive probability mass] reused probability source: {path}", flush=True)

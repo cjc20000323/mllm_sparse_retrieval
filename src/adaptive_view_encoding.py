@@ -242,7 +242,7 @@ def encoding_configuration(model_args, data, task, kind, identity, selection):
         "llama3_template_text_prefix", "llama3_template_content_element",
         "llava_mistral_template_text_prefix", "llava_mistral_template_content_element",
     )}
-    configuration = dict(version=views.VERSION, model=identity, dataset=data.dataset_name, split=data.dataset_split,
+    configuration = dict(version=views.encoding_version(selection), model=identity, dataset=data.dataset_name, split=data.dataset_split,
                          task=task, kind=kind, method=[model_args.eol_type, model_args.calculate_type],
                          selection_modality=selection["selection_modality"],
                          selected=selection["selected"], views_fingerprint=selection["views_fingerprint"],
@@ -464,11 +464,15 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
         raise ValueError(f"Invalid adaptive corpus encode_type={training.encode_type}")
     if min(data.per_device_batch_size, data.sparse_length, data.text_sparse_length, data.image_sparse_length) < 1:
         raise ValueError("Encoding batch/sparse lengths must be positive")
+    views.validate_prefix_model(model_args.model_name_or_path, prefix_tokens=getattr(options, "view_selection_prefix_tokens", False),
+                                token_variants=getattr(options, "view_selection_token_variants", False))
     requested_mode = options.view_selection_modality
     views.resolve_modality(requested_mode)
     views.examples.validate_options(options)
     requested_pmi = getattr(options, "view_selection_pmi", None)
     views.resolve_pmi(requested_pmi)
+    requested_prior_mode = getattr(options, "view_pmi_prior_prompt_mode", None)
+    views.resolve_pmi_prior_prompt_mode(requested_prior_mode, pmi=requested_pmi)
     candidate_mode = views.options_pool_mode(options)
     pool = views.view_pool(candidate_mode)
     rank, world, device = init_process()
@@ -485,11 +489,11 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
             if not explicit_path.is_file():
                 raise ValueError(f"Expected a view selection file: {explicit_path}")
             selection = views.load_selection(explicit_path, dataset=data.dataset_name,
-                                             selection_modality=requested_mode, view_selection_pmi=requested_pmi,
+                                             selection_modality=requested_mode, view_selection_pmi=requested_pmi, view_pmi_prior_prompt_mode=requested_prior_mode,
                                              view_selection_hierarchical=candidate_mode is not None,
                                              view_example_mode=options.view_example_mode,
                                               view_example_max_tokens=options.view_example_max_tokens,
-                                              allow_legacy_probability_mass_source=mass_mode)
+                                              allow_legacy_probability_mass_source=mass_mode, view_selection_token_variants=getattr(options, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(options, "view_selection_prefix_tokens", False))
             if mass_mode:
                 if options.view_selection_split and options.view_selection_split != selection.get("selection_split"):
                     raise ValueError("Probability source split differs from VIEW_SELECTION_SPLIT")
@@ -509,6 +513,7 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
         explicit_path = None
     mode = preselected["selection_modality"] if preselected is not None else views.resolve_modality(requested_mode)
     pmi = views.resolve_pmi(requested_pmi, selection=preselected)
+    options.view_pmi_prior_prompt_mode = views.resolve_pmi_prior_prompt_mode(requested_prior_mode, selection=preselected, pmi=pmi)
     api = pipeline_module()
     args = make_args(model_args, data, training, options)
     args.retrieval_device = str(device)
@@ -532,9 +537,9 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
             source_split = preselected["selection_split"]
         shuffle = option_shuffle.for_options(options,identity,data.dataset_name,pool)
         selection_key = views.selection_cache_key(
-            identity, data.dataset_name, source_split, mode, sampling, args.data_root, pmi=pmi,
+            identity, data.dataset_name, source_split, mode, sampling, args.data_root, pmi=pmi, prior_prompt_mode=options.view_pmi_prior_prompt_mode,
             strategy=selection_strategy.configuration if selection_strategy is not None else None, shuffle=shuffle,
-            pool_mode=candidate_mode)
+            pool_mode=candidate_mode, token_variants=getattr(options, "view_selection_token_variants", False), prefix_tokens=getattr(options, "view_selection_prefix_tokens", False))
         selection_path = explicit_path if explicit_path is not None else (
             views.selection_cache_path(data.sparse_output_dir, model_args.model_name_or_path,
                                        data.dataset_name, selection_key))
@@ -543,7 +548,7 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
                 views.require_equal(preselected["model"], identity, "View selection model/processor")
                 if probability_source_path is not None:
                     if selection_path.exists():
-                        cached = views.load_selection(selection_path, identity=identity, dataset=data.dataset_name)
+                        cached = views.load_selection(selection_path, identity=identity, dataset=data.dataset_name, view_selection_token_variants=getattr(options, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(options, "view_selection_prefix_tokens", False))
                         views.require_equal(dict(fingerprint=cached["fingerprint"]),
                                             dict(fingerprint=preselected["fingerprint"]), "Derived selection cache")
                     else:
@@ -562,10 +567,10 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
                 return preselected
             if selection_path.is_file():
                 selection = views.load_selection(selection_path, identity=identity, dataset=data.dataset_name,
-                                                 selection_modality=mode, view_selection_pmi=pmi,
+                                                 selection_modality=mode, view_selection_pmi=pmi, view_pmi_prior_prompt_mode=options.view_pmi_prior_prompt_mode,
                                                  view_selection_hierarchical=candidate_mode is not None,
                                                  view_example_mode=options.view_example_mode,
-                                                 view_example_max_tokens=options.view_example_max_tokens)
+                                                 view_example_max_tokens=options.view_example_max_tokens, view_selection_token_variants=getattr(options, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(options, "view_selection_prefix_tokens", False))
                 views.require_equal(selection["sampling"], sampling, "Selection sampling")
                 if selection.get(option_shuffle.FIELD) != shuffle:
                     raise ValueError("Selection cache belongs to a different option shuffle experiment")
@@ -665,7 +670,7 @@ def encode_queries(args, runtime, api, *, eol_type, calculate_type, sparse_manua
     configure_processor(runtime.encoder.config, runtime.processor, args.retrieval_reps_loc)
     identity = views.model_identity(args.retrieval_model_name_or_path, runtime.encoder.config, runtime.processor,
                                     dtype=args.retrieval_dtype, lora=args.retrieval_lora_model_path)
-    selection = views.load_selection(args.view_selection_file, identity=identity, dataset=args.dataset_name)
+    selection = views.load_selection(args.view_selection_file, identity=identity, dataset=args.dataset_name, view_selection_token_variants=getattr(args, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(args, "view_selection_prefix_tokens", False))
     settings = _query_encoding_settings(args, api, selection, eol_type=eol_type,
                                        calculate_type=calculate_type, sparse_manual=sparse_manual)
     key = ("adaptive", views.digest(settings), tuple(requested_query_ids) if requested_query_ids is not None else None)
@@ -701,7 +706,7 @@ def validate_encoded(args, encoded, paths, api, *, eol_type, calculate_type, spa
     expected = encoded.qwen_metadata
     if expected is None:
         raise ValueError("Missing adaptive query configuration")
-    selection = views.load_selection(args.view_selection_file, dataset=args.dataset_name)
+    selection = views.load_selection(args.view_selection_file, dataset=args.dataset_name, view_selection_token_variants=getattr(args, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(args, "view_selection_prefix_tokens", False))
     settings = _query_encoding_settings(args, api, selection, eol_type=eol_type,
                                        calculate_type=calculate_type, sparse_manual=sparse_manual)
     views.require_equal(expected["pipeline_settings"], settings, "Adaptive query reuse")
@@ -737,7 +742,7 @@ def preflight(args, api, *, mark_output=True):
                                    reps_loc=args.retrieval_reps_loc,
                                    image_mode=getattr(args, "retrieval_llava_image_mode", "anyres"),
                                    lora=args.retrieval_lora_model_path)
-    selection = views.load_selection(args.view_selection_file, identity=identity, dataset=args.dataset_name)
+    selection = views.load_selection(args.view_selection_file, identity=identity, dataset=args.dataset_name, view_selection_token_variants=getattr(args, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(args, "view_selection_prefix_tokens", False))
     if stc.enabled(args) and views.is_overlap_selection(selection):
         raise ValueError("STC does not support overlap selections")
     if lens.enabled(args) and views.is_overlap_selection(selection):

@@ -61,7 +61,7 @@ def validate_selection(selection, *, mode=None, maximum=None):
     stored_mode = "auto" if policy is not None else "fixed"
     if mode is not None and mode != stored_mode:
         raise ValueError(f"View-example mode mismatch: stored={stored_mode}, requested={mode}; "
-                         "use VIEW_EXAMPLE_MODE=fixed for legacy selections or choose a new selection file")
+                         "use VIEW_EXAMPLE_MODE=fixed for fixed-count selections or choose a new selection file")
     if maximum is not None and policy is not None and maximum != policy["max_tokens"]:
         raise ValueError(f"View-example budget mismatch: stored={policy['max_tokens']}, requested={maximum}")
     sampling_policy = selection.get("sampling", {}).get(FIELD)

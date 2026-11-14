@@ -8,6 +8,7 @@ LLAVA_IMAGE_MODE="${LLAVA_IMAGE_MODE:-anyres}"
 export LLAVA_IMAGE_MODE
 case "${LLAVA_IMAGE_MODE}" in anyres|base) ;; *) echo "LLAVA_IMAGE_MODE must be anyres or base" >&2; exit 2 ;; esac
 
+# prompt_shared_5: Flickr/COCO five views for IR/TBPR/fused; disassembleeol_separate + concat only.
 PROMPT_TYPE="${PROMPT_TYPE:-prompt_5}"
 DATASET_SPLIT="${DATASET_SPLIT:-test}"
 USE_GENERATED_VALIDATION_DATA="${USE_GENERATED_VALIDATION_DATA:-false}"

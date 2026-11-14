@@ -1500,6 +1500,7 @@ def _concat_aspect_prompts(templates: Any, prompt_type: str) -> Sequence[str]:
         "prompt_3": "retrieval_disassemble_image_prompts_3_for_concat",
         "prompt_4": "retrieval_disassemble_image_prompts_4_for_concat",
         "prompt_5": "retrieval_disassemble_image_prompts_for_concat",
+        "prompt_shared_5": "retrieval_disassemble_image_prompts_for_concat",
         "prompt_6": "retrieval_disassemble_image_prompts_6_for_concat",
         "prompt_7": "retrieval_disassemble_image_prompts_7_for_concat",
     }
@@ -1822,6 +1823,8 @@ def encode_queries_online(
     requested_query_ids: Optional[Sequence[str]] = None,
     timing: Optional[StageTimer] = None,
 ) -> EncodedQueries:
+    from shared_five_views import validate
+    validate(args.prompt_type, args.task_type, eol_type, calculate_type)
     import numpy as np
     import torch
 
@@ -3571,7 +3574,7 @@ def _parser() -> argparse.ArgumentParser:
         choices=("before_pad", "after_pad"),
         default="after_pad",
     )
-    parser.add_argument("--prompt-type", default="prompt_5")
+    parser.add_argument("--prompt-type", default="prompt_5", help="prompt_shared_5 shares Flickr/COCO five views across IR/TBPR/fused; concat only")
     parser.add_argument("--retrieval-llava-image-mode", choices=("anyres", "base"), default="anyres")
     parser.add_argument("--retrieval-qwen-min-pixels", type=int, default=0, help="Qwen query image minimum pixel area; 0 uses checkpoint defaults.")
     parser.add_argument("--retrieval-qwen-max-pixels", type=int, default=0, help="Qwen query image maximum pixel area; 0 uses checkpoint defaults.")
@@ -3629,6 +3632,10 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _validate_args(args: argparse.Namespace) -> None:
+    import shared_five_views
+    shared_five_views.validate(args.prompt_type, args.task_type, STAGE2_EOL_TYPE, STAGE2_CALCULATE_TYPE)
+    if args.prompt_type == shared_five_views.PROMPT_TYPE and args.stage1_method == "sparse_manual" and not (args.stage1_run or args.stage1_command):
+        raise ValueError("prompt_shared_5 requires Stage 1 sparse_concat, CLIP/BLIP or a precomputed run; sparse_manual uses separate encoding")
     configure_stage2_mode(args)
     from dense_representation import prepare_pipeline
     prepare_pipeline(args)

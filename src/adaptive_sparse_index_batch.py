@@ -13,7 +13,7 @@ import re
 import subprocess
 import sys
 
-from adaptive_views import MANIFEST, digest, validate_index_selection, is_overlap_selection, IncompatibleViewSelectionError, SelectionFileResolver
+from adaptive_views import MANIFEST, VARIANT_VERSION, PREFIX_VERSION, digest, validate_index_selection, is_overlap_selection, IncompatibleViewSelectionError, SelectionFileResolver
 from adaptive_sparse_index import build_sparse_index, collection_plan, canonical_index, normalize_collection
 
 
@@ -69,6 +69,8 @@ class Settings:
     exact_encoding: bool = False
     environment: dict[str, str] | None = None
     use_freeret_full_prompt: bool = False
+    token_variants: bool = False
+    prefix_tokens: bool = False
 
     @classmethod
     def from_environment(cls, group, env=None, *, overlap_only=False, exact_encoding=False):
@@ -101,10 +103,16 @@ class Settings:
         full = boolean(env.get("USE_FREERET_FULL_PROMPT", "false"))
         if full and not boolean(env.get("USE_FREERET_DENSE", "false")):
             raise ValueError("USE_FREERET_FULL_PROMPT=true requires USE_FREERET_DENSE=true")
+        from adaptive_views import resolve_prefix_tokens, option_scoring
+        prefixed = resolve_prefix_tokens(env.get("USE_VIEW_PREFIX_TOKENS", "false"), token_variants=env.get("USE_VIEW_TOKEN_VARIANTS", "false"))
+        if prefixed:
+            for family in families:
+                option_scoring.prefix_for_family(family)
         return cls(group, families, datasets, kinds, split, root.resolve(), threads, pmi_mode,
                    boolean(env.get("DRY_RUN", "false")), overlap_only, selection_root or None,
                    boolean(env.get("USE_FREERET_DENSE", "false")), boolean(env.get("USE_FREERET_PROMPT_CONSTRAINTS", "false")) and not full,
-                   exact_encoding, env if exact_encoding else None, full)
+                   exact_encoding, env if exact_encoding else None, full,
+                   boolean(env.get("USE_VIEW_TOKEN_VARIANTS", "false")), prefixed)
 
 
 @dataclass(frozen=True)
@@ -123,8 +131,20 @@ class Job:
         return self.family, self.dataset, self.kind
 
 
-def check_artifact(root, manifest, configuration, *, selection=None, resolver=None):
+def check_artifact(root, manifest, configuration, *, selection=None, resolver=None, view_selection_token_variants=False, view_selection_prefix_tokens=False):
     """Validate all selected corpora before publishing the first index."""
+    from adaptive_views import resolve_token_variants
+    requested = resolve_token_variants(view_selection_token_variants)
+    encoded_variants = configuration.get("version") == VARIANT_VERSION
+    if encoded_variants != requested:
+        raise IncompatibleViewSelectionError("Adaptive encoding token-variant mode differs from USE_VIEW_TOKEN_VARIANTS")
+    from adaptive_views import resolve_prefix_tokens
+    prefixed = resolve_prefix_tokens(view_selection_prefix_tokens, token_variants=view_selection_token_variants)
+    if (configuration.get("version") == PREFIX_VERSION) != prefixed:
+        raise IncompatibleViewSelectionError("Adaptive encoding prefix-token mode differs from USE_VIEW_PREFIX_TOKENS")
+    if selection is not None:
+        resolve_token_variants(view_selection_token_variants, selection=selection)
+        resolve_prefix_tokens(view_selection_prefix_tokens, token_variants=view_selection_token_variants, selection=selection)
     if manifest.get("fingerprint") != digest(configuration):
         raise ValueError(f"Corrupt adaptive configuration fingerprint: {root / MANIFEST}")
     fingerprint = configuration.get("views_fingerprint", "")
@@ -153,7 +173,7 @@ def check_artifact(root, manifest, configuration, *, selection=None, resolver=No
     if root.name not in expected_names:
         raise ValueError(f"Directory/view fingerprint mismatch at {root}; expected {fingerprint[:16]}")
     if selection is None:
-        validate_index_selection(root, manifest, resolver=resolver)
+        validate_index_selection(root, manifest, resolver=resolver, view_selection_token_variants=view_selection_token_variants, view_selection_prefix_tokens=view_selection_prefix_tokens)
     collection_plan(root, manifest)
     return canonical_index(root)
 
@@ -168,6 +188,14 @@ def discover(settings, *, incompatible=None, non_overlap=None):
         try:
             manifest = json.loads(path.read_text(encoding="utf-8"))
             configuration = manifest["configuration"]
+            if (configuration.get("version") == PREFIX_VERSION) != settings.prefix_tokens:
+                if path.parent.resolve() == settings.sparse_root.resolve():
+                    raise ValueError("Explicit adaptive encoding prefix-token mode differs from USE_VIEW_PREFIX_TOKENS")
+                continue
+            if (configuration.get("version") == VARIANT_VERSION) != settings.token_variants:
+                if path.parent.resolve() == settings.sparse_root.resolve():
+                    raise ValueError("Explicit adaptive encoding token-variant mode differs from USE_VIEW_TOKEN_VARIANTS")
+                continue
             # Validate the namespace before filtering, so a mislabeled experiment
             # cannot be silently interpreted as the other representation mode.
             from dense_representation import marked, prompts_marked, full_prompts_marked
@@ -217,12 +245,12 @@ def discover(settings, *, incompatible=None, non_overlap=None):
                 raise ValueError(f"Refusing a linked completion manifest: {path}")
             selection = None
             if settings.overlap_only:
-                selection = validate_index_selection(root, manifest, resolver=resolver)
+                selection = validate_index_selection(root, manifest, resolver=resolver, view_selection_token_variants=settings.token_variants, view_selection_prefix_tokens=getattr(settings, "prefix_tokens", False))
                 if not is_overlap_selection(selection):
                     if non_overlap is not None:
                         non_overlap.append((path, selection["version"]))
                     continue
-            existing = check_artifact(root, manifest, configuration, selection=selection, resolver=resolver)
+            existing = check_artifact(root, manifest, configuration, selection=selection, resolver=resolver, view_selection_token_variants=settings.token_variants, view_selection_prefix_tokens=getattr(settings, "prefix_tokens", False))
             checkpoint = model.get("checkpoint", {}).get("path", str(root.parent.parent))
             jobs.append(Job(root, family, dataset, kind, checkpoint,
                             configuration["views_fingerprint"], pmi, existing))
@@ -328,10 +356,10 @@ def discover_exact(settings, *, identity_loader=None, backend=None):
             try:
                 selection = views.load_selection(selection_path, identity=identity, dataset=dataset,
                                                  selection_modality=options.view_selection_modality,
-                                                 view_selection_pmi=options.view_selection_pmi,
+                                                 view_selection_pmi=options.view_selection_pmi, view_pmi_prior_prompt_mode=getattr(options, "view_pmi_prior_prompt_mode", None),
                                                  view_selection_hierarchical=options.view_selection_hierarchical,
                                                  view_example_mode=options.view_example_mode,
-                                                 view_example_max_tokens=options.view_example_max_tokens)
+                                                 view_example_max_tokens=options.view_example_max_tokens, view_selection_token_variants=getattr(options, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(options, "view_selection_prefix_tokens", False))
                 views.require_equal(dict(split=selection.get("selection_split")), dict(split=context.selection_split), "Selection source split")
                 views.require_equal(selection.get("sampling"), key["sampling"], "Selection sampling")
                 views.require_equal(dict(shuffle=selection.get(shuffle.FIELD)), dict(shuffle=key.get(shuffle.FIELD)), "Selection option shuffle")
@@ -344,10 +372,10 @@ def discover_exact(settings, *, identity_loader=None, backend=None):
                 if (root / MANIFEST).resolve() != root / MANIFEST:
                     raise ValueError(f"Refusing a linked completion manifest: {root / MANIFEST}")
                 manifest = views.validate_artifact(root, expected)
-                locked = validate_index_selection(root, manifest, resolver=resolver)
+                locked = validate_index_selection(root, manifest, resolver=resolver, view_selection_token_variants=getattr(options, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(options, "view_selection_prefix_tokens", False))
                 views.require_equal(dict(fingerprint=locked["fingerprint"]), dict(fingerprint=selection["fingerprint"]),
                                     "Automatic cache/manifest selection fingerprint")
-                existing = check_artifact(root, manifest, expected["configuration"], selection=locked)
+                existing = check_artifact(root, manifest, expected["configuration"], selection=locked, view_selection_token_variants=getattr(options, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(options, "view_selection_prefix_tokens", False))
             except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
                 raise ValueError(f"Cannot use exact adaptive experiment {family}|{dataset}|{kind}; selection={selection_path}: {exc}") from exc
             jobs.append(Job(root, family, dataset, kind, str(context.models[family]), selection["views_fingerprint"],
@@ -425,7 +453,7 @@ Lists are whitespace-separated; empty, duplicate and unsupported entries fail.
 DATASET_SPLIT=test; SPARSE_OUTPUT_ROOT=<project>/sparse_output; THREADS=16 (SPARSE_THREADS is an alias).
 PMI_MODE=all|on|off (default all); on includes PMI and PMI+overlap;
 off includes ordinary and overlap artifacts without PMI.
---overlap-only restricts indexing to versions 16/17, as used by sparse_index_adaptive_views_overlap_<task>.sh.
+--overlap-only restricts indexing to versions 22/23, as used by sparse_index_adaptive_views_overlap_<task>.sh.
 With --overlap-only: PMI_MODE=all selects 16/17; off selects 16; on selects 17.
 Ordinary/PMI-only corpora are skipped and summarized as skipped_non_overlap. Original launchers keep all modes.
 DRY_RUN=true|false (default false); PYTHON_BIN in the launcher selects the active environment.
@@ -447,7 +475,7 @@ It needs local checkpoint config/tokenizer/processor files and the encoding envi
 original datasets, dense corpus or GPU. Match DATA_ROOT, model paths, DTYPE, selection/sparse/image settings,
 USE_VIEW_PMI, USE_HIERARCHICAL_VIEWS and USE_VIEW_OVERLAP_SELECTION to encoding.
 VIEW_EXAMPLE_MODE=auto|fixed defaults auto; match VIEW_EXAMPLE_MAX_TOKENS (default 0) to encoding.
-Use fixed to locate legacy fixed-count caches. Manifest-scanning/manual modes read the stored example policy.
+Use fixed to locate fixed-count caches of the current scoring version. Manifest-scanning/manual modes read the stored example policy.
 Shuffled encoding requires its original VIEW_SELECTION_RUN_ID; no new permutation is generated.
 Missing exact caches fail with the expected path; no latest/other experiment fallback.
 Without --exact-encoding no checkpoint files are needed. Actual builds require Pyserini and Java.

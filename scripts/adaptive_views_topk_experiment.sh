@@ -1,7 +1,26 @@
 #!/usr/bin/env bash
 # 一次调用：同一概率排序 -> Top-1..10 稀疏编码 -> 建索引 -> 二/三阶段检索 -> CSV 汇总。
 # 所有任务由新的 Python 入口执行；不调用或修改原有编码、检索启动脚本。
+# 每轮打印实际参与评分的 token 概率，并导出 view_token_probabilities.csv（全词表/候选内两种口径）。
+# 自动选择缓存使用 token_probabilities_v1 子目录；旧缓存保留，首次运行会重新选择。
 set -euo pipefail
+# Opt in to summing all vocabulary variants of each view option; match this across encoding/index/search.
+export USE_VIEW_TOKEN_VARIANTS="${USE_VIEW_TOKEN_VARIANTS-false}"
+# Exact uppercase prefix token for LLaVA only; incompatible with vocabulary variant sums.
+export USE_VIEW_PREFIX_TOKENS="${USE_VIEW_PREFIX_TOKENS-false}"
+case "${USE_VIEW_PREFIX_TOKENS,,}" in
+    true|1|yes) USE_VIEW_PREFIX_TOKENS=true ;;
+    false|0|no) USE_VIEW_PREFIX_TOKENS=false ;;
+    *) echo 'Invalid USE_VIEW_PREFIX_TOKENS: use true or false' >&2; exit 2 ;;
+esac
+# Optional PMI prior prompt: false keeps the candidate list; instruction_only removes it.
+# VIEW_PMI_PRIOR_PROMPT_MODE=false
+if [[ -v VIEW_PMI_PRIOR_PROMPT_MODE ]]; then
+    case "${VIEW_PMI_PRIOR_PROMPT_MODE,,}" in
+        false|instruction_only) export VIEW_PMI_PRIOR_PROMPT_MODE="${VIEW_PMI_PRIOR_PROMPT_MODE,,}" ;;
+        *) echo 'Invalid VIEW_PMI_PRIOR_PROMPT_MODE: use false or instruction_only' >&2; exit 2 ;;
+    esac
+fi
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
@@ -10,8 +29,8 @@ MODEL_FAMILIES="${MODEL_FAMILIES-qwen25}" # qwen2 qwen25 qwen3 llava_llama llava
 MODEL_FAMILY="${MODEL_FAMILY-}"          # 非空覆盖 MODEL_FAMILIES
 DATASETS="${DATASETS-flickr}"           # flickr coco CUHK-PEDES ICFG-PEDES RSTPReid webqa remuq llava
 DATASET="${DATASET-}"                   # 非空覆盖 DATASETS
-IR_QUERY_TYPES="${IR_QUERY_TYPES-text}"  # text / image / 'text image'，仅 IR 使用
-IR_QUERY_TYPE="${IR_QUERY_TYPE-}"
+IR_QUERY_TYPES="${IR_QUERY_TYPES-auto}" # auto: 多数据集中的 COCO/Flickr 双向；单数据集默认 text
+IR_QUERY_TYPE="${IR_QUERY_TYPE-}"       # 非空覆盖 IR_QUERY_TYPES；可显式指定 text / image / 'text image'
 DATASET_SPLIT="${DATASET_SPLIT-test}"
 # TBPR=text->image；WebQA=text->图文；ReMuQ/LLaVA=图文->text。
 
@@ -32,6 +51,7 @@ STOP_AFTER_STAGE2="${STOP_AFTER_STAGE2-false}" # true: 只到第二阶段，完�
 DRY_RUN="${DRY_RUN-false}"                     # true: 预检并打印，不写文件或加载模型
 GPUS="${GPUS-1}"
 NUM_NODES="${NUM_NODES-1}"
+MASTER_PORT="${MASTER_PORT:-29500}"          # DeepSpeed 通信端口；可在运行时用 MASTER_PORT=29501 覆盖
 DTYPE="${DTYPE-float16}"                      # float16 / bfloat16 / float32
 PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE-1}"
 RETRIEVAL_BATCH_SIZE="${RETRIEVAL_BATCH_SIZE-1}"
@@ -57,7 +77,8 @@ QWEN_MIN_PIXELS="${QWEN_MIN_PIXELS-0}"
 QWEN_MAX_PIXELS="${QWEN_MAX_PIXELS-0}"
 
 # ===== 概率来源：每个模型/数据集只计算一次，十组和 IR 双向共用 =====
-VIEW_SELECTION_FILE="${VIEW_SELECTION_FILE-}" # 可填写原 encode_adaptive_views 的 view_selection.json；限单模型/数据集
+FORCE_RESELECT_VIEWS="${FORCE_RESELECT_VIEWS-false}" # true: 独立目录重新选择并完整重跑；需清空 VIEW_SELECTION_FILE
+VIEW_SELECTION_FILE="${VIEW_SELECTION_FILE-}" # 需同目录有匹配的 view_token_probabilities.json；限单模型/数据集
 VIEW_SELECTION_SPLIT="${VIEW_SELECTION_SPLIT-}"
 VIEW_SELECTION_MODALITY="${VIEW_SELECTION_MODALITY-}" # 空: 新选择用 both，已有文件继承；text / image / both
 USE_VIEW_PMI="${USE_VIEW_PMI-}"                       # 空: 新选择 false，已有文件继承；true 按 PMI 校正概率排序
@@ -77,11 +98,13 @@ USE_FREERET_DENSE="${USE_FREERET_DENSE-false}"
 USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"
 USE_FREERET_FULL_PROMPT="${USE_FREERET_FULL_PROMPT-false}"
 
-# ===== 检索参数：十组共用固定融合权重 =====
+# ===== 检索参数：固定权重，或每组遍历 0.5、0.6、0.7、0.8、0.9 =====
 STAGE1_DEPTH="${STAGE1_DEPTH-1000}"
 STAGE2_DEPTH="${STAGE2_DEPTH-1000}"
 SPARSE_THREADS="${SPARSE_THREADS-16}"
 HYBRID_ALPHA="${HYBRID_ALPHA-0.5}" # dense 权重；sparse 权重为 1-alpha
+SWEEP_HYBRID_ALPHA="${SWEEP_HYBRID_ALPHA-false}" # true: 忽略单值，每个 K 共用评分遍历五个权重
+# 例如：SWEEP_HYBRID_ALPHA=true STOP_AFTER_STAGE2=true bash scripts/adaptive_views_topk_experiment.sh
 
 # ===== 重排参数：STOP_AFTER_STAGE2=true 时这些配置不参与校验或加载 =====
 RANKER_MODEL_PATH="${RANKER_MODEL_PATH-}" # 空时与当前检索模型相同
@@ -103,12 +126,12 @@ BATCH_ENV=()
 for name in MODEL_FAMILIES MODEL_FAMILY DATASETS DATASET IR_QUERY_TYPES IR_QUERY_TYPE DATASET_SPLIT \
     CHECKPOINT_ROOT MODEL_PATH MODEL_PATH_QWEN2 MODEL_PATH_QWEN25 MODEL_PATH_QWEN3 MODEL_PATH_LLAVA_LLAMA MODEL_PATH_LLAVA_MISTRAL \
     DATA_ROOT SPARSE_OUTPUT_ROOT OUTPUT_ROOT STOP_AFTER_STAGE2 DRY_RUN GPUS NUM_NODES DTYPE PER_DEVICE_BATCH_SIZE RETRIEVAL_BATCH_SIZE \
-    DEEPSPEED_BIN REPS_LOC SPARSE_LENGTH TEXT_SPARSE_LENGTH IMAGE_SPARSE_LENGTH SPARSE_VALUE_TYPE SPARSE_LOWER_OR_UPPER \
+    DEEPSPEED_BIN MASTER_PORT REPS_LOC SPARSE_LENGTH TEXT_SPARSE_LENGTH IMAGE_SPARSE_LENGTH SPARSE_VALUE_TYPE SPARSE_LOWER_OR_UPPER \
     SPARSE_VALUE_MEAN IS_FILTERED NUM_EXPENDED_TOKENS TBPR_TYPE LLAVA_IMAGE_MODE QWEN_MIN_PIXELS QWEN_MAX_PIXELS \
-    VIEW_SELECTION_FILE VIEW_SELECTION_SPLIT VIEW_SELECTION_MODALITY USE_VIEW_PMI USE_HIERARCHICAL_VIEWS VIEW_SELECTION_ROUNDS \
+    FORCE_RESELECT_VIEWS VIEW_SELECTION_FILE VIEW_SELECTION_SPLIT VIEW_SELECTION_MODALITY USE_VIEW_PMI USE_HIERARCHICAL_VIEWS VIEW_SELECTION_ROUNDS \
     VIEW_SELECTION_SEED VIEW_EXAMPLE_MODE VIEW_EXAMPLE_MAX_TOKENS VIEW_TEXTS_PER_ROUND VIEW_IMAGES_PER_ROUND \
     SHUFFLE_VIEW_OPTIONS VIEW_SELECTION_RUN_ID USE_FREERET_DENSE USE_FREERET_PROMPT_CONSTRAINTS USE_FREERET_FULL_PROMPT \
-    STAGE1_DEPTH STAGE2_DEPTH SPARSE_THREADS HYBRID_ALPHA RANKER_MODEL_PATH RANKER_MODEL_PATH_QWEN2 RANKER_MODEL_PATH_QWEN25 \
+    STAGE1_DEPTH STAGE2_DEPTH SPARSE_THREADS HYBRID_ALPHA SWEEP_HYBRID_ALPHA RANKER_MODEL_PATH RANKER_MODEL_PATH_QWEN2 RANKER_MODEL_PATH_QWEN25 \
     RANKER_MODEL_PATH_QWEN3 RANKER_MODEL_PATH_LLAVA_LLAMA RANKER_MODEL_PATH_LLAVA_MISTRAL RANKER_DTYPE \
     RANKER_LLAVA_IMAGE_MODE RANKER_QWEN_MIN_PIXELS RANKER_QWEN_MAX_PIXELS RERANK_NUM RERANK_BATCH_SIZE; do
     BATCH_ENV+=("${name}=${!name}")

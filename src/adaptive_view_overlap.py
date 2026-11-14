@@ -59,15 +59,18 @@ def validate_configuration(configuration, *, pool_mode=None):
 
 
 def overlap_fingerprint(selection):
-    """Keep legacy view hashes unchanged; segregate new heuristic artifacts."""
+    """Fingerprint overlap choices together with their probability-scoring method."""
     pmi = views.is_pmi_selection(selection)
     configuration = dict(
-        version=views.PMI_OVERLAP_VERSION if pmi else views.OVERLAP_VERSION, selection_strategy=STRATEGY,
+        version=views.selection_version(pmi=pmi, overlap=True, token_variants=views.uses_token_variants(selection), prefix_tokens=views.uses_prefix_tokens(selection)), selection_strategy=STRATEGY,
         selection_modality=selection["selection_modality"], selected=selection["selected"],
         overlap_configuration=selection["overlap_configuration"],
         sample_ids=[dict(modality=row["modality"], id=row["id"]) for row in selection["overlap_samples"]])
+    if views.uses_choice_scoring(selection):
+        configuration["choice_scoring"] = views.choice_configuration(prefix_tokens=views.uses_prefix_tokens(selection))
     if pmi:
-        configuration["calibration"] = views.pmi_configuration(selection.get(views.option_shuffle.FIELD), pool_mode=views.pool_mode(selection))
+        configuration["calibration"] = views.pmi_configuration(selection.get(views.option_shuffle.FIELD), pool_mode=views.pool_mode(selection),
+            token_variants=views.uses_token_variants(selection), prefix_tokens=views.uses_prefix_tokens(selection), prior_prompt_mode=views.resolve_pmi_prior_prompt_mode(selection=selection))
     configuration = views.add_pool_mode(views.option_shuffle.add_metadata(
         configuration, selection.get(views.option_shuffle.FIELD)), views.pool_mode(selection))
     return views.digest(views.examples.add_configuration(configuration, selection.get(views.examples.FIELD)))
@@ -78,6 +81,8 @@ def frequency_order(pool, counts, scores):
 
 
 def validate_selection(selection):
+    if views.uses_choice_scoring(selection):
+        views.validate_choice_selection(selection)
     if selection.get("selection_strategy") != STRATEGY:
         raise ValueError("Expected a sparse-overlap frequency selection file")
     if views.is_pmi_selection(selection):
@@ -254,7 +259,8 @@ class OverlapSelectionStrategy:
 
     def choose(self, model, processor, identity, dataset, source_split, texts, images, options, *, report_path):
         selection = views.choose_views(model, processor, identity, dataset, source_split, texts, images, options)
-        version = views.PMI_OVERLAP_VERSION if views.is_pmi_selection(selection) else views.OVERLAP_VERSION
+        version = views.selection_version(pmi=views.is_pmi_selection(selection), overlap=True,
+                                          token_variants=views.uses_token_variants(selection), prefix_tokens=views.uses_prefix_tokens(selection))
         selection.pop("fingerprint")
         pool, scores = selection["pool"], selection["scores"]
         order = sorted(range(len(pool)), key=lambda i: (-scores[i], i))

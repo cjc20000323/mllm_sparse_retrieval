@@ -41,6 +41,23 @@ USE_FREERET_PROMPT_CONSTRAINTS="${USE_FREERET_PROMPT_CONSTRAINTS-false}"  # Prep
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/freeret_dense_mode.sh" || exit $?
 # Adaptive 三阶段批量检索：全部配置及实际 DeepSpeed 命令均在本文件中展开。
 set -euo pipefail
+# Opt in to summing all vocabulary variants of each view option; match this across encoding/index/search.
+export USE_VIEW_TOKEN_VARIANTS="${USE_VIEW_TOKEN_VARIANTS-false}"
+# Exact uppercase prefix token for LLaVA only; incompatible with vocabulary variant sums.
+export USE_VIEW_PREFIX_TOKENS="${USE_VIEW_PREFIX_TOKENS-false}"
+case "${USE_VIEW_PREFIX_TOKENS,,}" in
+    true|1|yes) USE_VIEW_PREFIX_TOKENS=true ;;
+    false|0|no) USE_VIEW_PREFIX_TOKENS=false ;;
+    *) echo 'Invalid USE_VIEW_PREFIX_TOKENS: use true or false' >&2; exit 2 ;;
+esac
+# Optional PMI prior prompt: false keeps the candidate list; instruction_only removes it.
+# VIEW_PMI_PRIOR_PROMPT_MODE=false
+if [[ -v VIEW_PMI_PRIOR_PROMPT_MODE ]]; then
+    case "${VIEW_PMI_PRIOR_PROMPT_MODE,,}" in
+        false|instruction_only) export VIEW_PMI_PRIOR_PROMPT_MODE="${VIEW_PMI_PRIOR_PROMPT_MODE,,}" ;;
+        *) echo 'Invalid VIEW_PMI_PRIOR_PROMPT_MODE: use false or instruction_only' >&2; exit 2 ;;
+    esac
+fi
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_PATH="${REPO_ROOT}/scripts/${BASH_SOURCE[0]##*/}"
 cd "${REPO_ROOT}"
@@ -218,7 +235,7 @@ if [[ "${RUN_ONE}" == true ]]; then
     printf 'Results: %s\n' "${OUTPUT_DIR}"
     exec "${DEEPSPEED_BIN:-deepspeed}" --num_gpus="${GPUS:-2}" --num_nodes="${NUM_NODES:-1}" src/three_stage_retrieval_pipeline_adaptive_views.py "${STC_ARGS[@]}" "${LENS_ARGS[@]}" --stage2-method "${STAGE2_METHOD}" --view-probability-mass "${USE_VIEW_PROBABILITY_MASS}" --view-probability-mass-threshold "${VIEW_PROBABILITY_MASS_THRESHOLD}" --view-selection-run-id "${VIEW_SELECTION_RUN_ID}" --use_freeret_dense "${USE_FREERET_DENSE}" --use_freeret_prompt_constraints "${USE_FREERET_PROMPT_CONSTRAINTS}" --use_freeret_full_prompt "${USE_FREERET_FULL_PROMPT}" \
         --retrieval-llava-image-mode "${RETRIEVAL_LLAVA_IMAGE_MODE}" --ranker-llava-image-mode "${RANKER_LLAVA_IMAGE_MODE}" \
-        --adaptive-views --view-selection-file "${VIEW_SELECTION_FILE}" --dataset-name "${DATASET}" \
+        --adaptive-views --view-selection-token-variants "${USE_VIEW_TOKEN_VARIANTS}" --view-selection-file "${VIEW_SELECTION_FILE}" --dataset-name "${DATASET}" \
         --dataset-split "${DATASET_SPLIT:-test}" --task-type "${TASK}" --query-type "${QUERY}" \
         --data-root "${DATA_ROOT:-/root/gpufree-share}" --tbpr-type "${TBPR_TYPE:-type}" \
         --stage1-method sparse_concat --stage1-sparse-index "${STAGE1_SPARSE_INDEX:-${SPARSE_CORPUS_DIR}}" --stage1-depth "${STAGE1_DEPTH}" \

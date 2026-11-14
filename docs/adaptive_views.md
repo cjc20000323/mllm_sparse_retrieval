@@ -9,6 +9,103 @@ ITR 对应现有 `ir`，TBPR 对应 `tbpr`，fused-modal 对应 `t2it/it2t`；�
 
 ## 选择方法
 
+### LLaVA 指定前缀 token 模式
+
+设置 `USE_VIEW_PREFIX_TOKENS=true`，仅对每个大写选项的指定词表项评分：
+`llava_llama` 使用 `ĠA`、`ĠB` 等；`llava_mistral` 使用 `▁A`、`▁B` 等。
+程序直接从 `get_vocab()` 查找这些原始词表项的 ID，不使用 `encode(" A")` 推测，
+不累加小写、Tab 或字节回退 token。缺少词表项、特殊/重复 ID 或输出词表越界时明确报错，不回退。
+
+```bash
+MODEL_FAMILY="" MODEL_FAMILIES="llava_llama llava_mistral" \
+USE_VIEW_PREFIX_TOKENS=true USE_VIEW_TOKEN_VARIANTS=false \
+bash scripts/adaptive_views_topk_experiment.sh
+```
+
+对应 Python 参数是 `--view_selection_prefix_tokens true`；原生三阶段入口同时支持
+`--view-selection-prefix-tokens true`。`encode_adaptive_views.py` 和原生三阶段 Python 入口也读取
+`USE_VIEW_PREFIX_TOKENS` 环境变量，显式命令行参数优先。
+此模式只允许两个 LLaVA 模型，与 `USE_VIEW_TOKEN_VARIANTS=true` 互斥；冲突或非支持模型会在加载权重前报错。
+各任务编码、配套索引、搜索与三阶段脚本均提供该开关，默认 `false`；各阶段必须匹配相同模式。
+
+每个选项的 `vocabulary_probability` 是该指定 token 的全词表概率，
+`option_probability` 是这些候选 token 之间的归一化概率。开启 PMI 时，条件和先验使用同一组 token，
+再执行现有的词表概率对数比及 softmax。支持 A–T/A–J、shuffle、两种 PMI 先验、overlap 和累计概率选择。
+TopK 的逐轮 token 日志与 CSV 在该模式下每选项记录一个 token，并保留原始/显示选项标签。
+
+新模式在选择文件中保存 `choice_scoring`、`option_token_variants`（每选项只有一项）及其映射 fingerprint。
+普通/PMI 为版本 26/27，overlap/PMI＋overlap 为 28/29，累计概率/PMI＋累计概率为 30/31，编码版本为 26。
+新模式具有独立选择、表征及查询缓存指纹；已有普通/变体模式文件不能混用，切换后重新选择、编码和建索引。
+关闭时原有单 token 与变体求和模式的计算、文件格式、缓存键和指纹保持不变。
+
+### 选项 token 的计分模式
+
+`USE_VIEW_TOKEN_VARIANTS=false` 为默认值，保留原来的选择方法：仅对
+`tokenizer.encode(label, add_special_tokens=False)` 得到的单个字母 token 计分，
+在候选选项之间做 float32 softmax；PMI 使用该候选分布的 log-softmax。
+关闭时，选择文件格式、缓存键、视角和编码指纹与原方法保持一致，可继续复用旧产物。
+
+显式设置 `USE_VIEW_TOKEN_VARIANTS=true` 后，扫描词表并合并每个选项的变体概率：
+单 token 解码后去除首尾空白，只接受对应的 ASCII 大小写字母，例如 `A`、`a`、` A`、`\nA`。
+特殊 token、`A.`、`(A)`、多字母单词均不参与；同一 token ID 只计算一次。
+先对全词表概率求和得到各选项的原始概率质量，再在选项之间归一化用于排名。
+开启 PMI 时使用原始概率质量的对数差，然后对校正结果做 softmax。
+新模式 JSON/Top-K CSV 额外保存原始词表概率和候选内归一化概率，便于检查。
+
+`adaptive_views_topk_experiment.sh` 默认额外输出每轮、每个选项实际参与评分的 token 明细，
+终端日志前缀为 `[adaptive token]`，实验目录保存 `view_token_probabilities.csv` 和同名 JSON。
+变体模式记录全部匹配变体；单 token 模式仅记录原评分使用的 token，不会自动切换计分方式。
+采样轮次从 1 开始；PMI 的无样本先验单独标为 `phase=prior, modality=prior, round=0`。
+
+每行包含原始视角 `canonical_label`、显示字母 `display_label`、视角描述、token ID、词表项和
+转义解码文本 `decoded_repr`，以及：
+
+- `vocabulary_token_probability`：该 token 在全部模型输出词表 softmax 中的概率。
+- `candidate_token_probability`：该 token 在全部候选选项的实际评分 token 并集中的归一化概率。
+- 对应的 `*_log_probability`：自然对数概率，便于检查极小概率。
+
+同一选项的全部 token 概率求和，对应该轮的 `vocabulary_probability` 和校正前的 `option_probability`。
+开启 PMI 后这些 token 明细仍是原始概率；PMI 只修正现有选项级分数。
+日志使用科学计数法和转义文本区分空格、Tab、NBSP、全角空格，shuffle 同时显示原始/显示字母。
+采集复用现有前向 logits，不新增模型前向；选项分数、排序、选择及表征指纹保持原样。
+
+TopK 自动缓存位于原选择缓存目录的 `token_probabilities_v1` 子目录，保留旧缓存并在首次运行时重新评分。
+同目录的 `view_token_probabilities.json` 使用选择 fingerprint 绑定并校验完整明细；命中缓存时重放日志并导出 CSV。
+显式 `VIEW_SELECTION_FILE` 必须附带匹配的明细 JSON；旧文件仅有选项总和，无法还原各 token 概率，
+此时清空 `VIEW_SELECTION_FILE` 后重新运行。普通 adaptive 编码/检索不额外采集这些明细。
+
+TopK 脚本支持 `FORCE_RESELECT_VIEWS=true`，默认 `false`。开启后，每次脚本启动生成新的批次 `run_id`，
+将视角缓存和输出根目录分别改为 `SPARSE_OUTPUT_ROOT/reselect_runs/<run_id>/` 和
+`OUTPUT_ROOT/reselect_runs/<run_id>/`，重新选择视角、生成 token 明细，并完整执行当前配置启用的
+Top-1～Top-10 编码、索引、两阶段/三阶段检索。新目录中的汇总 CSV 和其他产物不会覆盖旧实验结果。
+
+```bash
+FORCE_RESELECT_VIEWS=true VIEW_SELECTION_FILE="" bash scripts/adaptive_views_topk_experiment.sh
+```
+
+同时指定非空 `VIEW_SELECTION_FILE` 会在加载模型前报错，要求清空该参数。
+同一批次的模型/数据集共用一个 `run_id`，每个模型/数据集的 IR 双向和所有 TopK 仍共享一次新视角评分。
+强制模式不改变采样种子、选项打乱及其他算法配置；结果可能相同，但本次目录独立，后续产物也会重新生成。
+强制开关及 `run_id` 不进入选择或表征指纹。关闭时沿用原缓存路径和复用规则。
+日志会打印本次 `run_id`、选择根目录和输出根目录；`DRY_RUN=true` 只展示计划，不创建这些目录或执行推理。
+
+```bash
+USE_VIEW_TOKEN_VARIANTS=true bash scripts/encode_adaptive_views_tbpr.sh
+USE_VIEW_TOKEN_VARIANTS=true bash scripts/sparse_index_adaptive_tbpr.sh
+USE_VIEW_TOKEN_VARIANTS=true bash scripts/three_stage_retrieval_pipeline_adaptive_views_tbpr.sh
+```
+
+所有 adaptive 编码（含 overlap）、建库、检索、三阶段、Top-K 和采样种子实验脚本均支持此开关。
+Python 参数为 `--view_selection_token_variants true`；原生三阶段入口也支持
+`--view-selection-token-variants true`，种子实验支持 `--use-view-token-variants true`。
+同名 `encode_adaptive_views.sh` 和 `three_stage_retrieval_pipeline_adaptive_views.sh` 的配置区
+提供 `export USE_VIEW_TOKEN_VARIANTS="${USE_VIEW_TOKEN_VARIANTS-false}"`；将其中默认值 `false`
+改为 `true` 即可通过脚本文件开启。外部环境变量仍可覆盖脚本默认值。
+直接运行这两个 Python 入口时也会读取该环境变量，优先级为：显式命令行参数 > 环境变量 > `false`。
+读取显式选择文件、编码清单和索引时严格检查模式：默认/false 只读取旧模式，true 只读取新模式，
+不会从文件自动继承或跨模式复用缓存。普通、PMI、overlap、PMI+overlap、累计概率、PMI+累计概率
+的旧版本分别为 `12/14/16/17/18/19`，新版本为 `20/21/22/23/24/25`；旧 overlap `13/15` 仍不兼容。
+
 ### 按累计概率决定视角数量
 
 普通 adaptive 编码及三阶段检索支持以下独立开关，默认关闭：
@@ -215,7 +312,7 @@ Python 对应参数为 `--view_example_mode auto|fixed` 和 `--view_example_max_
 固定模式保留旧采样载荷和指纹，旧 JSON 按 fixed 解释；与显式选择文件的模式或预算冲突会报错。
 索引和三阶段批量脚本需与编码使用相同的模式及预算；读取显式完成清单的入口从文件中验证策略。
 模型上限是声明的序列容量；显存不足时可主动下调预算。Qwen 像素预算仍独立控制图像展开长度。
-候选字母必须是单 token，否则报错。
+默认计分方法要求候选字母必须是单 token，否则报错；词表变体模式要求每个字母至少匹配一个有效变体。
 
 ### PMI 先验校正
 
@@ -227,6 +324,31 @@ USE_VIEW_PMI=true VIEW_SELECTION_MODALITY=both bash scripts/encode_adaptive_view
 
 保留原选择指令、A～T 候选和模型对话模板，删除整个 Text/Image examples 段，
 不输入样本文本、图片或图像占位符。新选择仅由 rank 0 额外前向一次，得到两种模态共用的先验 `p0(v)`。
+可选字符串开关 `VIEW_PMI_PRIOR_PROMPT_MODE=instruction_only` 会进一步删除**先验提示**的整个候选列表，
+保留原有完整选择指令及末尾 `Answer with one letter:`，仍不输入图片、图像占位符或额外无图说明。
+文本和图像条件提示继续展示候选。该开关对应 Python 参数 `--view_pmi_prior_prompt_mode instruction_only`，
+需要同时开启 PMI：
+
+```bash
+USE_VIEW_PMI=true VIEW_PMI_PRIOR_PROMPT_MODE=instruction_only bash scripts/encode_adaptive_views_tbpr.sh
+```
+
+设置为 `false` 使用原先包含候选列表的先验；未设置时，新选择使用原模式，复用文件时继承保存的模式。
+LLaVA-Mistral 下新模式先验为：
+
+```text
+[INST]Select a semantic perspective for cross-modal retrieval. The following are unordered examples from one dataset, all in the same modality. Which perspective best captures distinctive information useful for representing and matching these examples? Choose from the following closed list. Answer with exactly one capital option letter, without explanation.
+
+Answer with one letter:[/INST]
+```
+
+其他模型沿用原对话包装。候选仍由程序定义，并用于读取对应字母的 logits；原指令中提及 examples 和 closed list 的文字也按原文保留。
+新模式支持 A–T、A–J、单 token/变体评分、shuffle、overlap、累计概率及 TopK 实验。
+`calibration.configuration.prior_prompt_mode` 仅在新模式下保存为 `instruction_only`，实际先验正文保存在 `calibration.prior_prompt`。
+新模式有独立选择缓存和表征指纹；原模式的配置结构和指纹计算保持不变。
+配套 adaptive 索引、搜索和三阶段脚本也可设置该开关，以精确定位对应的产物；索引与检索不会重算先验。
+显式模式与文件记录冲突时会报错；不指定模式时按文件记录继承。
+
 每轮校正为：
 
 ```text
