@@ -1,4 +1,4 @@
-"""Compute dense/sparse retrieval agreement on saved test runs.
+"""Compute dense/sparse retrieval agreement on saved runs or in-memory rankings.
 
 The search script writes one pickle for each sparse_manual setting.  This module
 computes query-level Overlap, Spearman rank correlation, and RBO, then writes
@@ -261,6 +261,30 @@ def _write_csv_report(
     return output_path
 
 
+def compute_run_similarity(
+        dense_run: Mapping[str, Mapping[str, float]],
+        sparse_run: Mapping[str, Mapping[str, float]],
+        output_path: str | os.PathLike[str],
+        *,
+        condition: str = "adaptive",
+        rbo_p: float = DEFAULT_RBO_P,
+        metadata: Mapping[str, Any] | None = None,
+        run_path: str | os.PathLike[str] | None = None,
+) -> str:
+    """Report agreement for query-to-document score maps, retaining empty rankings."""
+    summary, rows = _calculate_condition(condition, dense_run, sparse_run, rbo_p)
+    metadata_rows = []
+    if run_path is not None:
+        metadata_rows.append({"item": f"{condition}_run_file", "value": str(run_path)})
+    metadata_rows.extend([
+        {"item": "rbo_p", "value": rbo_p},
+        {"item": "top_k", "value": ",".join(map(str, TOP_KS))},
+    ])
+    for key, value in sorted((metadata or {}).items()):
+        metadata_rows.append({"item": f"{condition}_{key}", "value": value})
+    return _write_csv_report(output_path, [summary], rows, metadata_rows)
+
+
 def _compute_single_similarity(
         run_path: str | os.PathLike[str],
         condition: str,
@@ -268,15 +292,8 @@ def _compute_single_similarity(
         rbo_p: float,
 ) -> str:
     dense_run, sparse_run, metadata = load_saved_runs(run_path)
-    summary, rows = _calculate_condition(condition, dense_run, sparse_run, rbo_p)
-    metadata_rows = [
-        {"item": f"{condition}_run_file", "value": str(run_path)},
-        {"item": "rbo_p", "value": rbo_p},
-        {"item": "top_k", "value": ",".join(map(str, TOP_KS))},
-    ]
-    for key, value in sorted(metadata.items()):
-        metadata_rows.append({"item": f"{condition}_{key}", "value": value})
-    return _write_csv_report(output_path, [summary], rows, metadata_rows)
+    return compute_run_similarity(dense_run, sparse_run, output_path, condition=condition,
+                                  rbo_p=rbo_p, metadata=metadata, run_path=run_path)
 
 
 def compute_similarity(

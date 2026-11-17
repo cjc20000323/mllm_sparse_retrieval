@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+SINGLE_VIEW_REPEAT_SELECTED_COUNT="${SINGLE_VIEW_REPEAT_SELECTED_COUNT-false}"
 # STC sparse vocabulary compression; false preserves the original sparse representation.
 USE_STC_SPARSE="${USE_STC_SPARSE-false}"
 STC_ALGORITHM="${STC_ALGORITHM-agglomerative}" # agglomerative / minibatch_kmeans
@@ -123,6 +124,11 @@ esac
 PRECISION=()
 case "${DTYPE:-float16}" in float16) PRECISION+=(--fp16) ;; bfloat16) PRECISION+=(--bf16) ;; float32) ;; *) echo 'Invalid DTYPE' >&2; exit 2 ;; esac
 EXTRA=()
+case "${SINGLE_VIEW_REPEAT_SELECTED_COUNT,,}" in
+    true|1|yes) EXTRA+=(--single_view_repeat_selected_count true) ;;
+    false|0|no) ;;
+    *) echo 'Invalid SINGLE_VIEW_REPEAT_SELECTED_COUNT' >&2; exit 2 ;;
+esac
 if [[ -v VIEW_PMI_PRIOR_PROMPT_MODE ]]; then
     EXTRA+=(--view_pmi_prior_prompt_mode "${VIEW_PMI_PRIOR_PROMPT_MODE}")
 fi

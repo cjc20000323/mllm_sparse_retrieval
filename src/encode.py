@@ -111,7 +111,10 @@ def validate_sparse_logits_multiply_view_count(model_args, data_args):
 
 
 def get_sparse_logit_multiplier(model_args=None, data_args=None):
-    """Return the optional sparse-logit multiplier (fixed at 5 for prompteol)."""
+    """Resolve the locked selected-count multiplier or legacy fixed prompteol x5."""
+    if getattr(data_args, "single_view_repeat_selected_count", False):
+        from single_view_repeat import multiplier
+        return multiplier(data_args)
     if not data_args.sparse_logits_multiply_view_count:
         return 1
 
@@ -388,7 +391,10 @@ def get_img_disassemble_tokens_values_for_information_analysis(tokenizer, disass
             vocabs.append(vocab_dict[int(indice.item())])
 
 
-def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args, filtered_ids, model_args=None):
+def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args, filtered_ids, model_args=None,
+                                 *, return_retained_ids=False):
+    """Optionally expose ranked original-text IDs without changing the saved terms."""
+    retained_ids = []
     sparse_logit_multiplier = get_sparse_logit_multiplier(model_args, data_args)
     words = [i for i in word_tokenize(text.lower()) if
              i not in set(stopwords.words('english') + list(string.punctuation))]
@@ -443,6 +449,10 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
         # 但是这里就默认那些没有的单词还有排名128名之后的单词logit为0了
         top_k = min(len(token_ids_in_text), 128)
         top_k_values, top_k_indices = logits[token_ids_in_text].topk(top_k, dim=-1)
+        if return_retained_ids:
+            # Capture before quantization, case conversion and optional expansion.
+            retained_ids = [int(index) for index in token_ids_in_text[top_k_indices.detach().cpu()].tolist()
+                            if int(index) < len(vocab_dict)]
         # 原文中说，最后，通过对原始logits值乘以100并进行整数运算实现量化，所得结果表示对应token的权重，这里再四舍五入到最近整数(这是为什么呢)
         values = np.rint(top_k_values.cpu().detach().float().numpy() * sparse_logit_multiplier * 100).astype(int)
         # 把token id换成对应的单词，保存在tokens中
@@ -470,6 +480,8 @@ def get_text_valid_tokens_values(text, tokenizer, logits, vocab_dict, data_args,
                 tokens.append(filter_token(vocab_dict[i.item()].lower()))
             else:
                 tokens.append(vocab_dict[i.item()].lower())
+    if return_retained_ids:
+        return tokens, values, retained_ids
     return tokens, values
 
 
@@ -608,7 +620,7 @@ def get_text_valid_disassemble_tokens_values(text, tokenizer, disassemble_logits
             model_args.eol_type == 'disassembleeol_separate_origin_text' or model_args.eol_type == 'all_disassembleeol_origin_text'):
         top_k_values, top_k_indices = disassemble_logits[:, token_ids_in_text].topk(top_k, dim=-1)
         values = np.rint(top_k_values.cpu().detach().float().numpy() * 100).astype(int)
-        for indice_list, value_list in zip(token_ids_in_text[top_k_indices.cpu().detach().float().numpy()], values):
+        for indice_list, value_list in zip(token_ids_in_text[top_k_indices.detach().cpu()], values):
             for indice, value in zip(indice_list, value_list):
                 if allowed_token_ids is not None and int(indice.item()) not in allowed_token_ids:
                     continue
@@ -853,9 +865,15 @@ def get_text_disassemble_tokens_values_for_information_analysis(text, tokenizer,
 
 def main():
     import dense_representation as dense_mode
-    parser = HfArgumentParser((ModelArguments, PromptRepsLLMDataArguments, TrainingArguments))
+    import prompteol_sparse_diagnostics as sparse_diagnostics
+    parser = HfArgumentParser((ModelArguments, PromptRepsLLMDataArguments, TrainingArguments,
+                              sparse_diagnostics.PrompteolSparsePrintArguments))
 
-    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, training_args, diagnostic_args = parser.parse_args_into_dataclasses()
+    if model_args.single_view_repeat_selected_count:
+        raise ValueError("Selected-count repetition requires encode_adaptive_views.py with --adaptive_views")
+    sparse_diagnostics.validate_configuration(model_args, data_args, training_args, diagnostic_args)
+    sparse_diagnostics.configure_data_root(diagnostic_args)
     shared_five_views.validate_entry(model_args, data_args, training_args.task_type)
     # Corpus directories follow the checkpoint basename, including custom/relative paths.
     model_output_name = os.path.basename(os.path.normpath(model_args.model_name_or_path))
@@ -1161,6 +1179,9 @@ def main():
         else:
             dataset = CrossModalRetrievalDataset(data_args.dataset_name, processor, data_args.dataset_split, 'single',
                                                  **generated_validation_kwargs)
+    sparse_printer = sparse_diagnostics.build_printer(processor, model_args, data_args, training_args,
+                                                     diagnostic_args, dataset)
+    data_args = sparse_diagnostics.quiet_legacy_printing(data_args, diagnostic_args)
     sampler = Data.DistributedSampler(dataset, num_replicas=dist.get_world_size(), shuffle=True, rank=dist.get_rank())
     test_dataloader = Data.DataLoader(dataset=dataset, sampler=sampler, pin_memory=True,
                                       batch_size=data_args.per_device_batch_size, shuffle=False)
@@ -1173,7 +1194,7 @@ def main():
     jsonl_data = []
     lookup_indices = []
 
-    with torch.no_grad():
+    with torch.no_grad(), (sparse_printer if sparse_printer is not None else nullcontext()):
         sampler.set_epoch(0)
         if training_args.task_type == 'cir':
             if 'llava-hf-llava-1.5-7b-hf' in model_args.model_name_or_path:
@@ -2707,6 +2728,8 @@ def main():
                     encoded.append(reps.cpu().detach().float().numpy())
 
                     ids = text_ids if training_args.encode_type == 'text' else img_ids
+                    if sparse_printer is not None and not sparse_printer.uses_retained_text:
+                        sparse_printer.record_batch(ids, texts, imgs_path, logits)
                     if dist.get_rank() == 2:
                         print(ids)
                     if 'disassembleeol' in model_args.eol_type:
@@ -3046,11 +3069,17 @@ def main():
                                                                                           data_args,
                                                                                           filtered_ids)
                                         else:
-                                            tokens, values = get_text_valid_tokens_values(text, processor.tokenizer,
-                                                                                          logit,
-                                                                                          vocab_dict,
-                                                                                          data_args,
-                                                                                          filtered_ids)
+                                            if sparse_printer is not None and sparse_printer.uses_retained_text:
+                                                tokens, values, retained_ids = get_text_valid_tokens_values(
+                                                    text, processor.tokenizer, logit, vocab_dict, data_args,
+                                                    filtered_ids, return_retained_ids=True)
+                                                sparse_printer.record_retained_text(id, text, logit, retained_ids)
+                                            else:
+                                                tokens, values = get_text_valid_tokens_values(text, processor.tokenizer,
+                                                                                              logit,
+                                                                                              vocab_dict,
+                                                                                              data_args,
+                                                                                              filtered_ids)
                                     for token, v in zip(tokens, values):
                                         if token in vector.keys():
                                             if data_args.sparse_value_type == 'replace':
@@ -3807,6 +3836,8 @@ def main():
     dist.barrier()
 
     # 确保所有进程同步退出
+    if sparse_printer is not None:
+        sparse_printer.finish()
     if dist.get_rank() == 0:
         # 主进程最后退出
         torch.distributed.destroy_process_group()

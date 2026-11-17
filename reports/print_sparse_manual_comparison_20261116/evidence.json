@@ -1,0 +1,5173 @@
+{
+  "report_version": 1,
+  "captured_at_utc": "2026-11-16T10:01:59.257678+00:00",
+  "model": "llava-hf-llava-v1.6-mistral-7b-hf",
+  "dataset": "flickr",
+  "split": "test",
+  "llava_image_mode": "base",
+  "criteria": {
+    "text_top_k": 10,
+    "image_top_k": 10,
+    "positive_text_weights": true,
+    "positive_adaptive_weights": true,
+    "comparison": "lowercase_only_prefix_preserved",
+    "exclude_pure_whitespace_and_punctuation": true,
+    "count_distinct_terms": true,
+    "rank_priority": [
+      "distinct_terms_desc",
+      "added_terms_desc",
+      "full_word_count_desc",
+      "best_adaptive_rank_asc",
+      "image_id_asc",
+      "sentid_asc"
+    ]
+  },
+  "population": {
+    "single_image": 1000,
+    "text_false": 5000,
+    "text_true": 5000,
+    "adaptive_images": 1000,
+    "adaptive_rows": 6000,
+    "candidate_captions": 1433,
+    "candidate_images": 695,
+    "candidate_histogram": {
+      "4": 1,
+      "3": 17,
+      "2": 199,
+      "1": 1216
+    },
+    "captions_with_added_terms": 163
+  },
+  "adaptive_manifest": {
+    "source": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/concat/prompt_5/test/0_no_manual_30_sum_no_cluster_after_pad_disassembleeol_separate_lower_no_mean/adaptive_views/63d32642e1d38b54_llava_base/adaptive_views_manifest.json",
+    "payload": {
+      "configuration": {
+        "version": 12,
+        "model": {
+          "checkpoint": {
+            "path": "/autodl-fs/data/checkpoints/llava-hf-llava-v1.6-mistral-7b-hf",
+            "files": [
+              {
+                "name": "config.json",
+                "size": 1253,
+                "mtime_ns": 1784533565414439203
+              },
+              {
+                "name": "model-00001-of-00004.safetensors",
+                "size": 4921618144,
+                "mtime_ns": 1784533616255701182
+              },
+              {
+                "name": "model-00002-of-00004.safetensors",
+                "size": 4915917568,
+                "mtime_ns": 1784533672470246117
+              },
+              {
+                "name": "model-00003-of-00004.safetensors",
+                "size": 4915917576,
+                "mtime_ns": 1784533720077078006
+              },
+              {
+                "name": "model-00004-of-00004.safetensors",
+                "size": 380134008,
+                "mtime_ns": 1784533620036988547
+              }
+            ]
+          },
+          "adapter": null,
+          "family": "llava_mistral",
+          "dtype": "float16",
+          "tokenizer": "TokenizersBackend",
+          "vocab": "34284baa7621ae295ed8999ee971814774f699f91d242482a291aedefd8c97d1",
+          "chat_template": "{% for message in messages %}{% if message['role'] == 'system' %}{{ '<<SYS>>\n' + message['content'][0]['text'] + '\n<</SYS>>\n\n' }}{% elif message['role'] == 'user' %}{{ '[INST] ' }}{# Render all images first #}{% for content in message['content'] | selectattr('type', 'equalto', 'image') %}{{ '<image>\n' }}{% endfor %}{# Render all text next #}{% for content in message['content'] | selectattr('type', 'equalto', 'text') %}{{ content['text'] }}{% endfor %}{{' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ ' ' + message['content'][0]['text'] + '</s> '}}{% else %}{{ raise_exception('Only user and assistant roles are supported!') }}{% endif %}{% endfor %}",
+          "image_processor": "BaseOnlyLlavaNextImageProcessorFast",
+          "vision": {
+            "size": {
+              "shortest_edge": 336
+            },
+            "min_pixels": null,
+            "max_pixels": null,
+            "patch_size": null,
+            "temporal_patch_size": null,
+            "merge_size": null,
+            "image_grid_pinpoints": [
+              [
+                336,
+                672
+              ],
+              [
+                672,
+                336
+              ],
+              [
+                672,
+                672
+              ],
+              [
+                1008,
+                336
+              ],
+              [
+                336,
+                1008
+              ]
+            ],
+            "crop_size": {
+              "height": 336,
+              "width": 336
+            },
+            "image_mean": [
+              0.48145466,
+              0.4578275,
+              0.40821073
+            ],
+            "image_std": [
+              0.26862954,
+              0.26130258,
+              0.27577711
+            ],
+            "do_resize": true,
+            "do_rescale": true,
+            "rescale_factor": 0.00392156862745098,
+            "do_normalize": true,
+            "llava_resolution": {
+              "version": 1,
+              "mode": "base",
+              "model_type": "llava_next",
+              "image_size": 336,
+              "patch_size": 14,
+              "vision_feature_select_strategy": "default",
+              "visual_tokens_per_image": 577
+            }
+          },
+          "processor_options": {
+            "patch_size": 14,
+            "num_additional_image_tokens": 1,
+            "vision_feature_select_strategy": "default",
+            "image_token": "<image>"
+          }
+        },
+        "dataset": "flickr",
+        "split": "test",
+        "task": "ir",
+        "kind": "image",
+        "method": [
+          "disassembleeol_separate",
+          "concat"
+        ],
+        "selection_modality": "both",
+        "selected": [
+          {
+            "label": "J",
+            "aspect": "high-level semantics, such as events, activities and functions"
+          },
+          {
+            "label": "A",
+            "aspect": "scene, such as location, indoor or outdoor setting and terrain"
+          },
+          {
+            "label": "C",
+            "aspect": "people, such as number of people, appearance and pose"
+          },
+          {
+            "label": "B",
+            "aspect": "natural environment, such as weather, lighting, season and time"
+          },
+          {
+            "label": "D",
+            "aspect": "clothing, such as category, color, material and style"
+          },
+          {
+            "label": "I",
+            "aspect": "spatial layout, such as foreground and background, distance and direction"
+          }
+        ],
+        "views_fingerprint": "63d32642e1d38b54de2e094dd40aace05ddc06f80c376efb7cb1f7548eb72425",
+        "renderer": "dc1207a17f7ee9b6a30cc2d35f4e857d5f52f51fd0a8681b78c486e7de1b7bb8",
+        "encoding": {
+          "reps_loc": "after_pad",
+          "sparse_length": 30,
+          "text_sparse_length": 30,
+          "image_sparse_length": 30,
+          "sparse_value_type": "sum",
+          "sparse_lower_or_upper": "lower",
+          "sparse_value_mean": false,
+          "sparse_manual": false,
+          "is_filtered": false,
+          "num_expended_tokens": 0,
+          "tbpr_type": "type",
+          "cir_type": "type"
+        },
+        "selection_strategy": "cumulative_probability",
+        "probability_mass_configuration": {
+          "strategy": "cumulative_probability",
+          "version": 2,
+          "threshold": 0.9,
+          "comparison": "le",
+          "tolerance": 1e-12,
+          "minimum_selected_count": 1
+        },
+        "view_pool_mode": "hierarchical_v1",
+        "example_sampling": {
+          "version": 1,
+          "mode": "auto",
+          "max_tokens": 0,
+          "context_limit": 32768,
+          "effective_max_tokens": 32768,
+          "answer_tokens": 1,
+          "input_limit": 32767
+        }
+      },
+      "fingerprint": "d11af23dcb498a5c0e9d170d5e2b96e72c150edf50381afe91b7eb3d8d902a3d",
+      "num_shards": 2,
+      "selection_file": "/autodl-fs/data/sparse_output/view_selection/llava-hf-llava-v1.6-mistral-7b-hf/flickr/840700880213c6ca/view_selection.json",
+      "selection_fingerprint": "6978a46536886a2594864a7d4b4cf41c77a485e4e885840d8a8c58a965b6c827",
+      "examples": [
+        "[INST]<image>\n<s>Summary above image in one word: [/INST]</s><s>Summary the high-level semantics, such as events, activities and functions in above image in one word: [/INST]</s><s>Summary the scene, such as location, indoor or outdoor setting and terrain in above image in one word: [/INST]</s><s>Summary the people, such as number of people, appearance and pose in above image in one word: [/INST]</s><s>Summary the natural environment, such as weather, lighting, season and time in above image in one word: [/INST]</s><s>Summary the clothing, such as category, color, material and style in above image in one word: [/INST]</s><s>Summary the spatial layout, such as foreground and background, distance and direction in above image in one word: [/INST]</s>"
+      ]
+    }
+  },
+  "sources": {
+    "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/image/sparse_token_logs/sparse_tokens_rank0.jsonl": {
+      "bytes": 433654,
+      "mtime_ns": 1794820962111743718,
+      "sha256": "b41e06203dcc98a39848898067e81400bc1eb70210d99eb218bedd5372db1924"
+    },
+    "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/image/sparse_token_logs/sparse_tokens_rank1.jsonl": {
+      "bytes": 433803,
+      "mtime_ns": 1794820961376181549,
+      "sha256": "c57f94120f6dbe6fcfeac30a2e5063b3d67e404b8a0eb8f0fb9706e4fe0b8cfe"
+    },
+    "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_false/text/sparse_token_logs/sparse_tokens_rank0.jsonl": {
+      "bytes": 2033149,
+      "mtime_ns": 1794820806970497688,
+      "sha256": "fa1be129da3c680682aa5d4d0d05deb58c4b5af253fc24c3ef97168e5139b7aa"
+    },
+    "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_false/text/sparse_token_logs/sparse_tokens_rank1.jsonl": {
+      "bytes": 2017802,
+      "mtime_ns": 1794820805026329115,
+      "sha256": "5adbdcc862ada5d38e04a007a868432d905f2d91efe07133895951c10ab3d33d"
+    },
+    "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/text/sparse_token_logs/sparse_tokens_rank0.jsonl": {
+      "bytes": 2319477,
+      "mtime_ns": 1794820906315128610,
+      "sha256": "c8ca6e9ee04a2ac4d2cc61463d9f0e5ba4e47b0a748f16d8137f352ddcf55ee0"
+    },
+    "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/text/sparse_token_logs/sparse_tokens_rank1.jsonl": {
+      "bytes": 2317527,
+      "mtime_ns": 1794820905295287732,
+      "sha256": "6e6c1a39b9fde9dfcfe1b993517c12ba77a5fd6574374d69670d6163067e0ce7"
+    },
+    "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl": {
+      "bytes": 2526090,
+      "mtime_ns": 1794811472683941815,
+      "sha256": "a4d711eaf6ec1914dda90ce552900e3fef5ca56bfd4f1be729ea532b9e98c503"
+    },
+    "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl": {
+      "bytes": 2526015,
+      "mtime_ns": 1794811471893466518,
+      "sha256": "ecf88256a0ed4f3610409a431ea0c3afd553588b5730e0453d3121389bbe0dcf"
+    },
+    "/root/autodl-fs/checkpoints/llava-hf-llava-v1.6-mistral-7b-hf/tokenizer.json": {
+      "bytes": 1795853,
+      "mtime_ns": 1784533565630650455,
+      "sha256": "3ac63c3abef09099abe96833fbad9cdf473ede830413b0063bf8c3f357ed833c"
+    },
+    "/root/autodl-tmp/data/flickr/flickr_test.csv": {
+      "bytes": 462556,
+      "mtime_ns": 1761046764000000000,
+      "sha256": "d30c8662656d7903683796847d679f416081bed0433a09751c8837e7469d335e"
+    },
+    "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean_llava_base/corpus_0.jsonl": {
+      "bytes": 1204380,
+      "mtime_ns": 1794820962313806076,
+      "sha256": "fb38f5886d1a9a72533acdcef3327a8ec1accfb302de3b2ec2acc9f6d9d19a9b"
+    },
+    "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean_llava_base/corpus_1.jsonl": {
+      "bytes": 1205756,
+      "mtime_ns": 1794820961612861323,
+      "sha256": "5a3b32de9ab2b3528d058676ce470305817c17396e1f9b091bdc05521f90adb8"
+    },
+    "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_no_manual_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl": {
+      "bytes": 490061,
+      "mtime_ns": 1794820807509871300,
+      "sha256": "ad93ee50bc3cbcb1db9352f2de2810b2d6f211315ed4f7740b933806547b730b"
+    },
+    "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_no_manual_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_1.jsonl": {
+      "bytes": 484977,
+      "mtime_ns": 1794820805617828877,
+      "sha256": "0521a0583c90a95640eb961734345e4c9711efa199030a7c3edd05b46afbf29b"
+    },
+    "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl": {
+      "bytes": 5996017,
+      "mtime_ns": 1794820907147951770,
+      "sha256": "84974eb7d2cb49ac633ba8ea04ae5b203f1edcd1e4aba57036f95e667c9acb37"
+    },
+    "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_1.jsonl": {
+      "bytes": 5994073,
+      "mtime_ns": 1794820906174122391,
+      "sha256": "ee15c6b05bbdf180b9ee358cfc17544706a5613a484634e30fcc7e8efbf8ccab"
+    },
+    "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/concat/prompt_5/test/0_no_manual_30_sum_no_cluster_after_pad_disassembleeol_separate_lower_no_mean/adaptive_views/63d32642e1d38b54_llava_base/collection/corpus_0.jsonl": {
+      "bytes": 989318,
+      "mtime_ns": 1794811472526250491,
+      "sha256": "51ca9e9215ae82d3537b42395ac5a5af94a6380bc4077220a0200368ff3ac09e"
+    },
+    "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/concat/prompt_5/test/0_no_manual_30_sum_no_cluster_after_pad_disassembleeol_separate_lower_no_mean/adaptive_views/63d32642e1d38b54_llava_base/collection/corpus_1.jsonl": {
+      "bytes": 987900,
+      "mtime_ns": 1794811471708617739,
+      "sha256": "f21756d3d39f3c29d4b4c4d3ab2f49327e88d7b57c90be7727af810858097f6b"
+    },
+    "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/concat/prompt_5/test/0_no_manual_30_sum_no_cluster_after_pad_disassembleeol_separate_lower_no_mean/adaptive_views/63d32642e1d38b54_llava_base/adaptive_views_manifest.json": {
+      "bytes": 6563,
+      "mtime_ns": 1794811472804065350,
+      "sha256": "6e63c4c5eb1debc45a88454ecb04634247be13f1b661077ee61362dbdab739d1"
+    },
+    "/root/autodl-tmp/data/flickr/flickr30k-images/2088705195.jpg": {
+      "bytes": 145102,
+      "mtime_ns": 1355356328000000000,
+      "sha256": "70688b32a994da2f877f75232852a0415d88274307fb0ab727c9126c8d92189d"
+    },
+    "/root/autodl-tmp/data/flickr/flickr30k-images/2725508159.jpg": {
+      "bytes": 94350,
+      "mtime_ns": 1355356336000000000,
+      "sha256": "301ccc4be90a1b8a21f97d131a9c6acf864e9088150c9ddb8c056031fa6eddcf"
+    },
+    "/root/autodl-tmp/data/flickr/flickr30k-images/3350177228.jpg": {
+      "bytes": 110581,
+      "mtime_ns": 1351358288000000000,
+      "sha256": "639ea96c1e98efdc44ac7bd09e88c1d4e73dd2051488f55275025d9ba9a8db4b"
+    },
+    "/root/autodl-tmp/data/flickr/flickr30k-images/4495033915.jpg": {
+      "bytes": 176222,
+      "mtime_ns": 1351358354000000000,
+      "sha256": "898c1182c8740652d53f48aa7f9056934a2daaa2df7fb5ba811c3a549c3b90d0"
+    }
+  },
+  "records": [
+    {
+      "caption": {
+        "imgid": "3245",
+        "filename": "2088705195.jpg",
+        "caption": "Two silhouetted people paddle a canoe on the ocean during sunset.",
+        "sentid": "16227"
+      },
+      "matches": {
+        "▁p": [
+          {
+            "view": "J",
+            "aspect": "high-level semantics, such as events, activities and functions",
+            "token": {
+              "rank": 5,
+              "token_id": 367,
+              "token": "▁P",
+              "weight": 2.607421875
+            },
+            "text_false": [
+              {
+                "rank": 2,
+                "token_id": 284,
+                "token": "▁p",
+                "weight": 2.117760419845581
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 2,
+                "token_id": 367,
+                "token": "▁P",
+                "weight": 2.709611415863037
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+              "line": 349
+            }
+          },
+          {
+            "view": "C",
+            "aspect": "people, such as number of people, appearance and pose",
+            "token": {
+              "rank": 4,
+              "token_id": 367,
+              "token": "▁P",
+              "weight": 2.63671875
+            },
+            "text_false": [
+              {
+                "rank": 2,
+                "token_id": 284,
+                "token": "▁p",
+                "weight": 2.117760419845581
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 2,
+                "token_id": 367,
+                "token": "▁P",
+                "weight": 2.709611415863037
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+              "line": 351
+            }
+          }
+        ],
+        "▁can": [
+          {
+            "view": "J",
+            "aspect": "high-level semantics, such as events, activities and functions",
+            "token": {
+              "rank": 6,
+              "token_id": 2418,
+              "token": "▁Can",
+              "weight": 2.59765625
+            },
+            "text_false": [
+              {
+                "rank": 1,
+                "token_id": 541,
+                "token": "▁can",
+                "weight": 2.132686138153076
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 1,
+                "token_id": 2418,
+                "token": "▁Can",
+                "weight": 2.756840467453003
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+              "line": 349
+            }
+          },
+          {
+            "view": "C",
+            "aspect": "people, such as number of people, appearance and pose",
+            "token": {
+              "rank": 5,
+              "token_id": 2418,
+              "token": "▁Can",
+              "weight": 2.611328125
+            },
+            "text_false": [
+              {
+                "rank": 1,
+                "token_id": 541,
+                "token": "▁can",
+                "weight": 2.132686138153076
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 1,
+                "token_id": 2418,
+                "token": "▁Can",
+                "weight": 2.756840467453003
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+              "line": 351
+            }
+          }
+        ],
+        "▁two": [
+          {
+            "view": "C",
+            "aspect": "people, such as number of people, appearance and pose",
+            "token": {
+              "rank": 2,
+              "token_id": 6005,
+              "token": "▁Two",
+              "weight": 2.779296875
+            },
+            "text_false": [
+              {
+                "rank": 3,
+                "token_id": 989,
+                "token": "▁two",
+                "weight": 1.8256827592849731
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 10,
+                "token_id": 6005,
+                "token": "▁Two",
+                "weight": 2.5080738067626953
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+              "line": 351
+            }
+          }
+        ],
+        "▁sil": [
+          {
+            "view": "C",
+            "aspect": "people, such as number of people, appearance and pose",
+            "token": {
+              "rank": 6,
+              "token_id": 6044,
+              "token": "▁Sil",
+              "weight": 2.603515625
+            },
+            "text_false": [
+              {
+                "rank": 4,
+                "token_id": 2958,
+                "token": "▁sil",
+                "weight": 1.7532676458358765
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 6,
+                "token_id": 6044,
+                "token": "▁Sil",
+                "weight": 2.582817554473877
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+              "line": 351
+            }
+          }
+        ]
+      },
+      "stored_weights": {
+        "▁p": {
+          "image_true": 240,
+          "text_false": 212,
+          "text_true": 483,
+          "adaptive_image": 1017
+        },
+        "▁can": {
+          "image_true": 247,
+          "text_false": 213,
+          "text_true": 489,
+          "adaptive_image": 1019
+        },
+        "▁two": {
+          "image_true": 238,
+          "text_false": 183,
+          "text_true": 251,
+          "adaptive_image": 278
+        },
+        "▁sil": {
+          "image_true": 242,
+          "text_false": 175,
+          "text_true": 258,
+          "adaptive_image": 999
+        }
+      },
+      "added_terms": [],
+      "full_word_count": 1,
+      "logs": {
+        "image_true": {
+          "payload": {
+            "rank": 0,
+            "sample_id": "3245",
+            "modality": "image",
+            "view": "whole",
+            "aspect": "prompteol",
+            "top_k": 10,
+            "weight_type": "log1p_relu",
+            "top_tokens": [
+              {
+                "token_id": 7057,
+                "token": "▁Sun",
+                "weight": 2.813723087310791
+              },
+              {
+                "token_id": 13832,
+                "token": "▁Cloud",
+                "weight": 2.776487350463867
+              },
+              {
+                "token_id": 26547,
+                "token": "▁Beautiful",
+                "weight": 2.6757638454437256
+              },
+              {
+                "token_id": 14852,
+                "token": "▁Sky",
+                "weight": 2.674687385559082
+              },
+              {
+                "token_id": 3268,
+                "token": "▁Bo",
+                "weight": 2.607884407043457
+              },
+              {
+                "token_id": 7831,
+                "token": "▁Color",
+                "weight": 2.571538209915161
+              },
+              {
+                "token_id": 2984,
+                "token": "▁Cal",
+                "weight": 2.5649492740631104
+              },
+              {
+                "token_id": 11404,
+                "token": "▁Beach",
+                "weight": 2.5619399547576904
+              },
+              {
+                "token_id": 18864,
+                "token": "▁Peace",
+                "weight": 2.555894136428833
+              },
+              {
+                "token_id": 21853,
+                "token": "▁Orange",
+                "weight": 2.5552873611450195
+              }
+            ],
+            "sample_text": ""
+          },
+          "source": {
+            "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/image/sparse_token_logs/sparse_tokens_rank0.jsonl",
+            "line": 482
+          }
+        },
+        "text_false": {
+          "payload": {
+            "rank": 1,
+            "sample_id": "16227",
+            "modality": "text",
+            "view": "whole",
+            "aspect": "prompteol",
+            "top_k": 10,
+            "weight_type": "log1p_relu",
+            "top_tokens": [
+              {
+                "token_id": 541,
+                "token": "▁can",
+                "weight": 2.132686138153076
+              },
+              {
+                "token_id": 284,
+                "token": "▁p",
+                "weight": 2.117760419845581
+              },
+              {
+                "token_id": 989,
+                "token": "▁two",
+                "weight": 1.8256827592849731
+              },
+              {
+                "token_id": 2958,
+                "token": "▁sil",
+                "weight": 1.7532676458358765
+              },
+              {
+                "token_id": 4376,
+                "token": "▁sun",
+                "weight": 1.7410142421722412
+              },
+              {
+                "token_id": 13993,
+                "token": "▁ocean",
+                "weight": 1.5857213735580444
+              },
+              {
+                "token_id": 905,
+                "token": "▁people",
+                "weight": 1.555674433708191
+              },
+              {
+                "token_id": 14539,
+                "token": "addle",
+                "weight": 0.5010119676589966
+              },
+              {
+                "token_id": 286,
+                "token": "ed",
+                "weight": 0.0
+              },
+              {
+                "token_id": 2973,
+                "token": "ett",
+                "weight": 0.0
+              }
+            ],
+            "token_source": "retained_text",
+            "retained_token_count": 13,
+            "sample_text": "Two silhouetted people paddle a canoe on the ocean during sunset."
+          },
+          "source": {
+            "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_false/text/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 2043
+          }
+        },
+        "text_true": {
+          "payload": {
+            "rank": 1,
+            "sample_id": "16227",
+            "modality": "text",
+            "view": "whole",
+            "aspect": "prompteol",
+            "top_k": 10,
+            "weight_type": "log1p_relu",
+            "top_tokens": [
+              {
+                "token_id": 2418,
+                "token": "▁Can",
+                "weight": 2.756840467453003
+              },
+              {
+                "token_id": 367,
+                "token": "▁P",
+                "weight": 2.709611415863037
+              },
+              {
+                "token_id": 14392,
+                "token": "▁Row",
+                "weight": 2.607884407043457
+              },
+              {
+                "token_id": 3945,
+                "token": "▁Rom",
+                "weight": 2.5922183990478516
+              },
+              {
+                "token_id": 7057,
+                "token": "▁Sun",
+                "weight": 2.587528944015503
+              },
+              {
+                "token_id": 6044,
+                "token": "▁Sil",
+                "weight": 2.582817554473877
+              },
+              {
+                "token_id": 17399,
+                "token": "▁Kay",
+                "weight": 2.5751137733459473
+              },
+              {
+                "token_id": 18864,
+                "token": "▁Peace",
+                "weight": 2.558316946029663
+              },
+              {
+                "token_id": 12376,
+                "token": "▁Cou",
+                "weight": 2.5213441848754883
+              },
+              {
+                "token_id": 6005,
+                "token": "▁Two",
+                "weight": 2.5080738067626953
+              }
+            ],
+            "sample_text": "Two silhouetted people paddle a canoe on the ocean during sunset."
+          },
+          "source": {
+            "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/text/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 2043
+          }
+        },
+        "adaptive_image": [
+          {
+            "payload": {
+              "rank": 0,
+              "sample_id": "3245",
+              "modality": "image",
+              "view": "J",
+              "aspect": "high-level semantics, such as events, activities and functions",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 7057,
+                  "token": "▁Sun",
+                  "weight": 2.80078125
+                },
+                {
+                  "token_id": 3268,
+                  "token": "▁Bo",
+                  "weight": 2.748046875
+                },
+                {
+                  "token_id": 318,
+                  "token": "▁S",
+                  "weight": 2.734375
+                },
+                {
+                  "token_id": 14392,
+                  "token": "▁Row",
+                  "weight": 2.625
+                },
+                {
+                  "token_id": 367,
+                  "token": "▁P",
+                  "weight": 2.607421875
+                },
+                {
+                  "token_id": 2418,
+                  "token": "▁Can",
+                  "weight": 2.59765625
+                },
+                {
+                  "token_id": 401,
+                  "token": "▁F",
+                  "weight": 2.578125
+                },
+                {
+                  "token_id": 550,
+                  "token": "▁V",
+                  "weight": 2.55078125
+                },
+                {
+                  "token_id": 13832,
+                  "token": "▁Cloud",
+                  "weight": 2.546875
+                },
+                {
+                  "token_id": 4127,
+                  "token": "▁Even",
+                  "weight": 2.533203125
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+              "line": 349
+            }
+          },
+          {
+            "payload": {
+              "rank": 0,
+              "sample_id": "3245",
+              "modality": "image",
+              "view": "A",
+              "aspect": "scene, such as location, indoor or outdoor setting and terrain",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 8703,
+                  "token": "▁Lake",
+                  "weight": 2.734375
+                },
+                {
+                  "token_id": 8632,
+                  "token": "▁Water",
+                  "weight": 2.7265625
+                },
+                {
+                  "token_id": 18608,
+                  "token": "▁Ocean",
+                  "weight": 2.716796875
+                },
+                {
+                  "token_id": 4655,
+                  "token": "▁Out",
+                  "weight": 2.703125
+                },
+                {
+                  "token_id": 7057,
+                  "token": "▁Sun",
+                  "weight": 2.677734375
+                },
+                {
+                  "token_id": 11404,
+                  "token": "▁Beach",
+                  "weight": 2.673828125
+                },
+                {
+                  "token_id": 3268,
+                  "token": "▁Bo",
+                  "weight": 2.646484375
+                },
+                {
+                  "token_id": 25116,
+                  "token": "▁Outside",
+                  "weight": 2.59765625
+                },
+                {
+                  "token_id": 14852,
+                  "token": "▁Sky",
+                  "weight": 2.560546875
+                },
+                {
+                  "token_id": 2984,
+                  "token": "▁Cal",
+                  "weight": 2.546875
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+              "line": 350
+            }
+          },
+          {
+            "payload": {
+              "rank": 0,
+              "sample_id": "3245",
+              "modality": "image",
+              "view": "C",
+              "aspect": "people, such as number of people, appearance and pose",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 28705,
+                  "token": "▁",
+                  "weight": 2.859375
+                },
+                {
+                  "token_id": 6005,
+                  "token": "▁Two",
+                  "weight": 2.779296875
+                },
+                {
+                  "token_id": 5619,
+                  "token": "▁People",
+                  "weight": 2.638671875
+                },
+                {
+                  "token_id": 367,
+                  "token": "▁P",
+                  "weight": 2.63671875
+                },
+                {
+                  "token_id": 2418,
+                  "token": "▁Can",
+                  "weight": 2.611328125
+                },
+                {
+                  "token_id": 6044,
+                  "token": "▁Sil",
+                  "weight": 2.603515625
+                },
+                {
+                  "token_id": 3268,
+                  "token": "▁Bo",
+                  "weight": 2.59765625
+                },
+                {
+                  "token_id": 1387,
+                  "token": "▁There",
+                  "weight": 2.568359375
+                },
+                {
+                  "token_id": 14392,
+                  "token": "▁Row",
+                  "weight": 2.568359375
+                },
+                {
+                  "token_id": 1770,
+                  "token": "▁No",
+                  "weight": 2.5625
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+              "line": 351
+            }
+          },
+          {
+            "payload": {
+              "rank": 0,
+              "sample_id": "3245",
+              "modality": "image",
+              "view": "B",
+              "aspect": "natural environment, such as weather, lighting, season and time",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 7057,
+                  "token": "▁Sun",
+                  "weight": 2.8125
+                },
+                {
+                  "token_id": 13832,
+                  "token": "▁Cloud",
+                  "weight": 2.728515625
+                },
+                {
+                  "token_id": 4127,
+                  "token": "▁Even",
+                  "weight": 2.677734375
+                },
+                {
+                  "token_id": 13211,
+                  "token": "▁Summer",
+                  "weight": 2.677734375
+                },
+                {
+                  "token_id": 384,
+                  "token": "▁D",
+                  "weight": 2.615234375
+                },
+                {
+                  "token_id": 3745,
+                  "token": "▁Aut",
+                  "weight": 2.59765625
+                },
+                {
+                  "token_id": 21281,
+                  "token": "▁Storm",
+                  "weight": 2.595703125
+                },
+                {
+                  "token_id": 26547,
+                  "token": "▁Beautiful",
+                  "weight": 2.587890625
+                },
+                {
+                  "token_id": 12168,
+                  "token": "▁Fall",
+                  "weight": 2.58203125
+                },
+                {
+                  "token_id": 8566,
+                  "token": "▁Da",
+                  "weight": 2.51953125
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+              "line": 352
+            }
+          },
+          {
+            "payload": {
+              "rank": 0,
+              "sample_id": "3245",
+              "modality": "image",
+              "view": "D",
+              "aspect": "clothing, such as category, color, material and style",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 8194,
+                  "token": "▁Cas",
+                  "weight": 2.65234375
+                },
+                {
+                  "token_id": 1770,
+                  "token": "▁No",
+                  "weight": 2.626953125
+                },
+                {
+                  "token_id": 3635,
+                  "token": "▁None",
+                  "weight": 2.623046875
+                },
+                {
+                  "token_id": 11530,
+                  "token": "▁Short",
+                  "weight": 2.62109375
+                },
+                {
+                  "token_id": 394,
+                  "token": "▁W",
+                  "weight": 2.611328125
+                },
+                {
+                  "token_id": 935,
+                  "token": "▁Un",
+                  "weight": 2.58203125
+                },
+                {
+                  "token_id": 318,
+                  "token": "▁S",
+                  "weight": 2.5625
+                },
+                {
+                  "token_id": 2280,
+                  "token": "▁Not",
+                  "weight": 2.55859375
+                },
+                {
+                  "token_id": 1366,
+                  "token": "▁Cl",
+                  "weight": 2.5546875
+                },
+                {
+                  "token_id": 8632,
+                  "token": "▁Water",
+                  "weight": 2.5546875
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+              "line": 353
+            }
+          },
+          {
+            "payload": {
+              "rank": 0,
+              "sample_id": "3245",
+              "modality": "image",
+              "view": "I",
+              "aspect": "spatial layout, such as foreground and background, distance and direction",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 7057,
+                  "token": "▁Sun",
+                  "weight": 2.658203125
+                },
+                {
+                  "token_id": 14852,
+                  "token": "▁Sky",
+                  "weight": 2.62109375
+                },
+                {
+                  "token_id": 7257,
+                  "token": "▁Fore",
+                  "weight": 2.61328125
+                },
+                {
+                  "token_id": 24316,
+                  "token": "▁Background",
+                  "weight": 2.603515625
+                },
+                {
+                  "token_id": 13832,
+                  "token": "▁Cloud",
+                  "weight": 2.5703125
+                },
+                {
+                  "token_id": 8221,
+                  "token": "▁Hor",
+                  "weight": 2.556640625
+                },
+                {
+                  "token_id": 13794,
+                  "token": "▁Front",
+                  "weight": 2.5546875
+                },
+                {
+                  "token_id": 8549,
+                  "token": "▁Far",
+                  "weight": 2.548828125
+                },
+                {
+                  "token_id": 8632,
+                  "token": "▁Water",
+                  "weight": 2.5390625
+                },
+                {
+                  "token_id": 384,
+                  "token": "▁D",
+                  "weight": 2.5234375
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+              "line": 354
+            }
+          }
+        ]
+      },
+      "sparse_rows": {
+        "image_true": {
+          "payload": {
+            "id": "3245",
+            "content": "",
+            "vector": {
+              "▁sun": 281,
+              "▁cloud": 278,
+              "▁beautiful": 268,
+              "▁sky": 267,
+              "▁bo": 261,
+              "▁color": 257,
+              "▁cal": 256,
+              "▁beach": 256,
+              "▁peace": 256,
+              "▁orange": 256,
+              "▁even": 254,
+              "▁no": 253,
+              "▁spect": 252,
+              "▁storm": 252,
+              "▁ser": 251,
+              "▁sc": 250,
+              "▁water": 250,
+              "▁v": 250,
+              "▁ocean": 249,
+              "▁beaut": 247,
+              "▁can": 247,
+              "▁col": 247,
+              "▁people": 246,
+              "▁g": 246,
+              "▁d": 246,
+              "▁night": 245,
+              "▁gl": 245,
+              "▁pictures": 245,
+              "▁nice": 245,
+              "▁rain": 244,
+              "▁pretty": 244,
+              "▁st": 243,
+              "▁s": 243,
+              "▁lake": 243,
+              "▁sil": 242,
+              "▁a": 242,
+              "▁sur": 242,
+              "▁golden": 241,
+              "▁yes": 240,
+              "▁p": 240,
+              "▁f": 240,
+              "▁red": 239,
+              "▁hor": 238,
+              "▁or": 238,
+              "▁two": 238,
+              "▁nature": 238,
+              "▁nothing": 238,
+              "▁the": 237,
+              "▁un": 237,
+              "▁picture": 237,
+              "▁none": 237,
+              "▁n": 237,
+              "▁view": 237,
+              "▁b": 236,
+              "▁r": 236,
+              "▁c": 236,
+              "▁t": 235,
+              "▁h": 235,
+              "▁lov": 235,
+              "▁dark": 234,
+              "▁e": 233,
+              "▁still": 233,
+              "▁phot": 233,
+              "▁dr": 233,
+              "▁da": 233,
+              "▁": 232,
+              "▁yellow": 232,
+              "▁tr": 232,
+              "▁over": 232,
+              "▁pink": 232,
+              "▁w": 232,
+              "▁river": 231,
+              "▁sh": 231,
+              "▁fire": 230,
+              "▁coast": 230,
+              "▁l": 230,
+              "▁at": 230,
+              "▁tw": 230,
+              "▁not": 229,
+              "▁pe": 229,
+              "▁this": 229,
+              "▁day": 229,
+              "▁wat": 228,
+              "▁dream": 228,
+              "▁out": 228,
+              "▁pur": 228,
+              "▁good": 227,
+              "▁amaz": 227,
+              "▁ref": 227,
+              "▁rom": 227,
+              "▁land": 227,
+              "▁in": 227,
+              "▁sea": 227,
+              "▁it": 226,
+              "▁row": 226,
+              "▁o": 226,
+              "▁al": 226,
+              "▁sk": 226,
+              "▁clear": 226,
+              "▁fl": 226,
+              "▁pain": 225,
+              "▁y": 225,
+              "▁bl": 225,
+              "▁maj": 225,
+              "▁pan": 225,
+              "▁port": 225,
+              "▁capt": 224,
+              "▁many": 224,
+              "▁time": 224,
+              "▁there": 223,
+              "▁cru": 223,
+              "▁happy": 223,
+              "▁an": 223,
+              "▁light": 223,
+              "▁summer": 223,
+              "▁be": 222,
+              "▁end": 222,
+              "▁m": 222,
+              "▁mountains": 222,
+              "▁heaven": 222,
+              "▁i": 221,
+              "▁mult": 221,
+              "▁abstract": 221,
+              "▁bright": 221,
+              "▁th": 220,
+              "▁k": 220,
+              "▁rad": 220,
+              "▁aw": 220
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean_llava_base/corpus_0.jsonl",
+            "line": 482
+          }
+        },
+        "text_false": {
+          "payload": {
+            "id": "16227",
+            "content": "",
+            "vector": {
+              "▁can": 213,
+              "▁p": 212,
+              "▁two": 183,
+              "▁sil": 175,
+              "▁sun": 174,
+              "▁ocean": 159,
+              "▁people": 156,
+              "addle": 50,
+              "ed": 0,
+              "ett": 0,
+              "set": 0,
+              "hou": 0,
+              "oe": 0
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_no_manual_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_1.jsonl",
+            "line": 2043
+          }
+        },
+        "text_true": {
+          "payload": {
+            "id": "16227",
+            "content": "",
+            "vector": {
+              "▁can": 489,
+              "▁p": 483,
+              "▁row": 261,
+              "▁rom": 259,
+              "▁sun": 259,
+              "▁sil": 258,
+              "▁kay": 258,
+              "▁peace": 256,
+              "▁cou": 252,
+              "▁two": 251,
+              "▁cal": 250,
+              "▁bo": 249,
+              "▁v": 247,
+              "▁ser": 247,
+              "▁": 246,
+              "▁even": 246,
+              "▁sc": 244,
+              "▁no": 243,
+              "▁s": 242,
+              "▁beautiful": 240,
+              "▁people": 240,
+              "▁g": 239,
+              "▁\"": 239,
+              "▁night": 239,
+              "▁yes": 239,
+              "▁gl": 239,
+              "▁ocean": 238,
+              "▁rel": 237,
+              "▁enjoy": 235,
+              "▁sur": 235,
+              "▁love": 234,
+              "▁c": 233,
+              "▁e": 233,
+              "▁nature": 233,
+              "▁d": 232,
+              "▁picture": 232,
+              "▁a": 232,
+              "▁the": 232,
+              "▁beach": 232,
+              "▁k": 231,
+              "▁qu": 231,
+              "▁nice": 230,
+              "▁tr": 230,
+              "▁l": 230,
+              "▁happy": 230,
+              "▁advent": 229,
+              "▁pictures": 229,
+              "▁cru": 229,
+              "▁bl": 228,
+              "▁out": 228,
+              "▁un": 228,
+              "▁n": 227,
+              "▁le": 227,
+              "▁r": 226,
+              "▁in": 226,
+              "▁h": 225,
+              "▁they": 225,
+              "▁o": 224,
+              "▁date": 223,
+              "▁con": 223,
+              "▁t": 222,
+              "▁dark": 221,
+              "▁ex": 221,
+              "▁tw": 221,
+              "▁id": 221,
+              "▁none": 220,
+              "▁phot": 220,
+              "▁expl": 220,
+              "▁b": 220,
+              "▁activ": 220,
+              "▁nothing": 219,
+              "▁lov": 219,
+              "▁f": 219,
+              "▁beaut": 219,
+              "▁ple": 218,
+              "▁fun": 218,
+              "▁w": 218,
+              "▁en": 218,
+              "▁m": 217,
+              "▁image": 217,
+              "▁dr": 217,
+              "▁moon": 217,
+              "▁joy": 217,
+              "▁this": 217,
+              "▁kan": 216,
+              "▁there": 216,
+              "▁one": 216,
+              "▁i": 216,
+              "▁rec": 216,
+              "▁water": 216,
+              "▁perfect": 215,
+              "▁on": 215,
+              "▁em": 215,
+              "▁watch": 215,
+              "▁it": 214,
+              "▁man": 214,
+              "▁st": 214,
+              "▁pe": 213,
+              "▁sl": 213,
+              "▁travel": 213,
+              "▁magic": 213,
+              "▁pretty": 213,
+              "▁not": 213,
+              "▁images": 212,
+              "▁se": 212,
+              "▁still": 212,
+              "▁end": 212,
+              "▁sea": 212,
+              "▁good": 212,
+              "▁at": 211,
+              "▁day": 211,
+              "▁canada": 211,
+              "▁ev": 211,
+              "▁activity": 211,
+              "▁sol": 211,
+              "▁pan": 211,
+              "▁'": 211,
+              "▁ref": 211,
+              "▁cool": 211,
+              "▁be": 210,
+              "▁romantic": 210,
+              "▁wat": 210,
+              "▁so": 210,
+              "▁over": 210,
+              "▁bird": 210,
+              "▁time": 209
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_1.jsonl",
+            "line": 2043
+          }
+        },
+        "adaptive_image": {
+          "payload": {
+            "id": "3245",
+            "contents": "",
+            "vector": {
+              "▁sun": 1095,
+              "▁bo": 1305,
+              "▁s": 780,
+              "▁row": 519,
+              "▁p": 1017,
+              "▁can": 1019,
+              "▁f": 1000,
+              "▁v": 988,
+              "▁cloud": 1029,
+              "▁even": 521,
+              "▁cal": 1243,
+              "▁peace": 491,
+              "▁rel": 249,
+              "▁cru": 249,
+              "▁d": 1005,
+              "▁sc": 725,
+              "▁watch": 247,
+              "▁sky": 764,
+              "▁ser": 735,
+              "▁r": 245,
+              "▁travel": 245,
+              "▁enjoy": 245,
+              "▁sur": 723,
+              "▁beautiful": 503,
+              "▁nature": 486,
+              "▁sil": 999,
+              "▁night": 737,
+              "▁people": 752,
+              "▁water": 1023,
+              "▁cele": 241,
+              "▁lake": 273,
+              "▁ocean": 517,
+              "▁out": 521,
+              "▁beach": 1005,
+              "▁outside": 260,
+              "▁river": 254,
+              "▁location": 254,
+              "▁sea": 254,
+              "▁sh": 741,
+              "▁wat": 248,
+              "▁l": 246,
+              "▁land": 244,
+              "▁body": 242,
+              "▁": 1021,
+              "▁no": 1004,
+              "▁o": 241,
+              "▁coast": 241,
+              "▁two": 278,
+              "▁there": 257,
+              "▁man": 256,
+              "▁men": 501,
+              "▁cou": 253,
+              "▁kay": 250,
+              "▁three": 247,
+              "▁in": 496,
+              "▁un": 502,
+              "▁one": 244,
+              "▁none": 504,
+              "▁a": 241,
+              "▁fish": 240,
+              "▁person": 240,
+              "▁not": 496,
+              "▁small": 239,
+              "▁group": 239,
+              "▁summer": 268,
+              "▁aut": 260,
+              "▁storm": 260,
+              "▁fall": 258,
+              "▁da": 252,
+              "▁rain": 496,
+              "▁spring": 249,
+              "▁orange": 249,
+              "▁season": 248,
+              "▁tw": 247,
+              "▁color": 247,
+              "▁golden": 246,
+              "▁t": 496,
+              "▁spect": 240,
+              "▁at": 238,
+              "▁day": 238,
+              "▁st": 238,
+              "▁g": 238,
+              "▁cas": 265,
+              "▁short": 262,
+              "▁w": 511,
+              "▁cl": 255,
+              "▁jack": 253,
+              "▁dark": 253,
+              "▁light": 251,
+              "▁b": 247,
+              "▁sport": 247,
+              "▁je": 243,
+              "▁black": 243,
+              "▁fore": 261,
+              "▁background": 260,
+              "▁hor": 256,
+              "▁front": 255,
+              "▁far": 255,
+              "▁lay": 251,
+              "▁near": 249,
+              "▁left": 249,
+              "▁close": 248,
+              "▁over": 244,
+              "▁pan": 243,
+              "▁for": 243
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/concat/prompt_5/test/0_no_manual_30_sum_no_cluster_after_pad_disassembleeol_separate_lower_no_mean/adaptive_views/63d32642e1d38b54_llava_base/collection/corpus_0.jsonl",
+            "line": 59
+          }
+        }
+      },
+      "image": {
+        "remote_path": "/root/autodl-tmp/data/flickr/flickr30k-images/2088705195.jpg",
+        "local_file": "images/3245.jpg",
+        "sha256": "70688b32a994da2f877f75232852a0415d88274307fb0ab727c9126c8d92189d"
+      }
+    },
+    {
+      "caption": {
+        "imgid": "7996",
+        "filename": "2725508159.jpg",
+        "caption": "A girl is kayaking in a blue boat, on a blue lake wearing an orange life jacket.",
+        "sentid": "39982"
+      },
+      "matches": {
+        "▁girl": [
+          {
+            "view": "C",
+            "aspect": "people, such as number of people, appearance and pose",
+            "token": {
+              "rank": 9,
+              "token_id": 10850,
+              "token": "▁Girl",
+              "weight": 2.62109375
+            },
+            "text_false": [
+              {
+                "rank": 2,
+                "token_id": 2746,
+                "token": "▁girl",
+                "weight": 2.22377872467041
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 2,
+                "token_id": 10850,
+                "token": "▁Girl",
+                "weight": 2.7007317543029785
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 729
+            }
+          }
+        ],
+        "▁orange": [
+          {
+            "view": "D",
+            "aspect": "clothing, such as category, color, material and style",
+            "token": {
+              "rank": 1,
+              "token_id": 21853,
+              "token": "▁Orange",
+              "weight": 2.779296875
+            },
+            "text_false": [
+              {
+                "rank": 3,
+                "token_id": 14545,
+                "token": "▁orange",
+                "weight": 1.7950093746185303
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 4,
+                "token_id": 21853,
+                "token": "▁Orange",
+                "weight": 2.5751137733459473
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 731
+            }
+          }
+        ],
+        "▁life": [
+          {
+            "view": "D",
+            "aspect": "clothing, such as category, color, material and style",
+            "token": {
+              "rank": 2,
+              "token_id": 5372,
+              "token": "▁Life",
+              "weight": 2.7578125
+            },
+            "text_false": [
+              {
+                "rank": 4,
+                "token_id": 1411,
+                "token": "▁life",
+                "weight": 1.7286088466644287
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 10,
+                "token_id": 5372,
+                "token": "▁Life",
+                "weight": 2.467172145843506
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 731
+            }
+          }
+        ]
+      },
+      "stored_weights": {
+        "▁girl": {
+          "image_true": 257,
+          "text_false": 222,
+          "text_true": 492,
+          "adaptive_image": 262
+        },
+        "▁orange": {
+          "image_true": 0,
+          "text_false": 180,
+          "text_true": 258,
+          "adaptive_image": 278
+        },
+        "▁life": {
+          "image_true": 0,
+          "text_false": 173,
+          "text_true": 247,
+          "adaptive_image": 276
+        }
+      },
+      "added_terms": [
+        "▁orange",
+        "▁life"
+      ],
+      "full_word_count": 3,
+      "logs": {
+        "image_true": {
+          "payload": {
+            "rank": 1,
+            "sample_id": "7996",
+            "modality": "image",
+            "view": "whole",
+            "aspect": "prompteol",
+            "top_k": 10,
+            "weight_type": "log1p_relu",
+            "top_tokens": [
+              {
+                "token_id": 17399,
+                "token": "▁Kay",
+                "weight": 2.7478716373443604
+              },
+              {
+                "token_id": 2418,
+                "token": "▁Can",
+                "weight": 2.677913188934326
+              },
+              {
+                "token_id": 13832,
+                "token": "▁Cloud",
+                "weight": 2.6763014793395996
+              },
+              {
+                "token_id": 367,
+                "token": "▁P",
+                "weight": 2.6757638454437256
+              },
+              {
+                "token_id": 8836,
+                "token": "▁Blue",
+                "weight": 2.6534619331359863
+              },
+              {
+                "token_id": 11036,
+                "token": "▁Boy",
+                "weight": 2.641843557357788
+              },
+              {
+                "token_id": 8183,
+                "token": "▁Child",
+                "weight": 2.6340224742889404
+              },
+              {
+                "token_id": 8632,
+                "token": "▁Water",
+                "weight": 2.6328999996185303
+              },
+              {
+                "token_id": 14852,
+                "token": "▁Sky",
+                "weight": 2.609610080718994
+              },
+              {
+                "token_id": 8703,
+                "token": "▁Lake",
+                "weight": 2.6021108627319336
+              }
+            ],
+            "sample_text": ""
+          },
+          "source": {
+            "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/image/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 65
+          }
+        },
+        "text_false": {
+          "payload": {
+            "rank": 1,
+            "sample_id": "39982",
+            "modality": "text",
+            "view": "whole",
+            "aspect": "prompteol",
+            "top_k": 10,
+            "weight_type": "log1p_relu",
+            "top_tokens": [
+              {
+                "token_id": 446,
+                "token": "▁k",
+                "weight": 2.3041462898254395
+              },
+              {
+                "token_id": 2746,
+                "token": "▁girl",
+                "weight": 2.22377872467041
+              },
+              {
+                "token_id": 14545,
+                "token": "▁orange",
+                "weight": 1.7950093746185303
+              },
+              {
+                "token_id": 1411,
+                "token": "▁life",
+                "weight": 1.7286088466644287
+              },
+              {
+                "token_id": 9088,
+                "token": "▁boat",
+                "weight": 1.6272470951080322
+              },
+              {
+                "token_id": 5045,
+                "token": "▁blue",
+                "weight": 1.5109978914260864
+              },
+              {
+                "token_id": 14411,
+                "token": "▁lake",
+                "weight": 1.2732000350952148
+              },
+              {
+                "token_id": 8192,
+                "token": "▁wearing",
+                "weight": 1.068206787109375
+              },
+              {
+                "token_id": 15554,
+                "token": "▁jacket",
+                "weight": 0.3923587501049042
+              },
+              {
+                "token_id": 339,
+                "token": "ay",
+                "weight": 0.3897167444229126
+              }
+            ],
+            "token_source": "retained_text",
+            "retained_token_count": 11,
+            "sample_text": "A girl is kayaking in a blue boat, on a blue lake wearing an orange life jacket."
+          },
+          "source": {
+            "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_false/text/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 1167
+          }
+        },
+        "text_true": {
+          "payload": {
+            "rank": 1,
+            "sample_id": "39982",
+            "modality": "text",
+            "view": "whole",
+            "aspect": "prompteol",
+            "top_k": 10,
+            "weight_type": "log1p_relu",
+            "top_tokens": [
+              {
+                "token_id": 17399,
+                "token": "▁Kay",
+                "weight": 2.783273696899414
+              },
+              {
+                "token_id": 10850,
+                "token": "▁Girl",
+                "weight": 2.7007317543029785
+              },
+              {
+                "token_id": 367,
+                "token": "▁P",
+                "weight": 2.5933873653411865
+              },
+              {
+                "token_id": 21853,
+                "token": "▁Orange",
+                "weight": 2.5751137733459473
+              },
+              {
+                "token_id": 14392,
+                "token": "▁Row",
+                "weight": 2.571538209915161
+              },
+              {
+                "token_id": 19412,
+                "token": "▁Safety",
+                "weight": 2.531959295272827
+              },
+              {
+                "token_id": 3268,
+                "token": "▁Bo",
+                "weight": 2.5232255458831787
+              },
+              {
+                "token_id": 5592,
+                "token": "▁Yes",
+                "weight": 2.5150468349456787
+              },
+              {
+                "token_id": 2418,
+                "token": "▁Can",
+                "weight": 2.495913505554199
+              },
+              {
+                "token_id": 5372,
+                "token": "▁Life",
+                "weight": 2.467172145843506
+              }
+            ],
+            "sample_text": "A girl is kayaking in a blue boat, on a blue lake wearing an orange life jacket."
+          },
+          "source": {
+            "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/text/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 1167
+          }
+        },
+        "adaptive_image": [
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "7996",
+              "modality": "image",
+              "view": "J",
+              "aspect": "high-level semantics, such as events, activities and functions",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 367,
+                  "token": "▁P",
+                  "weight": 2.822265625
+                },
+                {
+                  "token_id": 2418,
+                  "token": "▁Can",
+                  "weight": 2.818359375
+                },
+                {
+                  "token_id": 17399,
+                  "token": "▁Kay",
+                  "weight": 2.80859375
+                },
+                {
+                  "token_id": 14392,
+                  "token": "▁Row",
+                  "weight": 2.734375
+                },
+                {
+                  "token_id": 3268,
+                  "token": "▁Bo",
+                  "weight": 2.7109375
+                },
+                {
+                  "token_id": 318,
+                  "token": "▁S",
+                  "weight": 2.703125
+                },
+                {
+                  "token_id": 3904,
+                  "token": "▁Sw",
+                  "weight": 2.623046875
+                },
+                {
+                  "token_id": 8632,
+                  "token": "▁Water",
+                  "weight": 2.615234375
+                },
+                {
+                  "token_id": 3523,
+                  "token": "▁Rec",
+                  "weight": 2.5859375
+                },
+                {
+                  "token_id": 4655,
+                  "token": "▁Out",
+                  "weight": 2.57421875
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 727
+            }
+          },
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "7996",
+              "modality": "image",
+              "view": "A",
+              "aspect": "scene, such as location, indoor or outdoor setting and terrain",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 8703,
+                  "token": "▁Lake",
+                  "weight": 2.8515625
+                },
+                {
+                  "token_id": 8632,
+                  "token": "▁Water",
+                  "weight": 2.775390625
+                },
+                {
+                  "token_id": 4655,
+                  "token": "▁Out",
+                  "weight": 2.775390625
+                },
+                {
+                  "token_id": 25116,
+                  "token": "▁Outside",
+                  "weight": 2.69921875
+                },
+                {
+                  "token_id": 367,
+                  "token": "▁P",
+                  "weight": 2.607421875
+                },
+                {
+                  "token_id": 18608,
+                  "token": "▁Ocean",
+                  "weight": 2.60546875
+                },
+                {
+                  "token_id": 393,
+                  "token": "▁L",
+                  "weight": 2.60546875
+                },
+                {
+                  "token_id": 6396,
+                  "token": "▁River",
+                  "weight": 2.595703125
+                },
+                {
+                  "token_id": 8836,
+                  "token": "▁Blue",
+                  "weight": 2.56640625
+                },
+                {
+                  "token_id": 14716,
+                  "token": "▁Location",
+                  "weight": 2.5625
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 728
+            }
+          },
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "7996",
+              "modality": "image",
+              "view": "C",
+              "aspect": "people, such as number of people, appearance and pose",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 28705,
+                  "token": "▁",
+                  "weight": 2.853515625
+                },
+                {
+                  "token_id": 2387,
+                  "token": "▁One",
+                  "weight": 2.74609375
+                },
+                {
+                  "token_id": 11036,
+                  "token": "▁Boy",
+                  "weight": 2.7421875
+                },
+                {
+                  "token_id": 6441,
+                  "token": "▁Person",
+                  "weight": 2.734375
+                },
+                {
+                  "token_id": 8183,
+                  "token": "▁Child",
+                  "weight": 2.73046875
+                },
+                {
+                  "token_id": 393,
+                  "token": "▁L",
+                  "weight": 2.6796875
+                },
+                {
+                  "token_id": 20010,
+                  "token": "▁Woman",
+                  "weight": 2.65234375
+                },
+                {
+                  "token_id": 2213,
+                  "token": "▁Man",
+                  "weight": 2.634765625
+                },
+                {
+                  "token_id": 10850,
+                  "token": "▁Girl",
+                  "weight": 2.62109375
+                },
+                {
+                  "token_id": 16096,
+                  "token": "▁Single",
+                  "weight": 2.6171875
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 729
+            }
+          },
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "7996",
+              "modality": "image",
+              "view": "B",
+              "aspect": "natural environment, such as weather, lighting, season and time",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 7057,
+                  "token": "▁Sun",
+                  "weight": 2.791015625
+                },
+                {
+                  "token_id": 13832,
+                  "token": "▁Cloud",
+                  "weight": 2.76171875
+                },
+                {
+                  "token_id": 16676,
+                  "token": "▁Clear",
+                  "weight": 2.7578125
+                },
+                {
+                  "token_id": 13211,
+                  "token": "▁Summer",
+                  "weight": 2.755859375
+                },
+                {
+                  "token_id": 9199,
+                  "token": "▁Spring",
+                  "weight": 2.677734375
+                },
+                {
+                  "token_id": 5399,
+                  "token": "▁Day",
+                  "weight": 2.634765625
+                },
+                {
+                  "token_id": 22311,
+                  "token": "▁Bright",
+                  "weight": 2.625
+                },
+                {
+                  "token_id": 8836,
+                  "token": "▁Blue",
+                  "weight": 2.609375
+                },
+                {
+                  "token_id": 22277,
+                  "token": "▁Nice",
+                  "weight": 2.6015625
+                },
+                {
+                  "token_id": 2984,
+                  "token": "▁Cal",
+                  "weight": 2.58203125
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 730
+            }
+          },
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "7996",
+              "modality": "image",
+              "view": "D",
+              "aspect": "clothing, such as category, color, material and style",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 21853,
+                  "token": "▁Orange",
+                  "weight": 2.779296875
+                },
+                {
+                  "token_id": 5372,
+                  "token": "▁Life",
+                  "weight": 2.7578125
+                },
+                {
+                  "token_id": 19412,
+                  "token": "▁Safety",
+                  "weight": 2.630859375
+                },
+                {
+                  "token_id": 394,
+                  "token": "▁W",
+                  "weight": 2.623046875
+                },
+                {
+                  "token_id": 367,
+                  "token": "▁P",
+                  "weight": 2.60546875
+                },
+                {
+                  "token_id": 8632,
+                  "token": "▁Water",
+                  "weight": 2.591796875
+                },
+                {
+                  "token_id": 550,
+                  "token": "▁V",
+                  "weight": 2.58984375
+                },
+                {
+                  "token_id": 4655,
+                  "token": "▁Out",
+                  "weight": 2.58203125
+                },
+                {
+                  "token_id": 318,
+                  "token": "▁S",
+                  "weight": 2.57421875
+                },
+                {
+                  "token_id": 4299,
+                  "token": "▁Jack",
+                  "weight": 2.572265625
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 731
+            }
+          },
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "7996",
+              "modality": "image",
+              "view": "I",
+              "aspect": "spatial layout, such as foreground and background, distance and direction",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 24316,
+                  "token": "▁Background",
+                  "weight": 2.6484375
+                },
+                {
+                  "token_id": 13794,
+                  "token": "▁Front",
+                  "weight": 2.630859375
+                },
+                {
+                  "token_id": 7257,
+                  "token": "▁Fore",
+                  "weight": 2.603515625
+                },
+                {
+                  "token_id": 8549,
+                  "token": "▁Far",
+                  "weight": 2.580078125
+                },
+                {
+                  "token_id": 8632,
+                  "token": "▁Water",
+                  "weight": 2.556640625
+                },
+                {
+                  "token_id": 17602,
+                  "token": "▁Near",
+                  "weight": 2.55078125
+                },
+                {
+                  "token_id": 16676,
+                  "token": "▁Clear",
+                  "weight": 2.544921875
+                },
+                {
+                  "token_id": 18537,
+                  "token": "▁Close",
+                  "weight": 2.54296875
+                },
+                {
+                  "token_id": 8703,
+                  "token": "▁Lake",
+                  "weight": 2.537109375
+                },
+                {
+                  "token_id": 18365,
+                  "token": "▁Left",
+                  "weight": 2.51953125
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 732
+            }
+          }
+        ]
+      },
+      "sparse_rows": {
+        "image_true": {
+          "payload": {
+            "id": "7996",
+            "content": "",
+            "vector": {
+              "▁kay": 275,
+              "▁can": 268,
+              "▁cloud": 268,
+              "▁p": 268,
+              "▁blue": 265,
+              "▁boy": 264,
+              "▁child": 263,
+              "▁water": 263,
+              "▁sky": 261,
+              "▁lake": 260,
+              "▁clear": 260,
+              "▁bo": 258,
+              "▁no": 258,
+              "▁s": 257,
+              "▁sun": 257,
+              "▁girl": 257,
+              "▁kid": 256,
+              "▁row": 255,
+              "▁k": 254,
+              "▁nothing": 253,
+              "▁person": 253,
+              "▁cal": 251,
+              "▁yes": 249,
+              "▁l": 249,
+              "▁little": 249,
+              "▁woman": 249,
+              "▁beautiful": 248,
+              "▁none": 248,
+              "▁a": 248,
+              "▁out": 247,
+              "▁children": 247,
+              "▁man": 247,
+              "▁nature": 246,
+              "▁v": 246,
+              "▁sw": 246,
+              "▁not": 244,
+              "▁this": 244,
+              "▁small": 244,
+              "▁happy": 243,
+              "▁peace": 243,
+              "▁the": 243,
+              "▁river": 242,
+              "▁beach": 242,
+              "▁c": 241,
+              "▁kids": 241,
+              "▁day": 241,
+              "▁sc": 241,
+              "▁sur": 240,
+              "▁un": 240,
+              "▁t": 240,
+              "▁ocean": 240,
+              "▁h": 240,
+              "▁one": 239,
+              "▁nice": 239,
+              "▁young": 239,
+              "▁summer": 238,
+              "▁w": 237,
+              "▁bl": 237,
+              "▁people": 237,
+              "▁over": 236,
+              "▁wat": 236,
+              "▁": 236,
+              "▁adult": 236,
+              "▁f": 236,
+              "▁sea": 235,
+              "▁picture": 235,
+              "▁pl": 235,
+              "▁fun": 235,
+              "▁bird": 235,
+              "▁b": 234,
+              "▁family": 233,
+              "▁it": 233,
+              "▁sol": 233,
+              "▁in": 233,
+              "▁ser": 233,
+              "▁wind": 232,
+              "▁advent": 232,
+              "▁o": 232,
+              "▁good": 232,
+              "▁r": 231,
+              "▁n": 231,
+              "▁sh": 231,
+              "▁em": 230,
+              "▁there": 230,
+              "▁still": 230,
+              "▁bright": 230,
+              "▁boys": 229,
+              "▁on": 229,
+              "▁sk": 229,
+              "▁rec": 229,
+              "▁open": 229,
+              "▁sm": 228,
+              "▁big": 228,
+              "▁e": 228,
+              "▁i": 227,
+              "▁ex": 227,
+              "▁rain": 227,
+              "▁fl": 227,
+              "▁white": 227,
+              "▁green": 227,
+              "▁pictures": 226,
+              "▁lady": 226,
+              "▁phot": 226,
+              "▁ped": 226,
+              "▁d": 225,
+              "▁baby": 225,
+              "▁many": 225,
+              "▁th": 225,
+              "▁two": 225,
+              "▁looking": 224,
+              "▁aqu": 224,
+              "▁light": 224,
+              "▁youth": 224,
+              "▁very": 224,
+              "▁outside": 224,
+              "▁ref": 224,
+              "▁an": 224,
+              "▁land": 224,
+              "▁cry": 224,
+              "▁g": 223,
+              "▁we": 223,
+              "▁large": 223,
+              "▁human": 223,
+              "▁cool": 223,
+              "▁forest": 223,
+              "▁al": 223,
+              "▁\"": 223,
+              "▁go": 223
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean_llava_base/corpus_1.jsonl",
+            "line": 65
+          }
+        },
+        "text_false": {
+          "payload": {
+            "id": "39982",
+            "content": "",
+            "vector": {
+              "▁k": 230,
+              "▁girl": 222,
+              "▁orange": 180,
+              "▁life": 173,
+              "▁boat": 163,
+              "▁blue": 151,
+              "▁lake": 127,
+              "▁wearing": 107,
+              "▁jacket": 39,
+              "ay": 39,
+              "aking": 0
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_no_manual_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_1.jsonl",
+            "line": 1167
+          }
+        },
+        "text_true": {
+          "payload": {
+            "id": "39982",
+            "content": "",
+            "vector": {
+              "▁kay": 278,
+              "▁girl": 492,
+              "▁p": 259,
+              "▁orange": 258,
+              "▁row": 257,
+              "▁safety": 253,
+              "▁bo": 252,
+              "▁yes": 252,
+              "▁can": 250,
+              "▁life": 247,
+              "▁a": 246,
+              "▁l": 245,
+              "▁she": 245,
+              "▁safe": 244,
+              "▁s": 244,
+              "▁one": 244,
+              "▁": 243,
+              "▁color": 242,
+              "▁girls": 242,
+              "▁the": 242,
+              "▁blue": 242,
+              "▁happy": 241,
+              "▁k": 470,
+              "▁in": 239,
+              "▁woman": 239,
+              "▁\"": 237,
+              "▁no": 236,
+              "▁go": 235,
+              "▁advent": 234,
+              "▁fun": 233,
+              "▁good": 232,
+              "▁sw": 231,
+              "▁ex": 231,
+              "▁out": 230,
+              "▁sur": 230,
+              "▁saf": 228,
+              "▁summary": 228,
+              "▁on": 227,
+              "▁g": 227,
+              "▁great": 227,
+              "▁expl": 227,
+              "▁nothing": 226,
+              "▁this": 226,
+              "▁right": 225,
+              "▁w": 225,
+              "▁none": 225,
+              "▁summer": 225,
+              "▁v": 224,
+              "▁racing": 224,
+              "▁un": 224,
+              "▁sun": 223,
+              "▁it": 223,
+              "▁i": 223,
+              "▁nice": 223,
+              "▁going": 223,
+              "▁water": 223,
+              "▁lady": 222,
+              "▁picture": 222,
+              "▁her": 221,
+              "▁person": 221,
+              "▁true": 221,
+              "▁enjoy": 221,
+              "▁description": 221,
+              "▁activity": 221,
+              "▁con": 221,
+              "▁red": 221,
+              "▁there": 220,
+              "▁sure": 220,
+              "▁f": 220,
+              "▁boy": 220,
+              "▁fem": 219,
+              "▁mult": 219,
+              "▁lake": 219,
+              "▁c": 218,
+              "▁sc": 218,
+              "▁activ": 218,
+              "▁joy": 218,
+              "▁yellow": 218,
+              "▁r": 218,
+              "▁action": 217,
+              "▁not": 217,
+              "▁okay": 217,
+              "▁play": 217,
+              "▁b": 217,
+              "▁ok": 433,
+              "▁little": 216,
+              "▁clear": 216,
+              "▁camp": 215,
+              "▁perfect": 215,
+              "▁all": 215,
+              "▁n": 214,
+              "▁single": 214,
+              "▁t": 214,
+              "▁an": 214,
+              "▁rec": 213,
+              "▁read": 213,
+              "▁green": 213,
+              "▁d": 213,
+              "▁or": 213,
+              "▁beach": 213,
+              "▁desc": 213,
+              "▁pretty": 213,
+              "▁child": 212,
+              "▁wat": 212,
+              "▁kid": 212,
+              "▁bright": 212,
+              "▁describe": 211,
+              "▁en": 211,
+              "▁beautiful": 210,
+              "▁bird": 210,
+              "▁acc": 209,
+              "▁people": 209,
+              "▁young": 209,
+              "▁cor": 209,
+              "▁e": 209,
+              "▁active": 208,
+              "▁quick": 208,
+              "▁al": 208,
+              "▁very": 208,
+              "▁j": 208,
+              "▁easy": 207,
+              "▁sport": 207,
+              "▁gir": 207,
+              "▁pos": 206,
+              "▁many": 206
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_1.jsonl",
+            "line": 1167
+          }
+        },
+        "adaptive_image": {
+          "payload": {
+            "id": "7996",
+            "contents": "",
+            "vector": {
+              "▁p": 1311,
+              "▁can": 1037,
+              "▁kay": 1043,
+              "▁row": 519,
+              "▁bo": 1013,
+              "▁s": 772,
+              "▁sw": 749,
+              "▁water": 1055,
+              "▁rec": 259,
+              "▁out": 793,
+              "▁fun": 256,
+              "▁advent": 256,
+              "▁k": 499,
+              "▁child": 1014,
+              "▁expl": 249,
+              "▁c": 248,
+              "▁activity": 247,
+              "▁play": 247,
+              "▁ex": 245,
+              "▁v": 746,
+              "▁activ": 244,
+              "▁children": 736,
+              "▁r": 243,
+              "▁nature": 493,
+              "▁f": 242,
+              "▁race": 241,
+              "▁wat": 493,
+              "▁sur": 240,
+              "▁ped": 240,
+              "▁sports": 486,
+              "▁lake": 539,
+              "▁outside": 270,
+              "▁l": 777,
+              "▁ocean": 261,
+              "▁river": 260,
+              "▁blue": 768,
+              "▁location": 256,
+              "▁cal": 763,
+              "▁beach": 255,
+              "▁body": 254,
+              "▁sh": 500,
+              "▁sea": 246,
+              "▁on": 246,
+              "▁open": 244,
+              "▁in": 496,
+              "▁no": 1241,
+              "▁forest": 241,
+              "▁still": 241,
+              "▁ind": 241,
+              "▁natural": 240,
+              "▁": 534,
+              "▁one": 518,
+              "▁boy": 274,
+              "▁person": 273,
+              "▁woman": 265,
+              "▁man": 263,
+              "▁girl": 262,
+              "▁single": 262,
+              "▁kid": 504,
+              "▁young": 260,
+              "▁bl": 259,
+              "▁adult": 505,
+              "▁a": 255,
+              "▁little": 255,
+              "▁there": 254,
+              "▁small": 252,
+              "▁al": 251,
+              "▁sol": 250,
+              "▁people": 249,
+              "▁male": 247,
+              "▁two": 247,
+              "▁only": 246,
+              "▁the": 246,
+              "▁sun": 279,
+              "▁cloud": 276,
+              "▁clear": 530,
+              "▁summer": 276,
+              "▁spring": 268,
+              "▁day": 263,
+              "▁bright": 519,
+              "▁nice": 260,
+              "▁cold": 258,
+              "▁beautiful": 257,
+              "▁good": 253,
+              "▁over": 253,
+              "▁season": 253,
+              "▁fall": 252,
+              "▁winter": 252,
+              "▁wind": 251,
+              "▁w": 760,
+              "▁part": 248,
+              "▁ser": 248,
+              "▁cool": 247,
+              "▁fair": 247,
+              "▁morning": 246,
+              "▁light": 246,
+              "▁rain": 494,
+              "▁b": 244,
+              "▁un": 489,
+              "▁orange": 278,
+              "▁life": 276,
+              "▁safety": 263,
+              "▁jack": 257,
+              "▁sport": 255,
+              "▁cas": 254,
+              "▁ne": 252,
+              "▁red": 250,
+              "▁yellow": 246,
+              "▁short": 243,
+              "▁background": 265,
+              "▁front": 263,
+              "▁fore": 260,
+              "▁far": 258,
+              "▁near": 255,
+              "▁close": 254,
+              "▁left": 252,
+              "▁sky": 252,
+              "▁d": 248,
+              "▁for": 247,
+              "▁middle": 246,
+              "▁hor": 246,
+              "▁back": 246,
+              "▁deep": 244
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/concat/prompt_5/test/0_no_manual_30_sum_no_cluster_after_pad_disassembleeol_separate_lower_no_mean/adaptive_views/63d32642e1d38b54_llava_base/collection/corpus_1.jsonl",
+            "line": 122
+          }
+        }
+      },
+      "image": {
+        "remote_path": "/root/autodl-tmp/data/flickr/flickr30k-images/2725508159.jpg",
+        "local_file": "images/7996.jpg",
+        "sha256": "301ccc4be90a1b8a21f97d131a9c6acf864e9088150c9ddb8c056031fa6eddcf"
+      }
+    },
+    {
+      "caption": {
+        "imgid": "12949",
+        "filename": "3350177228.jpg",
+        "caption": "A man in orange working under dim lighting.",
+        "sentid": "64748"
+      },
+      "matches": {
+        "▁working": [
+          {
+            "view": "C",
+            "aspect": "people, such as number of people, appearance and pose",
+            "token": {
+              "rank": 10,
+              "token_id": 18847,
+              "token": "▁Working",
+              "weight": 2.53125
+            },
+            "text_false": [
+              {
+                "rank": 3,
+                "token_id": 2739,
+                "token": "▁working",
+                "weight": 1.823162317276001
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 4,
+                "token_id": 18847,
+                "token": "▁Working",
+                "weight": 2.510615110397339
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1251
+            }
+          }
+        ],
+        "▁dim": [
+          {
+            "view": "B",
+            "aspect": "natural environment, such as weather, lighting, season and time",
+            "token": {
+              "rank": 6,
+              "token_id": 18752,
+              "token": "▁Dim",
+              "weight": 2.59765625
+            },
+            "text_false": [
+              {
+                "rank": 1,
+                "token_id": 3987,
+                "token": "▁dim",
+                "weight": 2.066664934158325
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 7,
+                "token_id": 18752,
+                "token": "▁Dim",
+                "weight": 2.4803390502929688
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1252
+            }
+          }
+        ],
+        "▁orange": [
+          {
+            "view": "D",
+            "aspect": "clothing, such as category, color, material and style",
+            "token": {
+              "rank": 1,
+              "token_id": 21853,
+              "token": "▁Orange",
+              "weight": 2.76171875
+            },
+            "text_false": [
+              {
+                "rank": 4,
+                "token_id": 14545,
+                "token": "▁orange",
+                "weight": 1.5857213735580444
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 6,
+                "token_id": 21853,
+                "token": "▁Orange",
+                "weight": 2.490748882293701
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1253
+            }
+          }
+        ]
+      },
+      "stored_weights": {
+        "▁working": {
+          "image_true": 252,
+          "text_false": 182,
+          "text_true": 251,
+          "adaptive_image": 505
+        },
+        "▁dim": {
+          "image_true": 0,
+          "text_false": 207,
+          "text_true": 248,
+          "adaptive_image": 508
+        },
+        "▁orange": {
+          "image_true": 256,
+          "text_false": 159,
+          "text_true": 249,
+          "adaptive_image": 276
+        }
+      },
+      "added_terms": [
+        "▁dim"
+      ],
+      "full_word_count": 3,
+      "logs": {
+        "image_true": {
+          "payload": {
+            "rank": 1,
+            "sample_id": "12949",
+            "modality": "image",
+            "view": "whole",
+            "aspect": "prompteol",
+            "top_k": 10,
+            "weight_type": "log1p_relu",
+            "top_tokens": [
+              {
+                "token_id": 22061,
+                "token": "▁Construction",
+                "weight": 2.715315341949463
+              },
+              {
+                "token_id": 2213,
+                "token": "▁Man",
+                "weight": 2.6616790294647217
+              },
+              {
+                "token_id": 5066,
+                "token": "▁Work",
+                "weight": 2.6562085151672363
+              },
+              {
+                "token_id": 5383,
+                "token": "▁Street",
+                "weight": 2.652911901473999
+              },
+              {
+                "token_id": 334,
+                "token": "▁C",
+                "weight": 2.650156259536743
+              },
+              {
+                "token_id": 7356,
+                "token": "▁Road",
+                "weight": 2.650156259536743
+              },
+              {
+                "token_id": 17933,
+                "token": "▁Motor",
+                "weight": 2.641843557357788
+              },
+              {
+                "token_id": 1325,
+                "token": "▁Con",
+                "weight": 2.6255741119384766
+              },
+              {
+                "token_id": 3357,
+                "token": "▁Rep",
+                "weight": 2.6061558723449707
+              },
+              {
+                "token_id": 8105,
+                "token": "▁Main",
+                "weight": 2.5957210063934326
+              }
+            ],
+            "sample_text": ""
+          },
+          "source": {
+            "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/image/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 360
+          }
+        },
+        "text_false": {
+          "payload": {
+            "rank": 0,
+            "sample_id": "64748",
+            "modality": "text",
+            "view": "whole",
+            "aspect": "prompteol",
+            "top_k": 5,
+            "weight_type": "log1p_relu",
+            "top_tokens": [
+              {
+                "token_id": 3987,
+                "token": "▁dim",
+                "weight": 2.066664934158325
+              },
+              {
+                "token_id": 676,
+                "token": "▁man",
+                "weight": 1.9414358139038086
+              },
+              {
+                "token_id": 2739,
+                "token": "▁working",
+                "weight": 1.823162317276001
+              },
+              {
+                "token_id": 14545,
+                "token": "▁orange",
+                "weight": 1.5857213735580444
+              },
+              {
+                "token_id": 15912,
+                "token": "▁lighting",
+                "weight": 1.4918501377105713
+              }
+            ],
+            "token_source": "retained_text",
+            "retained_token_count": 5,
+            "sample_text": "A man in orange working under dim lighting."
+          },
+          "source": {
+            "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_false/text/sparse_token_logs/sparse_tokens_rank0.jsonl",
+            "line": 99
+          }
+        },
+        "text_true": {
+          "payload": {
+            "rank": 0,
+            "sample_id": "64748",
+            "modality": "text",
+            "view": "whole",
+            "aspect": "prompteol",
+            "top_k": 10,
+            "weight_type": "log1p_relu",
+            "top_tokens": [
+              {
+                "token_id": 2213,
+                "token": "▁Man",
+                "weight": 2.639615297317505
+              },
+              {
+                "token_id": 5066,
+                "token": "▁Work",
+                "weight": 2.600372314453125
+              },
+              {
+                "token_id": 20459,
+                "token": "▁Electric",
+                "weight": 2.5144147872924805
+              },
+              {
+                "token_id": 18847,
+                "token": "▁Working",
+                "weight": 2.510615110397339
+              },
+              {
+                "token_id": 935,
+                "token": "▁Un",
+                "weight": 2.508709669113159
+              },
+              {
+                "token_id": 21853,
+                "token": "▁Orange",
+                "weight": 2.490748882293701
+              },
+              {
+                "token_id": 18752,
+                "token": "▁Dim",
+                "weight": 2.4803390502929688
+              },
+              {
+                "token_id": 12361,
+                "token": "▁Dark",
+                "weight": 2.479684829711914
+              },
+              {
+                "token_id": 20063,
+                "token": "▁Pain",
+                "weight": 2.479684829711914
+              },
+              {
+                "token_id": 3357,
+                "token": "▁Rep",
+                "weight": 2.477719306945801
+              }
+            ],
+            "sample_text": "A man in orange working under dim lighting."
+          },
+          "source": {
+            "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/text/sparse_token_logs/sparse_tokens_rank0.jsonl",
+            "line": 99
+          }
+        },
+        "adaptive_image": [
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "12949",
+              "modality": "image",
+              "view": "J",
+              "aspect": "high-level semantics, such as events, activities and functions",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 3357,
+                  "token": "▁Rep",
+                  "weight": 2.748046875
+                },
+                {
+                  "token_id": 23047,
+                  "token": "▁Fix",
+                  "weight": 2.689453125
+                },
+                {
+                  "token_id": 8105,
+                  "token": "▁Main",
+                  "weight": 2.689453125
+                },
+                {
+                  "token_id": 5066,
+                  "token": "▁Work",
+                  "weight": 2.677734375
+                },
+                {
+                  "token_id": 7356,
+                  "token": "▁Road",
+                  "weight": 2.625
+                },
+                {
+                  "token_id": 22061,
+                  "token": "▁Construction",
+                  "weight": 2.619140625
+                },
+                {
+                  "token_id": 351,
+                  "token": "▁M",
+                  "weight": 2.580078125
+                },
+                {
+                  "token_id": 320,
+                  "token": "▁T",
+                  "weight": 2.5625
+                },
+                {
+                  "token_id": 1325,
+                  "token": "▁Con",
+                  "weight": 2.544921875
+                },
+                {
+                  "token_id": 27164,
+                  "token": "▁Mechan",
+                  "weight": 2.5234375
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1249
+            }
+          },
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "12949",
+              "modality": "image",
+              "view": "A",
+              "aspect": "scene, such as location, indoor or outdoor setting and terrain",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 5383,
+                  "token": "▁Street",
+                  "weight": 2.740234375
+                },
+                {
+                  "token_id": 7356,
+                  "token": "▁Road",
+                  "weight": 2.7109375
+                },
+                {
+                  "token_id": 4655,
+                  "token": "▁Out",
+                  "weight": 2.693359375
+                },
+                {
+                  "token_id": 367,
+                  "token": "▁P",
+                  "weight": 2.646484375
+                },
+                {
+                  "token_id": 25116,
+                  "token": "▁Outside",
+                  "weight": 2.642578125
+                },
+                {
+                  "token_id": 7721,
+                  "token": "▁Gar",
+                  "weight": 2.625
+                },
+                {
+                  "token_id": 13056,
+                  "token": "▁Rail",
+                  "weight": 2.611328125
+                },
+                {
+                  "token_id": 27035,
+                  "token": "▁Train",
+                  "weight": 2.611328125
+                },
+                {
+                  "token_id": 15256,
+                  "token": "▁Side",
+                  "weight": 2.587890625
+                },
+                {
+                  "token_id": 4120,
+                  "token": "▁Park",
+                  "weight": 2.583984375
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1250
+            }
+          },
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "12949",
+              "modality": "image",
+              "view": "C",
+              "aspect": "people, such as number of people, appearance and pose",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 28705,
+                  "token": "▁",
+                  "weight": 2.8359375
+                },
+                {
+                  "token_id": 2213,
+                  "token": "▁Man",
+                  "weight": 2.78515625
+                },
+                {
+                  "token_id": 2387,
+                  "token": "▁One",
+                  "weight": 2.716796875
+                },
+                {
+                  "token_id": 6441,
+                  "token": "▁Person",
+                  "weight": 2.65234375
+                },
+                {
+                  "token_id": 1770,
+                  "token": "▁No",
+                  "weight": 2.625
+                },
+                {
+                  "token_id": 5066,
+                  "token": "▁Work",
+                  "weight": 2.583984375
+                },
+                {
+                  "token_id": 7470,
+                  "token": "▁Old",
+                  "weight": 2.552734375
+                },
+                {
+                  "token_id": 334,
+                  "token": "▁C",
+                  "weight": 2.544921875
+                },
+                {
+                  "token_id": 1387,
+                  "token": "▁There",
+                  "weight": 2.53125
+                },
+                {
+                  "token_id": 18847,
+                  "token": "▁Working",
+                  "weight": 2.53125
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1251
+            }
+          },
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "12949",
+              "modality": "image",
+              "view": "B",
+              "aspect": "natural environment, such as weather, lighting, season and time",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 10357,
+                  "token": "▁Night",
+                  "weight": 2.80078125
+                },
+                {
+                  "token_id": 12361,
+                  "token": "▁Dark",
+                  "weight": 2.767578125
+                },
+                {
+                  "token_id": 13951,
+                  "token": "▁Winter",
+                  "weight": 2.669921875
+                },
+                {
+                  "token_id": 17774,
+                  "token": "▁Rain",
+                  "weight": 2.6640625
+                },
+                {
+                  "token_id": 12168,
+                  "token": "▁Fall",
+                  "weight": 2.646484375
+                },
+                {
+                  "token_id": 18752,
+                  "token": "▁Dim",
+                  "weight": 2.59765625
+                },
+                {
+                  "token_id": 19260,
+                  "token": "▁Cold",
+                  "weight": 2.591796875
+                },
+                {
+                  "token_id": 5235,
+                  "token": "▁Over",
+                  "weight": 2.58203125
+                },
+                {
+                  "token_id": 1770,
+                  "token": "▁No",
+                  "weight": 2.576171875
+                },
+                {
+                  "token_id": 13211,
+                  "token": "▁Summer",
+                  "weight": 2.572265625
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1252
+            }
+          },
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "12949",
+              "modality": "image",
+              "view": "D",
+              "aspect": "clothing, such as category, color, material and style",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 21853,
+                  "token": "▁Orange",
+                  "weight": 2.76171875
+                },
+                {
+                  "token_id": 19412,
+                  "token": "▁Safety",
+                  "weight": 2.740234375
+                },
+                {
+                  "token_id": 5066,
+                  "token": "▁Work",
+                  "weight": 2.66015625
+                },
+                {
+                  "token_id": 22061,
+                  "token": "▁Construction",
+                  "weight": 2.63671875
+                },
+                {
+                  "token_id": 4299,
+                  "token": "▁Jack",
+                  "weight": 2.578125
+                },
+                {
+                  "token_id": 6360,
+                  "token": "▁Ref",
+                  "weight": 2.5703125
+                },
+                {
+                  "token_id": 334,
+                  "token": "▁C",
+                  "weight": 2.556640625
+                },
+                {
+                  "token_id": 4556,
+                  "token": "▁High",
+                  "weight": 2.548828125
+                },
+                {
+                  "token_id": 22311,
+                  "token": "▁Bright",
+                  "weight": 2.544921875
+                },
+                {
+                  "token_id": 17774,
+                  "token": "▁Rain",
+                  "weight": 2.5390625
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1253
+            }
+          },
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "12949",
+              "modality": "image",
+              "view": "I",
+              "aspect": "spatial layout, such as foreground and background, distance and direction",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 18537,
+                  "token": "▁Close",
+                  "weight": 2.630859375
+                },
+                {
+                  "token_id": 7257,
+                  "token": "▁Fore",
+                  "weight": 2.623046875
+                },
+                {
+                  "token_id": 13794,
+                  "token": "▁Front",
+                  "weight": 2.619140625
+                },
+                {
+                  "token_id": 24316,
+                  "token": "▁Background",
+                  "weight": 2.6171875
+                },
+                {
+                  "token_id": 17602,
+                  "token": "▁Near",
+                  "weight": 2.580078125
+                },
+                {
+                  "token_id": 12361,
+                  "token": "▁Dark",
+                  "weight": 2.56640625
+                },
+                {
+                  "token_id": 26271,
+                  "token": "▁Lay",
+                  "weight": 2.529296875
+                },
+                {
+                  "token_id": 18365,
+                  "token": "▁Left",
+                  "weight": 2.515625
+                },
+                {
+                  "token_id": 935,
+                  "token": "▁Un",
+                  "weight": 2.5078125
+                },
+                {
+                  "token_id": 11373,
+                  "token": "▁Middle",
+                  "weight": 2.501953125
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1254
+            }
+          }
+        ]
+      },
+      "sparse_rows": {
+        "image_true": {
+          "payload": {
+            "id": "12949",
+            "content": "",
+            "vector": {
+              "▁construction": 272,
+              "▁man": 266,
+              "▁work": 266,
+              "▁street": 265,
+              "▁c": 265,
+              "▁road": 265,
+              "▁motor": 264,
+              "▁con": 263,
+              "▁rep": 261,
+              "▁main": 260,
+              "▁t": 257,
+              "▁b": 256,
+              "▁orange": 256,
+              "▁light": 256,
+              "▁night": 256,
+              "▁no": 255,
+              "▁fix": 254,
+              "▁dark": 254,
+              "▁p": 252,
+              "▁working": 252,
+              "▁tra": 252,
+              "▁train": 251,
+              "▁un": 251,
+              "▁m": 248,
+              "▁gar": 248,
+              "▁safety": 246,
+              "▁electric": 246,
+              "▁yes": 245,
+              "▁shadow": 245,
+              "▁nothing": 245,
+              "▁r": 244,
+              "▁l": 244,
+              "▁s": 244,
+              "▁none": 243,
+              "▁not": 243,
+              "▁under": 243,
+              "▁v": 242,
+              "▁mechan": 242,
+              "▁w": 242,
+              "▁bar": 242,
+              "▁men": 241,
+              "▁d": 241,
+              "▁person": 241,
+              "▁sign": 240,
+              "▁park": 240,
+              "▁sc": 240,
+              "▁a": 239,
+              "▁police": 239,
+              "▁guy": 239,
+              "▁people": 238,
+              "▁tr": 237,
+              "▁pl": 237,
+              "▁": 237,
+              "▁elect": 237,
+              "▁yellow": 237,
+              "▁rail": 236,
+              "▁the": 236,
+              "▁power": 236,
+              "▁engine": 236,
+              "▁tow": 236,
+              "▁war": 236,
+              "▁mot": 236,
+              "▁bus": 235,
+              "▁or": 235,
+              "▁fire": 235,
+              "▁track": 235,
+              "▁f": 235,
+              "▁in": 235,
+              "▁service": 234,
+              "▁he": 234,
+              "▁h": 234,
+              "▁stop": 234,
+              "▁car": 234,
+              "▁new": 233,
+              "▁bro": 233,
+              "▁sur": 232,
+              "▁rob": 232,
+              "▁k": 232,
+              "▁dr": 232,
+              "▁break": 232,
+              "▁help": 232,
+              "▁phot": 231,
+              "▁g": 231,
+              "▁building": 231,
+              "▁hel": 231,
+              "▁this": 231,
+              "▁ill": 231,
+              "▁it": 231,
+              "▁machine": 230,
+              "▁clean": 230,
+              "▁n": 230,
+              "▁bo": 230,
+              "▁out": 230,
+              "▁there": 230,
+              "▁bright": 230,
+              "▁cars": 230,
+              "▁over": 230,
+              "▁emer": 230,
+              "▁sh": 229,
+              "▁tru": 229,
+              "▁side": 229,
+              "▁highway": 229,
+              "▁to": 229,
+              "▁crow": 228,
+              "▁black": 228,
+              "▁cat": 228,
+              "▁two": 228,
+              "▁cycl": 228,
+              "▁one": 227,
+              "▁det": 227,
+              "▁old": 227,
+              "▁cross": 227,
+              "▁labor": 227,
+              "▁on": 227,
+              "▁cy": 227,
+              "▁race": 226,
+              "▁tri": 226,
+              "▁shop": 226,
+              "▁o": 226,
+              "▁open": 226,
+              "▁row": 226,
+              "▁an": 226,
+              "▁acc": 226,
+              "▁e": 226,
+              "▁can": 225,
+              "▁i": 225,
+              "▁do": 225,
+              "▁steam": 225
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean_llava_base/corpus_1.jsonl",
+            "line": 360
+          }
+        },
+        "text_false": {
+          "payload": {
+            "id": "64748",
+            "content": "",
+            "vector": {
+              "▁dim": 207,
+              "▁man": 194,
+              "▁working": 182,
+              "▁orange": 159,
+              "▁lighting": 149
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_no_manual_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl",
+            "line": 99
+          }
+        },
+        "text_true": {
+          "payload": {
+            "id": "64748",
+            "content": "",
+            "vector": {
+              "▁man": 264,
+              "▁work": 260,
+              "▁electric": 251,
+              "▁working": 251,
+              "▁un": 251,
+              "▁orange": 249,
+              "▁dim": 248,
+              "▁dark": 248,
+              "▁pain": 248,
+              "▁rep": 248,
+              "▁main": 248,
+              "▁yes": 245,
+              "▁construction": 244,
+              "▁no": 243,
+              "▁under": 243,
+              "▁labor": 242,
+              "▁t": 242,
+              "▁mechan": 242,
+              "▁elect": 239,
+              "▁in": 238,
+              "▁low": 238,
+              "▁m": 238,
+              "▁light": 238,
+              "▁shadow": 238,
+              "▁car": 237,
+              "▁not": 237,
+              "▁em": 237,
+              "▁fix": 237,
+              "▁l": 236,
+              "▁d": 236,
+              "▁w": 236,
+              "▁safety": 235,
+              "▁s": 235,
+              "▁c": 235,
+              "▁\"": 234,
+              "▁f": 234,
+              "▁engine": 233,
+              "▁": 232,
+              "▁bright": 231,
+              "▁the": 231,
+              "▁myst": 231,
+              "▁war": 230,
+              "▁sur": 230,
+              "▁over": 230,
+              "▁und": 229,
+              "▁one": 229,
+              "▁min": 229,
+              "▁con": 228,
+              "▁oper": 228,
+              "▁job": 228,
+              "▁person": 228,
+              "▁poor": 227,
+              "▁diff": 227,
+              "▁ill": 227,
+              "▁night": 227,
+              "▁e": 227,
+              "▁v": 227,
+              "▁guy": 226,
+              "▁ins": 226,
+              "▁he": 226,
+              "▁hard": 226,
+              "▁male": 226,
+              "▁none": 225,
+              "▁gar": 225,
+              "▁phot": 225,
+              "▁a": 225,
+              "▁i": 224,
+              "▁picture": 224,
+              "▁b": 224,
+              "▁description": 224,
+              "▁short": 224,
+              "▁per": 223,
+              "▁search": 223,
+              "▁an": 223,
+              "▁it": 223,
+              "▁craft": 222,
+              "▁this": 222,
+              "▁h": 222,
+              "▁bus": 222,
+              "▁j": 222,
+              "▁focus": 221,
+              "▁p": 221,
+              "▁fire": 221,
+              "▁works": 221,
+              "▁hand": 221,
+              "▁or": 220,
+              "▁service": 220,
+              "▁lab": 220,
+              "▁dis": 220,
+              "▁pl": 220,
+              "▁techn": 220,
+              "▁bl": 220,
+              "▁summary": 219,
+              "▁men": 219,
+              "▁reading": 219,
+              "▁str": 219,
+              "▁looking": 219,
+              "▁can": 218,
+              "▁r": 218,
+              "▁fat": 217,
+              "▁yellow": 217,
+              "▁mur": 217,
+              "▁ex": 217,
+              "▁describe": 216,
+              "▁me": 216,
+              "▁task": 216,
+              "▁nothing": 216,
+              "▁g": 215,
+              "▁tr": 215,
+              "▁cl": 215,
+              "▁sc": 215,
+              "▁oil": 215,
+              "▁shop": 214,
+              "▁color": 214,
+              "▁head": 214,
+              "▁u": 214,
+              "▁bro": 214,
+              "▁do": 214,
+              "▁crime": 214,
+              "▁red": 213,
+              "▁amb": 213,
+              "▁install": 213,
+              "▁there": 213,
+              "▁art": 213,
+              "▁photo": 212,
+              "▁professional": 212,
+              "▁good": 212,
+              "▁clean": 212
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl",
+            "line": 99
+          }
+        },
+        "adaptive_image": {
+          "payload": {
+            "id": "12949",
+            "contents": "",
+            "vector": {
+              "▁rep": 759,
+              "▁fix": 509,
+              "▁main": 269,
+              "▁work": 1284,
+              "▁road": 781,
+              "▁construction": 782,
+              "▁m": 258,
+              "▁t": 991,
+              "▁con": 995,
+              "▁mechan": 252,
+              "▁working": 505,
+              "▁man": 1025,
+              "▁break": 251,
+              "▁c": 1003,
+              "▁motor": 249,
+              "▁light": 493,
+              "▁street": 1016,
+              "▁w": 746,
+              "▁b": 1239,
+              "▁service": 247,
+              "▁check": 245,
+              "▁night": 1024,
+              "▁ins": 245,
+              "▁p": 995,
+              "▁in": 493,
+              "▁install": 243,
+              "▁s": 726,
+              "▁stop": 241,
+              "▁tra": 241,
+              "▁r": 730,
+              "▁out": 520,
+              "▁outside": 264,
+              "▁gar": 262,
+              "▁rail": 261,
+              "▁train": 261,
+              "▁side": 259,
+              "▁park": 258,
+              "▁ind": 256,
+              "▁dark": 787,
+              "▁y": 252,
+              "▁under": 251,
+              "▁track": 246,
+              "▁location": 246,
+              "▁station": 243,
+              "▁city": 242,
+              "▁industrial": 242,
+              "▁d": 743,
+              "▁al": 242,
+              "▁": 533,
+              "▁one": 272,
+              "▁person": 265,
+              "▁no": 768,
+              "▁old": 255,
+              "▁there": 253,
+              "▁guy": 253,
+              "▁two": 253,
+              "▁single": 252,
+              "▁male": 252,
+              "▁men": 496,
+              "▁a": 247,
+              "▁people": 246,
+              "▁l": 485,
+              "▁un": 994,
+              "▁the": 244,
+              "▁only": 242,
+              "▁none": 492,
+              "▁not": 731,
+              "▁white": 240,
+              "▁winter": 267,
+              "▁rain": 520,
+              "▁fall": 265,
+              "▁dim": 508,
+              "▁cold": 259,
+              "▁over": 505,
+              "▁summer": 257,
+              "▁even": 253,
+              "▁season": 253,
+              "▁cloud": 252,
+              "▁spring": 252,
+              "▁aut": 252,
+              "▁storm": 248,
+              "▁shadow": 248,
+              "▁cool": 247,
+              "▁late": 246,
+              "▁mid": 244,
+              "▁n": 244,
+              "▁dry": 241,
+              "▁orange": 276,
+              "▁safety": 274,
+              "▁jack": 258,
+              "▁ref": 257,
+              "▁high": 255,
+              "▁bright": 254,
+              "▁j": 252,
+              "▁v": 251,
+              "▁yellow": 251,
+              "▁cas": 247,
+              "▁red": 244,
+              "▁cl": 489,
+              "▁co": 242,
+              "▁prote": 242,
+              "▁close": 263,
+              "▁fore": 262,
+              "▁front": 262,
+              "▁background": 262,
+              "▁near": 258,
+              "▁lay": 253,
+              "▁left": 252,
+              "▁middle": 250,
+              "▁back": 250,
+              "▁far": 250,
+              "▁for": 248,
+              "▁deep": 247,
+              "▁f": 246,
+              "▁short": 245
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/concat/prompt_5/test/0_no_manual_30_sum_no_cluster_after_pad_disassembleeol_separate_lower_no_mean/adaptive_views/63d32642e1d38b54_llava_base/collection/corpus_1.jsonl",
+            "line": 209
+          }
+        }
+      },
+      "image": {
+        "remote_path": "/root/autodl-tmp/data/flickr/flickr30k-images/3350177228.jpg",
+        "local_file": "images/12949.jpg",
+        "sha256": "639ea96c1e98efdc44ac7bd09e88c1d4e73dd2051488f55275025d9ba9a8db4b"
+      }
+    },
+    {
+      "caption": {
+        "imgid": "19643",
+        "filename": "4495033915.jpg",
+        "caption": "A man in a blue jacket is taking a picture of a church.",
+        "sentid": "98219"
+      },
+      "matches": {
+        "▁taking": [
+          {
+            "view": "J",
+            "aspect": "high-level semantics, such as events, activities and functions",
+            "token": {
+              "rank": 9,
+              "token_id": 20648,
+              "token": "▁Taking",
+              "weight": 2.53515625
+            },
+            "text_false": [
+              {
+                "rank": 3,
+                "token_id": 3344,
+                "token": "▁taking",
+                "weight": 2.002324342727661
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 4,
+                "token_id": 20648,
+                "token": "▁Taking",
+                "weight": 2.632338285446167
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1909
+            }
+          },
+          {
+            "view": "C",
+            "aspect": "people, such as number of people, appearance and pose",
+            "token": {
+              "rank": 10,
+              "token_id": 20648,
+              "token": "▁Taking",
+              "weight": 2.54296875
+            },
+            "text_false": [
+              {
+                "rank": 3,
+                "token_id": 3344,
+                "token": "▁taking",
+                "weight": 2.002324342727661
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 4,
+                "token_id": 20648,
+                "token": "▁Taking",
+                "weight": 2.632338285446167
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1911
+            }
+          }
+        ],
+        "▁man": [
+          {
+            "view": "C",
+            "aspect": "people, such as number of people, appearance and pose",
+            "token": {
+              "rank": 2,
+              "token_id": 2213,
+              "token": "▁Man",
+              "weight": 2.775390625
+            },
+            "text_false": [
+              {
+                "rank": 2,
+                "token_id": 676,
+                "token": "▁man",
+                "weight": 2.032968044281006
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 3,
+                "token_id": 2213,
+                "token": "▁Man",
+                "weight": 2.658947467803955
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1911
+            }
+          }
+        ],
+        "▁blue": [
+          {
+            "view": "D",
+            "aspect": "clothing, such as category, color, material and style",
+            "token": {
+              "rank": 2,
+              "token_id": 8836,
+              "token": "▁Blue",
+              "weight": 2.703125
+            },
+            "text_false": [
+              {
+                "rank": 5,
+                "token_id": 5045,
+                "token": "▁blue",
+                "weight": 1.7586658000946045
+              }
+            ],
+            "text_true": [
+              {
+                "rank": 10,
+                "token_id": 8836,
+                "token": "▁Blue",
+                "weight": 2.4901015758514404
+              }
+            ],
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1913
+            }
+          }
+        ]
+      },
+      "stored_weights": {
+        "▁taking": {
+          "image_true": 240,
+          "text_false": 200,
+          "text_true": 263,
+          "adaptive_image": 508
+        },
+        "▁man": {
+          "image_true": 247,
+          "text_false": 203,
+          "text_true": 266,
+          "adaptive_image": 529
+        },
+        "▁blue": {
+          "image_true": 0,
+          "text_false": 176,
+          "text_true": 249,
+          "adaptive_image": 270
+        }
+      },
+      "added_terms": [
+        "▁blue"
+      ],
+      "full_word_count": 3,
+      "logs": {
+        "image_true": {
+          "payload": {
+            "rank": 1,
+            "sample_id": "19643",
+            "modality": "image",
+            "view": "whole",
+            "aspect": "prompteol",
+            "top_k": 10,
+            "weight_type": "log1p_relu",
+            "top_tokens": [
+              {
+                "token_id": 6381,
+                "token": "▁Church",
+                "weight": 2.7533621788024902
+              },
+              {
+                "token_id": 25156,
+                "token": "▁Flag",
+                "weight": 2.6714510917663574
+              },
+              {
+                "token_id": 14578,
+                "token": "▁Building",
+                "weight": 2.66928768157959
+              },
+              {
+                "token_id": 2556,
+                "token": "▁American",
+                "weight": 2.6440670490264893
+              },
+              {
+                "token_id": 9248,
+                "token": "▁Stat",
+                "weight": 2.6244421005249023
+              },
+              {
+                "token_id": 10758,
+                "token": "▁Cat",
+                "weight": 2.608459949493408
+              },
+              {
+                "token_id": 19608,
+                "token": "▁Architect",
+                "weight": 2.5733275413513184
+              },
+              {
+                "token_id": 12719,
+                "token": "▁Phot",
+                "weight": 2.5613369941711426
+              },
+              {
+                "token_id": 8245,
+                "token": "▁Build",
+                "weight": 2.554680347442627
+              },
+              {
+                "token_id": 420,
+                "token": "▁G",
+                "weight": 2.5528573989868164
+              }
+            ],
+            "sample_text": ""
+          },
+          "source": {
+            "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/image/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 97
+          }
+        },
+        "text_false": {
+          "payload": {
+            "rank": 0,
+            "sample_id": "98219",
+            "modality": "text",
+            "view": "whole",
+            "aspect": "prompteol",
+            "top_k": 6,
+            "weight_type": "log1p_relu",
+            "top_tokens": [
+              {
+                "token_id": 6059,
+                "token": "▁church",
+                "weight": 2.140066146850586
+              },
+              {
+                "token_id": 676,
+                "token": "▁man",
+                "weight": 2.032968044281006
+              },
+              {
+                "token_id": 3344,
+                "token": "▁taking",
+                "weight": 2.002324342727661
+              },
+              {
+                "token_id": 5754,
+                "token": "▁picture",
+                "weight": 1.8884891271591187
+              },
+              {
+                "token_id": 5045,
+                "token": "▁blue",
+                "weight": 1.7586658000946045
+              },
+              {
+                "token_id": 15554,
+                "token": "▁jacket",
+                "weight": 0.2223619967699051
+              }
+            ],
+            "token_source": "retained_text",
+            "retained_token_count": 6,
+            "sample_text": "A man in a blue jacket is taking a picture of a church."
+          },
+          "source": {
+            "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_false/text/sparse_token_logs/sparse_tokens_rank0.jsonl",
+            "line": 907
+          }
+        },
+        "text_true": {
+          "payload": {
+            "rank": 0,
+            "sample_id": "98219",
+            "modality": "text",
+            "view": "whole",
+            "aspect": "prompteol",
+            "top_k": 10,
+            "weight_type": "log1p_relu",
+            "top_tokens": [
+              {
+                "token_id": 6381,
+                "token": "▁Church",
+                "weight": 2.708570957183838
+              },
+              {
+                "token_id": 12719,
+                "token": "▁Phot",
+                "weight": 2.7017805576324463
+              },
+              {
+                "token_id": 2213,
+                "token": "▁Man",
+                "weight": 2.658947467803955
+              },
+              {
+                "token_id": 20648,
+                "token": "▁Taking",
+                "weight": 2.632338285446167
+              },
+              {
+                "token_id": 27872,
+                "token": "▁Picture",
+                "weight": 2.6124796867370605
+              },
+              {
+                "token_id": 7113,
+                "token": "▁Tour",
+                "weight": 2.581045150756836
+              },
+              {
+                "token_id": 16555,
+                "token": "▁Photo",
+                "weight": 2.5613369941711426
+              },
+              {
+                "token_id": 5592,
+                "token": "▁Yes",
+                "weight": 2.5510308742523193
+              },
+              {
+                "token_id": 320,
+                "token": "▁T",
+                "weight": 2.5175704956054688
+              },
+              {
+                "token_id": 8836,
+                "token": "▁Blue",
+                "weight": 2.4901015758514404
+              }
+            ],
+            "sample_text": "A man in a blue jacket is taking a picture of a church."
+          },
+          "source": {
+            "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/text/sparse_token_logs/sparse_tokens_rank0.jsonl",
+            "line": 907
+          }
+        },
+        "adaptive_image": [
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "19643",
+              "modality": "image",
+              "view": "J",
+              "aspect": "high-level semantics, such as events, activities and functions",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 12719,
+                  "token": "▁Phot",
+                  "weight": 2.6796875
+                },
+                {
+                  "token_id": 7113,
+                  "token": "▁Tour",
+                  "weight": 2.658203125
+                },
+                {
+                  "token_id": 25156,
+                  "token": "▁Flag",
+                  "weight": 2.615234375
+                },
+                {
+                  "token_id": 8890,
+                  "token": "▁Take",
+                  "weight": 2.609375
+                },
+                {
+                  "token_id": 9218,
+                  "token": "▁Capt",
+                  "weight": 2.603515625
+                },
+                {
+                  "token_id": 6381,
+                  "token": "▁Church",
+                  "weight": 2.6015625
+                },
+                {
+                  "token_id": 2556,
+                  "token": "▁American",
+                  "weight": 2.55078125
+                },
+                {
+                  "token_id": 22755,
+                  "token": "▁Patri",
+                  "weight": 2.5390625
+                },
+                {
+                  "token_id": 20648,
+                  "token": "▁Taking",
+                  "weight": 2.53515625
+                },
+                {
+                  "token_id": 14873,
+                  "token": "▁Document",
+                  "weight": 2.533203125
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1909
+            }
+          },
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "19643",
+              "modality": "image",
+              "view": "A",
+              "aspect": "scene, such as location, indoor or outdoor setting and terrain",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 6381,
+                  "token": "▁Church",
+                  "weight": 2.771484375
+                },
+                {
+                  "token_id": 4655,
+                  "token": "▁Out",
+                  "weight": 2.68359375
+                },
+                {
+                  "token_id": 25116,
+                  "token": "▁Outside",
+                  "weight": 2.634765625
+                },
+                {
+                  "token_id": 1756,
+                  "token": "▁Ind",
+                  "weight": 2.623046875
+                },
+                {
+                  "token_id": 14578,
+                  "token": "▁Building",
+                  "weight": 2.611328125
+                },
+                {
+                  "token_id": 420,
+                  "token": "▁G",
+                  "weight": 2.583984375
+                },
+                {
+                  "token_id": 5073,
+                  "token": "▁Cour",
+                  "weight": 2.578125
+                },
+                {
+                  "token_id": 10758,
+                  "token": "▁Cat",
+                  "weight": 2.552734375
+                },
+                {
+                  "token_id": 23292,
+                  "token": "▁Large",
+                  "weight": 2.51953125
+                },
+                {
+                  "token_id": 7470,
+                  "token": "▁Old",
+                  "weight": 2.509765625
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1910
+            }
+          },
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "19643",
+              "modality": "image",
+              "view": "C",
+              "aspect": "people, such as number of people, appearance and pose",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 28705,
+                  "token": "▁",
+                  "weight": 2.861328125
+                },
+                {
+                  "token_id": 2213,
+                  "token": "▁Man",
+                  "weight": 2.775390625
+                },
+                {
+                  "token_id": 2387,
+                  "token": "▁One",
+                  "weight": 2.708984375
+                },
+                {
+                  "token_id": 6441,
+                  "token": "▁Person",
+                  "weight": 2.65625
+                },
+                {
+                  "token_id": 1770,
+                  "token": "▁No",
+                  "weight": 2.62109375
+                },
+                {
+                  "token_id": 16096,
+                  "token": "▁Single",
+                  "weight": 2.599609375
+                },
+                {
+                  "token_id": 12719,
+                  "token": "▁Phot",
+                  "weight": 2.59765625
+                },
+                {
+                  "token_id": 393,
+                  "token": "▁L",
+                  "weight": 2.548828125
+                },
+                {
+                  "token_id": 1387,
+                  "token": "▁There",
+                  "weight": 2.546875
+                },
+                {
+                  "token_id": 20648,
+                  "token": "▁Taking",
+                  "weight": 2.54296875
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1911
+            }
+          },
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "19643",
+              "modality": "image",
+              "view": "B",
+              "aspect": "natural environment, such as weather, lighting, season and time",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 7057,
+                  "token": "▁Sun",
+                  "weight": 2.76171875
+                },
+                {
+                  "token_id": 13832,
+                  "token": "▁Cloud",
+                  "weight": 2.71875
+                },
+                {
+                  "token_id": 9199,
+                  "token": "▁Spring",
+                  "weight": 2.708984375
+                },
+                {
+                  "token_id": 13951,
+                  "token": "▁Winter",
+                  "weight": 2.701171875
+                },
+                {
+                  "token_id": 12168,
+                  "token": "▁Fall",
+                  "weight": 2.6953125
+                },
+                {
+                  "token_id": 16676,
+                  "token": "▁Clear",
+                  "weight": 2.69140625
+                },
+                {
+                  "token_id": 5235,
+                  "token": "▁Over",
+                  "weight": 2.6015625
+                },
+                {
+                  "token_id": 19260,
+                  "token": "▁Cold",
+                  "weight": 2.59765625
+                },
+                {
+                  "token_id": 5399,
+                  "token": "▁Day",
+                  "weight": 2.59765625
+                },
+                {
+                  "token_id": 13211,
+                  "token": "▁Summer",
+                  "weight": 2.595703125
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1912
+            }
+          },
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "19643",
+              "modality": "image",
+              "view": "D",
+              "aspect": "clothing, such as category, color, material and style",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 4299,
+                  "token": "▁Jack",
+                  "weight": 2.70703125
+                },
+                {
+                  "token_id": 8836,
+                  "token": "▁Blue",
+                  "weight": 2.703125
+                },
+                {
+                  "token_id": 8194,
+                  "token": "▁Cas",
+                  "weight": 2.65625
+                },
+                {
+                  "token_id": 11093,
+                  "token": "▁Sport",
+                  "weight": 2.615234375
+                },
+                {
+                  "token_id": 3092,
+                  "token": "▁Co",
+                  "weight": 2.599609375
+                },
+                {
+                  "token_id": 318,
+                  "token": "▁S",
+                  "weight": 2.578125
+                },
+                {
+                  "token_id": 9531,
+                  "token": "▁Light",
+                  "weight": 2.57421875
+                },
+                {
+                  "token_id": 17774,
+                  "token": "▁Rain",
+                  "weight": 2.57421875
+                },
+                {
+                  "token_id": 13951,
+                  "token": "▁Winter",
+                  "weight": 2.57421875
+                },
+                {
+                  "token_id": 13558,
+                  "token": "▁Wind",
+                  "weight": 2.564453125
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1913
+            }
+          },
+          {
+            "payload": {
+              "rank": 1,
+              "sample_id": "19643",
+              "modality": "image",
+              "view": "I",
+              "aspect": "spatial layout, such as foreground and background, distance and direction",
+              "top_k": 10,
+              "weight_type": "log1p_relu",
+              "top_tokens": [
+                {
+                  "token_id": 13794,
+                  "token": "▁Front",
+                  "weight": 2.591796875
+                },
+                {
+                  "token_id": 18537,
+                  "token": "▁Close",
+                  "weight": 2.564453125
+                },
+                {
+                  "token_id": 6381,
+                  "token": "▁Church",
+                  "weight": 2.544921875
+                },
+                {
+                  "token_id": 24316,
+                  "token": "▁Background",
+                  "weight": 2.537109375
+                },
+                {
+                  "token_id": 7257,
+                  "token": "▁Fore",
+                  "weight": 2.537109375
+                },
+                {
+                  "token_id": 9248,
+                  "token": "▁Stat",
+                  "weight": 2.533203125
+                },
+                {
+                  "token_id": 14578,
+                  "token": "▁Building",
+                  "weight": 2.53125
+                },
+                {
+                  "token_id": 28705,
+                  "token": "▁",
+                  "weight": 2.525390625
+                },
+                {
+                  "token_id": 560,
+                  "token": "▁In",
+                  "weight": 2.5078125
+                },
+                {
+                  "token_id": 17602,
+                  "token": "▁Near",
+                  "weight": 2.505859375
+                }
+              ],
+              "sample_text": ""
+            },
+            "source": {
+              "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+              "line": 1914
+            }
+          }
+        ]
+      },
+      "sparse_rows": {
+        "image_true": {
+          "payload": {
+            "id": "19643",
+            "content": "",
+            "vector": {
+              "▁church": 275,
+              "▁flag": 267,
+              "▁building": 267,
+              "▁american": 264,
+              "▁stat": 262,
+              "▁cat": 261,
+              "▁architect": 257,
+              "▁phot": 256,
+              "▁build": 255,
+              "▁g": 255,
+              "▁old": 254,
+              "▁america": 252,
+              "▁yes": 251,
+              "▁large": 250,
+              "▁un": 249,
+              "▁none": 248,
+              "▁picture": 247,
+              "▁tour": 247,
+              "▁no": 247,
+              "▁man": 247,
+              "▁history": 245,
+              "▁united": 245,
+              "▁beautiful": 245,
+              "▁relig": 243,
+              "▁big": 243,
+              "▁historic": 243,
+              "▁catholic": 243,
+              "▁take": 243,
+              "▁patri": 243,
+              "▁photo": 242,
+              "▁camera": 242,
+              "▁museum": 242,
+              "▁u": 241,
+              "▁not": 241,
+              "▁tower": 241,
+              "▁tall": 241,
+              "▁stone": 241,
+              "▁": 241,
+              "▁capt": 241,
+              "▁taking": 240,
+              "▁or": 240,
+              "▁castle": 240,
+              "▁cour": 239,
+              "▁court": 239,
+              "▁nothing": 238,
+              "▁mon": 238,
+              "▁ch": 238,
+              "▁christian": 237,
+              "▁sky": 237,
+              "▁the": 237,
+              "▁grand": 237,
+              "▁im": 237,
+              "▁v": 237,
+              "▁historical": 236,
+              "▁t": 236,
+              "▁pictures": 236,
+              "▁w": 236,
+              "▁a": 236,
+              "▁this": 235,
+              "▁f": 235,
+              "▁st": 234,
+              "▁icon": 234,
+              "▁people": 234,
+              "▁c": 234,
+              "▁p": 233,
+              "▁arch": 233,
+              "▁city": 232,
+              "▁fl": 232,
+              "▁land": 232,
+              "▁document": 232,
+              "▁temple": 231,
+              "▁national": 231,
+              "▁bas": 231,
+              "▁br": 231,
+              "▁b": 231,
+              "▁d": 231,
+              "▁red": 230,
+              "▁sun": 230,
+              "▁l": 230,
+              "▁windows": 230,
+              "▁freedom": 229,
+              "▁s": 229,
+              "▁construction": 229,
+              "▁h": 229,
+              "▁pl": 229,
+              "▁window": 229,
+              "▁in": 229,
+              "▁par": 229,
+              "▁i": 229,
+              "▁con": 228,
+              "▁ant": 228,
+              "▁very": 228,
+              "▁high": 228,
+              "▁view": 227,
+              "▁great": 227,
+              "▁government": 227,
+              "▁m": 227,
+              "▁angel": 227,
+              "▁sh": 226,
+              "▁art": 226,
+              "▁new": 226,
+              "▁americans": 226,
+              "▁us": 226,
+              "▁it": 226,
+              "▁can": 225,
+              "▁there": 225,
+              "▁record": 225,
+              "▁e": 225,
+              "▁washington": 225,
+              "▁park": 225,
+              "▁r": 224,
+              "▁an": 224,
+              "▁be": 224,
+              "▁protest": 224,
+              "▁train": 224,
+              "▁day": 223,
+              "▁nice": 223,
+              "▁palace": 223,
+              "▁tow": 223,
+              "▁ab": 223,
+              "▁cloud": 223,
+              "▁ang": 222,
+              "▁video": 222,
+              "▁anc": 222,
+              "▁roman": 222,
+              "▁home": 222,
+              "▁am": 222,
+              "▁show": 222
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean_llava_base/corpus_1.jsonl",
+            "line": 97
+          }
+        },
+        "text_false": {
+          "payload": {
+            "id": "98219",
+            "content": "",
+            "vector": {
+              "▁church": 214,
+              "▁man": 203,
+              "▁taking": 200,
+              "▁picture": 189,
+              "▁blue": 176,
+              "▁jacket": 22
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_no_manual_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl",
+            "line": 907
+          }
+        },
+        "text_true": {
+          "payload": {
+            "id": "98219",
+            "content": "",
+            "vector": {
+              "▁church": 485,
+              "▁phot": 270,
+              "▁man": 266,
+              "▁taking": 263,
+              "▁picture": 261,
+              "▁tour": 258,
+              "▁photo": 256,
+              "▁yes": 255,
+              "▁t": 252,
+              "▁blue": 249,
+              "▁": 246,
+              "▁capt": 245,
+              "▁take": 245,
+              "▁no": 245,
+              "▁the": 244,
+              "▁ch": 243,
+              "▁travel": 243,
+              "▁a": 241,
+              "▁sn": 241,
+              "▁christian": 240,
+              "▁\"": 239,
+              "▁sh": 238,
+              "▁v": 238,
+              "▁s": 238,
+              "▁he": 237,
+              "▁relig": 235,
+              "▁guy": 234,
+              "▁pictures": 234,
+              "▁in": 233,
+              "▁none": 233,
+              "▁vis": 233,
+              "▁this": 232,
+              "▁un": 232,
+              "▁pos": 231,
+              "▁p": 231,
+              "▁one": 230,
+              "▁i": 230,
+              "▁camera": 230,
+              "▁not": 229,
+              "▁click": 229,
+              "▁happy": 228,
+              "▁land": 227,
+              "▁father": 227,
+              "▁w": 227,
+              "▁past": 227,
+              "▁f": 226,
+              "▁self": 226,
+              "▁visit": 226,
+              "▁jackson": 225,
+              "▁nothing": 225,
+              "▁sm": 225,
+              "▁people": 225,
+              "▁person": 224,
+              "▁j": 224,
+              "▁ok": 440,
+              "▁good": 224,
+              "▁okay": 224,
+              "▁description": 223,
+              "▁port": 223,
+              "▁photography": 222,
+              "▁sure": 222,
+              "▁it": 222,
+              "▁h": 221,
+              "▁can": 221,
+              "▁action": 221,
+              "▁att": 221,
+              "▁looking": 220,
+              "▁desc": 220,
+              "▁there": 220,
+              "▁document": 220,
+              "▁sc": 219,
+              "▁image": 219,
+              "▁m": 218,
+              "▁true": 218,
+              "▁wed": 218,
+              "▁short": 218,
+              "▁pic": 218,
+              "▁christianity": 218,
+              "▁pict": 218,
+              "▁c": 218,
+              "▁ph": 218,
+              "▁view": 217,
+              "▁jesus": 217,
+              "▁out": 217,
+              "▁par": 217,
+              "▁describe": 217,
+              "▁summary": 216,
+              "▁going": 216,
+              "▁b": 216,
+              "▁go": 216,
+              "▁history": 216,
+              "▁walk": 216,
+              "▁im": 216,
+              "▁art": 216,
+              "▁poss": 216,
+              "▁men": 216,
+              "▁nice": 215,
+              "▁event": 215,
+              "▁see": 214,
+              "▁l": 214,
+              "▁expl": 214,
+              "▁point": 214,
+              "▁jack": 213,
+              "▁stand": 213,
+              "▁faith": 213,
+              "▁e": 213,
+              "▁st": 213,
+              "▁ste": 212,
+              "▁conf": 212,
+              "▁d": 212,
+              "▁con": 212,
+              "▁easy": 211,
+              "▁interest": 211,
+              "▁color": 211,
+              "▁protest": 211,
+              "▁ar": 211,
+              "▁pan": 211,
+              "▁read": 210,
+              "▁stop": 210,
+              "▁catholic": 210,
+              "▁using": 210,
+              "▁u": 210,
+              "▁ex": 210,
+              "▁pain": 210,
+              "▁beautiful": 210,
+              "▁g": 210
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl",
+            "line": 907
+          }
+        },
+        "adaptive_image": {
+          "payload": {
+            "id": "19643",
+            "contents": "",
+            "vector": {
+              "▁phot": 528,
+              "▁tour": 511,
+              "▁flag": 746,
+              "▁take": 503,
+              "▁capt": 260,
+              "▁church": 791,
+              "▁american": 744,
+              "▁patri": 254,
+              "▁taking": 508,
+              "▁document": 253,
+              "▁picture": 253,
+              "▁cele": 252,
+              "▁travel": 252,
+              "▁v": 492,
+              "▁architect": 743,
+              "▁relig": 497,
+              "▁par": 250,
+              "▁protest": 250,
+              "▁none": 990,
+              "▁building": 763,
+              "▁history": 248,
+              "▁photo": 247,
+              "▁t": 246,
+              "▁cer": 246,
+              "▁memorial": 244,
+              "▁record": 244,
+              "▁w": 991,
+              "▁build": 732,
+              "▁visit": 243,
+              "▁stat": 745,
+              "▁out": 524,
+              "▁outside": 263,
+              "▁ind": 262,
+              "▁g": 499,
+              "▁cour": 258,
+              "▁cat": 255,
+              "▁large": 500,
+              "▁old": 504,
+              "▁stone": 250,
+              "▁city": 249,
+              "▁court": 244,
+              "▁historic": 243,
+              "▁catholic": 242,
+              "▁inside": 242,
+              "▁street": 242,
+              "▁in": 493,
+              "▁ch": 240,
+              "▁or": 240,
+              "▁br": 239,
+              "▁castle": 239,
+              "▁grand": 238,
+              "▁st": 238,
+              "▁": 539,
+              "▁man": 529,
+              "▁one": 271,
+              "▁person": 266,
+              "▁no": 516,
+              "▁single": 260,
+              "▁l": 255,
+              "▁there": 255,
+              "▁male": 254,
+              "▁guy": 253,
+              "▁people": 248,
+              "▁a": 246,
+              "▁sol": 246,
+              "▁men": 497,
+              "▁not": 491,
+              "▁only": 245,
+              "▁two": 245,
+              "▁the": 244,
+              "▁black": 243,
+              "▁stand": 243,
+              "▁white": 243,
+              "▁camera": 243,
+              "▁yes": 487,
+              "▁many": 242,
+              "▁sun": 276,
+              "▁cloud": 272,
+              "▁spring": 271,
+              "▁winter": 527,
+              "▁fall": 270,
+              "▁clear": 269,
+              "▁over": 260,
+              "▁cold": 504,
+              "▁day": 260,
+              "▁summer": 260,
+              "▁aut": 256,
+              "▁bright": 254,
+              "▁dry": 253,
+              "▁part": 253,
+              "▁wind": 507,
+              "▁b": 493,
+              "▁season": 250,
+              "▁good": 250,
+              "▁nice": 249,
+              "▁un": 489,
+              "▁late": 247,
+              "▁beautiful": 246,
+              "▁rain": 503,
+              "▁light": 501,
+              "▁fair": 244,
+              "▁cool": 241,
+              "▁jack": 271,
+              "▁blue": 270,
+              "▁cas": 266,
+              "▁sport": 262,
+              "▁co": 260,
+              "▁s": 258,
+              "▁sports": 254,
+              "▁je": 252,
+              "▁te": 250,
+              "▁north": 250,
+              "▁p": 249,
+              "▁green": 248,
+              "▁h": 246,
+              "▁water": 244,
+              "▁navy": 243,
+              "▁park": 242,
+              "▁cl": 483,
+              "▁den": 241,
+              "▁front": 259,
+              "▁close": 256,
+              "▁background": 254,
+              "▁fore": 254,
+              "▁near": 251,
+              "▁far": 250,
+              "▁lay": 248,
+              "▁d": 247,
+              "▁deep": 246,
+              "▁f": 246,
+              "▁for": 245,
+              "▁middle": 245,
+              "▁left": 243,
+              "▁high": 242,
+              "▁long": 241
+            }
+          },
+          "source": {
+            "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/concat/prompt_5/test/0_no_manual_30_sum_no_cluster_after_pad_disassembleeol_separate_lower_no_mean/adaptive_views/63d32642e1d38b54_llava_base/collection/corpus_1.jsonl",
+            "line": 319
+          }
+        }
+      },
+      "image": {
+        "remote_path": "/root/autodl-tmp/data/flickr/flickr30k-images/4495033915.jpg",
+        "local_file": "images/19643.jpg",
+        "sha256": "898c1182c8740652d53f48aa7f9056934a2daaa2df7fb5ba811c3a549c3b90d0"
+      }
+    }
+  ]
+}

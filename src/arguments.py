@@ -44,6 +44,9 @@ class TrainingArguments(transformers.TrainingArguments):
 
 @dataclass
 class ModelArguments(tevatron.retriever.arguments.ModelArguments):
+    single_view_repeat_selected_count: bool = field(default=False, metadata={
+        "aliases": ["--single-view-repeat-selected-count"],
+        "help": "Encode one whole-input adaptive view; scale sparse weights by the locked selected-view count"})
     lora_bias: Literal["none", "all", "lora_only"] = field(default="none")
     base_model_path: str = field(default=model_path_prefix + f'checkpoints/llava-hf-llama3-llava-next-8b-hf')
     lora_model_path: str = field(default='./output/llava-hf-llama3-llava-next-8b-hf')

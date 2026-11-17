@@ -2,7 +2,7 @@
 
 运行方式（与其他绘图脚本一样，文件位于项目根目录）：
     python plot_motivation.py --demo       # 仅预览：带醒目的示意数据标记
-    python plot_motivation.py              # 导出截图中 11 个大模型配置的真实结果
+    python plot_motivation.py              # 导出截图中 12 个大模型配置的真实结果
 
 填写 MODEL_RESULTS，一行对应一个固定模型配置：
     name           图上的显示名称；同一模型多个版本请复制一行并注明版本。
@@ -64,7 +64,7 @@ OUTPUT_STEM = "motivation_training_data"
 X_LABEL = "Training data (million pairs)"
 Y_LABEL = "Average Recall"
 # 保留口径和训练量说明供溯源，不在成图底部显示。
-BENCHMARK_NOTE = "Average recall: screenshot's Average column across 8 datasets (R@1/5/10)."
+BENCHMARK_NOTE = "Average recall: screenshot's Average column across 6 datasets (R@1/5/10)."
 TRAINING_NOTE = (
     "Training examples are summed over stages, not deduplicated; base-model pretraining is excluded.\n"
     "Finetuned E5-V: ~0.273M text examples. LamRA-Rank: ~1.4M + 1.1M.\n"
@@ -129,7 +129,7 @@ PLOT_STYLE = {
 }
 
 
-# ===================== 截图中的 11 行真实结果 =====================
+# ===================== 截图中的 12 行真实结果 =====================
 # name 唯一标识配置；标签显示 method，参数量、backbone 与成绩保留供溯源。
 # 训练量是文献报告的约数，不是 image-text pair 数、训练步数或 epoch 数。
 # LamRA-Rank 的 2.5M = 检索阶段约 1.4M + 重排阶段约 1.1M，同源数据可复用。
@@ -139,26 +139,30 @@ PLOT_STYLE = {
 # VLM2Vec 使用 LLaVA-Next checkpoint；MMEB 含 COCO/WebQA，属于有相关监督。
 MODEL_RESULTS = [
     dict(name="E5-V (LLaVA-LLaMA-8B)", method="E5-V", backbone="LLaVA-LLaMA-8B",
-         train_pairs_m=0, avg_score_pct=43.6, params_b=8, training_stages_m=(),
+         train_pairs_m=0, avg_score_pct=47.3, params_b=8, training_stages_m=(),
          supervision="zero_shot", color=COLORS[0], label_offset=(14, 10),
          training_source=TRAINING_SOURCES["e5v"]),
     dict(name="E5-V (LLaVA-Mistral-7B)", method="E5-V", backbone="LLaVA-Mistral-7B",
-         train_pairs_m=0, avg_score_pct=42.1, params_b=7, training_stages_m=(),
+         train_pairs_m=0, avg_score_pct=48.8, params_b=7, training_stages_m=(),
          supervision="zero_shot", color=COLORS[0], label_offset=(14, -10),
          training_source=TRAINING_SOURCES["e5v"]),
+    dict(name="FreeRet (LLaVA-LLaMA-8B)", method="FreeRet (+ rerank)", backbone="LLaVA-LLaMA-8B",
+         train_pairs_m=0, avg_score_pct=52.5, params_b=8, training_stages_m=(),
+         supervision="zero_shot", color=COLORS[2], label_offset=(40, -4),
+         training_source=TRAINING_SOURCES["freeret"]),
     dict(name="FreeRet (LLaVA-Mistral-7B)", method="FreeRet (+ rerank)", backbone="LLaVA-Mistral-7B",
-         train_pairs_m=0, avg_score_pct=60.1, params_b=7, training_stages_m=(),
+         train_pairs_m=0, avg_score_pct=61.5, params_b=7, training_stages_m=(),
          supervision="zero_shot", color=COLORS[2], label_offset=(11, 0),
          training_source=TRAINING_SOURCES["freeret"]),
     dict(name="Finetuned E5-V (LLaVA-LLaMA-8B)", method="Finetuned E5-V", backbone="LLaVA-LLaMA-8B",
-         train_pairs_m=0.273, avg_score_pct=65.4, params_b=8, training_stages_m=(0.273,),
+         train_pairs_m=0.273, avg_score_pct=66.3, params_b=8, training_stages_m=(0.273,),
          supervision="zero_shot", color=COLORS[1], label_offset=(-1, 26),
          fill_alpha=0.15,
          label_connectionstyle="angle,angleA=0,angleB=90,rad=2",
          training_source=TRAINING_SOURCES["e5v"]),
     dict(name="MMRet S1 (LLaVA-Mistral-7B)", method="MMRet S1", backbone="LLaVA-Mistral-7B",
          display_method="MMRet",
-         train_pairs_m=26.2, avg_score_pct=69.4, params_b=7, training_stages_m=(26.2,),
+         train_pairs_m=26.2, avg_score_pct=69.7, params_b=7, training_stages_m=(26.2,),
          supervision="zero_shot", color="#a8dca2", label_offset=(-42, 0),
          fill_alpha=0.15,
          checkpoint="BAAI/BGE-VL-MLLM-S1", training_examples_reported=26_235_105,
@@ -166,7 +170,7 @@ MODEL_RESULTS = [
          checkpoint_source=TRAINING_SOURCES["mmret_s1"],
          training_note="S1: MegaPairs only; no S2/MMEB stage; rounded from 26,235,105 pairs."),
     dict(name="VLM2Vec (LLaVA-Mistral-7B)", method="VLM2Vec", backbone="LLaVA-Mistral-7B",
-         train_pairs_m=VLM2VEC_ESTIMATED_TRAIN_M, avg_score_pct=60.0, params_b=7,
+         train_pairs_m=VLM2VEC_ESTIMATED_TRAIN_M, avg_score_pct=65.1, params_b=7,
          training_stages_m=(VLM2VEC_ESTIMATED_TRAIN_M,),
          supervision="benchmark_supervised", color=COLORS[4], label_offset=(19, -18),
          checkpoint="TIGER-Lab/VLM2Vec-LLaVa-Next", training_estimated=True,
@@ -175,25 +179,25 @@ MODEL_RESULTS = [
          training_note="Estimated from rounded Table 1 sizes for 20 MMEB training subsets, "
                        "capped at 100K each: ~1.032M, plotted as ~1.03M; includes COCO/WebQA."),
     dict(name="GME (Qwen2-VL-7B)", method="GME", backbone="Qwen2-VL-7B",
-         train_pairs_m=8, avg_score_pct=70.9, params_b=7, training_stages_m=(8,),
+         train_pairs_m=8, avg_score_pct=71.6, params_b=7, training_stages_m=(8,),
          supervision="benchmark_supervised", color="#b58c81", label_offset=(-12, 10),
          fill_alpha=0.08,
          training_source=TRAINING_SOURCES["gme"]),
     dict(name="LamRA-Ret (Qwen2.5-VL-7B)", method="LamRA-Ret", backbone="Qwen2.5-VL-7B",
-         train_pairs_m=1.4, avg_score_pct=55.3, params_b=7, training_stages_m=(1.4,),
+         train_pairs_m=1.4, avg_score_pct=62.0, params_b=7, training_stages_m=(1.4,),
          supervision="benchmark_supervised", color=COLORS[6], label_offset=(-14, -17),
          training_source=TRAINING_SOURCES["freeret"]),
     dict(name="LamRA-Rank20 (Qwen2.5-VL-7B)", method=r"LamRA-Rank$_{20}$ (+ rerank)", backbone="Qwen2.5-VL-7B",
          display_method="LamRA-Rank",
-         train_pairs_m=2.5, avg_score_pct=60.4, params_b=7, training_stages_m=(1.4, 1.1),
-         supervision="benchmark_supervised", color=COLORS[6], label_offset=(0, 14),
+         train_pairs_m=2.5, avg_score_pct=63.5, params_b=7, training_stages_m=(1.4, 1.1),
+         supervision="benchmark_supervised", color=COLORS[6], label_offset=(8, 8),
          training_source=TRAINING_SOURCES["freeret"]),
     dict(name="Re-M (LLaVA-LLaMA-8B)", method="Re-M", backbone="LLaVA-LLaMA-8B",
-         train_pairs_m=0, avg_score_pct=59.0, params_b=8, training_stages_m=(),
+         train_pairs_m=0, avg_score_pct=58.7, params_b=8, training_stages_m=(),
          supervision="zero_shot", is_ours=True, color=OURS_COLOR, label_offset=(14, -17),
          training_source="User-confirmed: prompt optimization only; no task-related supervision."),
     dict(name="Re-M (LLaVA-Mistral-7B)", method="Re-M", backbone="LLaVA-Mistral-7B",
-         train_pairs_m=0, avg_score_pct=64.8, params_b=7, training_stages_m=(),
+         train_pairs_m=0, avg_score_pct=62.1, params_b=7, training_stages_m=(),
          supervision="zero_shot", is_ours=True, color=OURS_COLOR, label_offset=(14, 15),
          training_source="User-confirmed: prompt optimization only; no task-related supervision."),
 ]
@@ -393,8 +397,8 @@ def save_figure(fig: Any, output_dir: Path = SCRIPT_DIR, *, demo: bool = False) 
     stem = OUTPUT_STEM + ("_demo" if demo else "")
     pdf_path, png_path = output_dir / f"{stem}.pdf", output_dir / f"{stem}.png"
     with matplotlib.rc_context(PLOT_STYLE):
-        fig.savefig(pdf_path, format="pdf", bbox_inches="tight", pad_inches=0.08)
-        fig.savefig(png_path, format="png", dpi=300, bbox_inches="tight", pad_inches=0.08)
+        fig.savefig(pdf_path, format="pdf", bbox_inches="tight", pad_inches=0.015)
+        fig.savefig(png_path, format="png", dpi=300, bbox_inches="tight", pad_inches=0.015)
     return pdf_path, png_path
 
 

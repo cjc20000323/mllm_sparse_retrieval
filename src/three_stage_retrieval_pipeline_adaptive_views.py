@@ -23,8 +23,9 @@ Pipeline
    A precomputed TREC/JSON run can also be supplied for any stage.  This is
    useful when a baseline model is maintained by a separate script.
 
-2. Stage 2 is always the current-program configuration
-   ``disassembleeol_separate + concat``.  Just like ``search.py``, it encodes
+2. Stage 2 defaults to ``disassembleeol_separate + concat``; adaptive LLaVA IR
+   also supports ``--retrieval-eol-type disassembleeol_separate_origin_text``.
+   Just like ``search.py``, it encodes
    queries online (or reuses Stage-1 ``sparse_concat`` query representations),
    loads dense ``corpus*.pkl`` shards and a sparse Lucene
    ``index/``, normalizes both scores in the same per-query min-max fashion as
@@ -101,6 +102,11 @@ STAGE1_METHODS = ("clip", "blip", "sparse_manual", "sparse_concat")
 STAGE2_EOL_TYPE = "disassembleeol_separate"
 STAGE2_CALCULATE_TYPE = "concat"
 ALPHA_CANDIDATES = tuple(i / 10 for i in range(1, 10))
+
+
+def retrieval_eol_type(args):
+    return getattr(args, "retrieval_eol_type", STAGE2_EOL_TYPE)
+
 
 DATASET_TASK_TYPES = {
     "coco": "ir", "flickr": "ir", "fashion-iq": "cir",
@@ -307,7 +313,8 @@ class TimingReporter:
         self.stages: dict[str, dict[str, Any]] = {
             stage: {"stage": stage, "status": "not_started", "compute_seconds": None,
                     "components_seconds": {}, "auxiliary_seconds": {}}
-            for stage in ("stage1", "stage2", "stage3")
+            for stage in (("stage1", "stage2") if getattr(args, "stop_after_stage2", False)
+                          else ("stage1", "stage2", "stage3"))
         }
 
     def record(self, stage: str, measurement: dict[str, Any]) -> None:
@@ -1256,6 +1263,8 @@ def _retrieval_namespaces(
         lora=bool(getattr(args, "retrieval_lora_model_path", None)),
         lora_model_path=getattr(args, "retrieval_lora_model_path", None),
     )
+    if getattr(args, "single_view_repeat_selected_count", False):
+        model_args.single_view_repeat_selected_count = True
     data_args = SimpleNamespace(
         dataset_name=args.dataset_name,
         dataset_split=args.dataset_split,
@@ -2797,7 +2806,7 @@ def _run_sparse_concat_stage1(
             tqdm.write(f"{prefix} loading local query encoder")
             runtime = _load_retrieval_runtime(args, context)
             encoded = encode_queries_online(
-                args, runtime, eol_type=STAGE2_EOL_TYPE,
+                args, runtime, eol_type=retrieval_eol_type(args),
                 calculate_type=STAGE2_CALCULATE_TYPE, sparse_manual=False,
                 progress_prefix=prefix, requested_query_ids=query_ids, timing=timing,
             )
@@ -2862,7 +2871,7 @@ def run_stage1(
             encoded = encode_queries_online(
                 args,
                 retrieval_runtime,
-                eol_type=STAGE2_EOL_TYPE,
+                eol_type=retrieval_eol_type(args),
                 calculate_type=STAGE2_CALCULATE_TYPE,
                 sparse_manual=False,
                 progress_prefix=progress_prefix,
@@ -2872,7 +2881,7 @@ def run_stage1(
             return {}
         _validate_qwen_artifacts(
             args, encoded, [(args.stage1_sparse_index, False)],
-            eol_type="prompteol" if args.stage1_method == "sparse_manual" else STAGE2_EOL_TYPE,
+            eol_type="prompteol" if args.stage1_method == "sparse_manual" else retrieval_eol_type(args),
             calculate_type="separate" if args.stage1_method == "sparse_manual" else STAGE2_CALCULATE_TYPE,
             sparse_manual=args.stage1_method == "sparse_manual",
         )
@@ -2951,7 +2960,7 @@ def run_stage2(
     encoded = encoded_queries if encoded_queries is not None else encode_queries_online(
         args,
         retrieval_runtime,
-        eol_type=STAGE2_EOL_TYPE,
+        eol_type=retrieval_eol_type(args),
         calculate_type=STAGE2_CALCULATE_TYPE,
         sparse_manual=False,
         progress_prefix="[stage2]",
@@ -2961,7 +2970,7 @@ def run_stage2(
 
     _validate_qwen_artifacts(
         args, encoded, stage2_artifact_paths(args),
-        eol_type=STAGE2_EOL_TYPE, calculate_type=STAGE2_CALCULATE_TYPE, sparse_manual=False,
+        eol_type=retrieval_eol_type(args), calculate_type=STAGE2_CALCULATE_TYPE, sparse_manual=False,
     )
 
     dense_run = retrieve_dense_from_corpus(
@@ -3589,6 +3598,10 @@ def _parser() -> argparse.ArgumentParser:
         help="VLM checkpoint used to encode sparse/Stage-2 queries online, matching search.py.",
     )
     parser.add_argument("--retrieval-lora-model-path")
+    parser.add_argument("--retrieval-eol-type", "--retrieval_eol_type",
+                        choices=(STAGE2_EOL_TYPE, "disassembleeol_separate_origin_text"),
+                        default=STAGE2_EOL_TYPE,
+                        help="Adaptive LLaVA IR can restrict text sparse weights to original-text tokens")
     parser.add_argument("--retrieval-device", default="auto")
     parser.add_argument("--retrieval-device-map", default="auto")
     parser.add_argument(
@@ -3615,6 +3628,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--sparse-lower-or-upper", choices=("lower", "upper"), default="lower")
     parser.add_argument("--sparse-value-mean", action="store_true")
     parser.add_argument("--sparse-logits-multiply-view-count", action="store_true")
+    parser.add_argument("--single-view-repeat-selected-count", "--single_view_repeat_selected_count", action="store_true",
+                        help="Use one whole-input sparse view scaled by the locked selected-view count (LLaVA IR)")
     parser.add_argument("--is-filtered", action="store_true")
     parser.add_argument("--print-sparse", action="store_true")
     parser.add_argument("--tbpr-type", default="origin_type", help="TBPR views: origin_type or type; must match the candidate index.")
@@ -3653,10 +3668,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-dir", default=None,
         help="Defaults to ./three_stage_results/stage1_<depth>_stage2_<depth>; "
+             "--stop-after-stage2 uses ./two_stage_results instead. "
              "explicit paths are used unchanged.",
     )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--adaptive-views", action="store_true", help="Use dataset-selected perspectives from the copied encoder.")
+    parser.add_argument("--stop-after-stage2", "--stop_after_stage2", action="store_true",
+                        help="Adaptive mode only: save Stage 1/2 results and skip all reranking work.")
     parser.add_argument("--view-pmi-prior-prompt-mode", "--view_pmi_prior_prompt_mode", choices=("false", "instruction_only"))
     parser.add_argument("--view-selection-prefix-tokens", "--view_selection_prefix_tokens", type=boolean, nargs="?", const=True, default=False)
     parser.add_argument("--view-selection-token-variants", "--view_selection_token_variants", type=boolean,
@@ -3677,6 +3695,21 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _validate_args(args: argparse.Namespace) -> None:
+    if getattr(args, "single_view_repeat_selected_count", False):
+        if not getattr(args, "adaptive_views", False) or not getattr(args, "stop_after_stage2", False):
+            raise ValueError("--single-view-repeat-selected-count requires adaptive two-stage retrieval")
+        if stage2_method(args) != "hybrid":
+            raise ValueError("Single-view repetition requires sparse -> hybrid retrieval")
+        from single_view_repeat import validate
+        validate(args, args, args.task_type)
+    stop_after_stage2 = getattr(args, "stop_after_stage2", False)
+    if stop_after_stage2:
+        if not getattr(args, "adaptive_views", False):
+            raise ValueError("--stop-after-stage2 requires --adaptive-views")
+        # Shared artifact preparation also checks ranker runs; this input is inactive.
+        args.ranker_run = None
+    if retrieval_eol_type(args) != STAGE2_EOL_TYPE and not getattr(args, "adaptive_views", False):
+        raise ValueError("--retrieval-eol-type=disassembleeol_separate_origin_text requires --adaptive-views")
     configure_stage2_mode(args)
     from stc_sparse import enabled as stc_enabled, validate as validate_stc
     validate_stc(args)
@@ -3691,7 +3724,7 @@ def _validate_args(args: argparse.Namespace) -> None:
     from dense_representation import prepare_pipeline
     prepare_pipeline(args)
     _validate_alpha_options(args)
-    for prefix in ("retrieval", "ranker"):
+    for prefix in (("retrieval",) if stop_after_stage2 else ("retrieval", "ranker")):
         low, high = (getattr(args, f"{prefix}_qwen_{edge}_pixels", 0) for edge in ("min", "max"))
         if min(low, high) < 0 or (low and high and low > high):
             raise ValueError(f"Invalid {prefix} Qwen pixel limits: require nonnegative values and min <= max")
@@ -3709,7 +3742,7 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError(f"{args.task_type} 请设置 --query-type {allowed}。")
     if args.task_type == "tbpr" and args.tbpr_type not in {"origin_type", "type"}:
         raise ValueError("TBPR 请设置 --tbpr-type origin_type 或 type，并与候选编码设置一致。")
-    if getattr(args, "use_rerank_prior_cache", False) and not args.ranker_run:
+    if not stop_after_stage2 and getattr(args, "use_rerank_prior_cache", False) and not args.ranker_run:
         validate_prior_cache_options(True, args.modify_type, args.rerank_template,
                                      args.task_type, args.query_type, args.rerank_type)
     positive = {
@@ -3720,9 +3753,9 @@ def _validate_args(args: argparse.Namespace) -> None:
         "sparse_length": args.sparse_length,
         "text_sparse_length": args.text_sparse_length,
         "image_sparse_length": args.image_sparse_length,
-        "rerank_num": args.rerank_num,
-        "rerank_batch_size": args.rerank_batch_size,
     }
+    if not stop_after_stage2:
+        positive.update(rerank_num=args.rerank_num, rerank_batch_size=args.rerank_batch_size)
     for name, value in positive.items():
         if value <= 0:
             raise ValueError(f"--{name.replace('_', '-')} 必须为正整数。")
@@ -3738,7 +3771,7 @@ def _validate_args(args: argparse.Namespace) -> None:
         )
     if args.task_type == "cir" and args.query_type != "composed":
         raise ValueError("CIR 请设置 --query-type composed。")
-    if args.modify_type != "no" and "caption_generation" not in args.rerank_template:
+    if not stop_after_stage2 and args.modify_type != "no" and "caption_generation" not in args.rerank_template:
         raise ValueError(
             "--modify_type=modify_single 仅适用于 caption_generation rerank template。"
         )
@@ -3747,11 +3780,11 @@ def _validate_args(args: argparse.Namespace) -> None:
         expected = (
             "prompteol + separate + sparse_manual"
             if args.stage1_method == "sparse_manual"
-            else "disassembleeol_separate + concat"
+            else f"{retrieval_eol_type(args)} + concat"
         )
         print(f"Stage 1 sparse mode: {expected}")
     if is_main_process:
-        print(f"Stage 2 scoring: {stage2_method(args)}; encoding: {STAGE2_EOL_TYPE} + {STAGE2_CALCULATE_TYPE}")
+        print(f"Stage 2 scoring: {stage2_method(args)}; encoding: {retrieval_eol_type(args)} + {STAGE2_CALCULATE_TYPE}")
     if args.output_dir and Path(args.output_dir).exists() and not args.overwrite:
         raise FileExistsError(
             f"输出目录已存在: {args.output_dir}。请更换目录或添加 --overwrite。"
@@ -3783,7 +3816,7 @@ def main() -> None:
             validate_prefix_model(args.retrieval_model_name_or_path, prefix_tokens=True, token_variants=args.view_selection_token_variants)
     if args.output_dir is None:
         args.output_dir = str(
-            stage2_output_path(Path("./three_stage_results")
+            stage2_output_path(Path("./two_stage_results" if args.stop_after_stage2 else "./three_stage_results")
             / f"stage1_{args.stage1_depth}_stage2_{args.stage2_depth}", stage2_method(args))
         )
     try:
@@ -3799,7 +3832,7 @@ def main() -> None:
         _progress(
             desc="[pipeline] stages",
             unit="stage",
-            total=3,
+            total=2 if args.stop_after_stage2 else 3,
         )
         if distributed_context.is_main
         else None
@@ -3812,13 +3845,16 @@ def main() -> None:
         else "precomputed" if getattr(args, "stage1_run", None) else "computed"
     )
     stage2_timer = StageTimer("precomputed" if getattr(args, "stage2_run", None) else "computed")
-    stage3_timer = StageTimer("precomputed" if getattr(args, "ranker_run", None) else "computed")
+    stage3_timer = None if args.stop_after_stage2 else StageTimer("precomputed" if getattr(args, "ranker_run", None) else "computed")
     try:
         output_dir = Path(args.output_dir).expanduser().resolve()
         if distributed_context.is_main:
             output_dir.mkdir(parents=True, exist_ok=True)
             from stage2_retrieval_mode import clear_inactive_reports
             clear_inactive_reports(output_dir, args)
+            if args.stop_after_stage2:
+                for filename in ("stage3_ranker_run.json", "stage3_ranker_run.trec"):
+                    (output_dir / filename).unlink(missing_ok=True)
             from dense_representation import write_manifest
             write_manifest(output_dir, getattr(args, "use_freeret_dense", False), prompt_constraints.enabled(args), full_prompt.enabled(args))
             timing_reporter = TimingReporter(args, output_dir, wall_started)
@@ -3927,12 +3963,16 @@ def main() -> None:
             if distributed_context.is_main:
                 _validate_query_coverage(stage1_run, stage2_run, "Stage 2")
                 if dense_run:
+                    if args.stop_after_stage2:
+                        write_json_run(dense_run, output_dir / "stage2_dense_run.json")
                     write_trec_run(
                         dense_run,
                         output_dir / "stage2_dense_run.trec",
                         "stage2_dense",
                     )
                 if sparse_run:
+                    if args.stop_after_stage2:
+                        write_json_run(sparse_run, output_dir / "stage2_sparse_run.json")
                     write_trec_run(
                         sparse_run,
                         output_dir / "stage2_sparse_run.trec",
@@ -3959,41 +3999,46 @@ def main() -> None:
             _release_retrieval_runtime(retrieval_runtime)
 
         _record_stage_timing("stage2", stage2_timer, distributed_context, timing_reporter)
-        active_stage = "stage3"
-        if distributed_context.is_main:
-            tqdm.write("[stage3] distributed ranker reranking")
-        if args.ranker_run and distributed_context.is_distributed:
-            precomputed_stage3 = (
-                read_run(Path(args.ranker_run))
-                if distributed_context.is_main
-                else {}
-            )
-            local_stage3_run = _scatter_run(
-                precomputed_stage3,
-                distributed_context,
-            )
-        else:
-            local_stage3_run = run_stage3(
-                args,
-                local_stage2_run,
-                distributed_context,
-                timing=stage3_timer,
-            )
-        stage3_run = _gather_run(local_stage3_run, distributed_context)
-        if distributed_context.is_main:
-            _validate_query_coverage(stage1_run, stage3_run, "Stage 3")
-            write_trec_run(
-                stage3_run,
-                output_dir / "stage3_ranker_run.trec",
-                "stage3_ranker",
-            )
-            write_json_run(stage3_run, output_dir / "stage3_ranker_run.json")
-            assert recall_reporter is not None
-            recall_reporter.record("stage3", {"ranker": stage3_run})
-        _record_stage_timing("stage3", stage3_timer, distributed_context, timing_reporter)
+        if args.stop_after_stage2 and distributed_context.is_main:
+            tqdm.write("[pipeline] Stage 3 skipped (--stop-after-stage2)")
+        stage3_run = {}
+        if not args.stop_after_stage2:
+            active_stage = "stage3"
+            if distributed_context.is_main:
+                tqdm.write("[stage3] distributed ranker reranking")
+            if args.ranker_run and distributed_context.is_distributed:
+                precomputed_stage3 = (
+                    read_run(Path(args.ranker_run))
+                    if distributed_context.is_main
+                    else {}
+                )
+                local_stage3_run = _scatter_run(
+                    precomputed_stage3,
+                    distributed_context,
+                )
+            else:
+                local_stage3_run = run_stage3(
+                    args,
+                    local_stage2_run,
+                    distributed_context,
+                    timing=stage3_timer,
+                )
+            stage3_run = _gather_run(local_stage3_run, distributed_context)
+            if distributed_context.is_main:
+                _validate_query_coverage(stage1_run, stage3_run, "Stage 3")
+                write_trec_run(
+                    stage3_run,
+                    output_dir / "stage3_ranker_run.trec",
+                    "stage3_ranker",
+                )
+                write_json_run(stage3_run, output_dir / "stage3_ranker_run.json")
+                assert recall_reporter is not None
+                recall_reporter.record("stage3", {"ranker": stage3_run})
+            _record_stage_timing("stage3", stage3_timer, distributed_context, timing_reporter)
+            active_stage = None
+            if pipeline_progress is not None:
+                pipeline_progress.update(1)
         active_stage = None
-        if pipeline_progress is not None:
-            pipeline_progress.update(1)
 
         if distributed_context.is_main:
             metadata = {
@@ -4029,7 +4074,7 @@ def main() -> None:
                     "llava_resolution": getattr(args, "_retrieval_llava_resolution", None),
                     "sparse_index": args.stage1_sparse_index,
                     "eol_type": "prompteol" if args.stage1_method == "sparse_manual" else (
-                        STAGE2_EOL_TYPE if args.stage1_method == "sparse_concat" else None
+                        retrieval_eol_type(args) if args.stage1_method == "sparse_concat" else None
                     ),
                     "calculate_type": "separate" if args.stage1_method == "sparse_manual" else (
                         STAGE2_CALCULATE_TYPE if args.stage1_method == "sparse_concat" else None
@@ -4049,7 +4094,7 @@ def main() -> None:
                     "llava_resolution": getattr(args, "_retrieval_llava_resolution", None),
                     "dense_corpus_index": args.stage2_dense_index,
                     "sparse_corpus_index": args.stage2_sparse_index,
-                    "eol_type": STAGE2_EOL_TYPE,
+                    "eol_type": retrieval_eol_type(args),
                     "calculate_type": STAGE2_CALCULATE_TYPE,
                     "alpha": args.hybrid_alpha if stage2_method(args) == "hybrid" else None,
                     "candidate_depth": args.stage1_depth,
@@ -4063,6 +4108,7 @@ def main() -> None:
                     "rerank_num": args.rerank_num,
                     "rerank_template": args.rerank_template,
                     "modify_type": args.modify_type,
+                    "use_rerank_prior_cache": bool(getattr(args, "use_rerank_prior_cache", False)),
                     "query_count": len(stage3_run),
                 },
                 "files": [
@@ -4078,6 +4124,19 @@ def main() -> None:
                     "timing_metrics.csv",
                 ],
             }
+            if getattr(args, "single_view_repeat_selected_count", False):
+                metadata["single_view_repeat"] = args.single_view_repeat_configuration
+            if args.stop_after_stage2:
+                metadata["execution_mode"] = "two_stage"
+                metadata["stage3"] = {"status": "skipped", "reason": "stop_after_stage2"}
+                metadata["distributed"]["stage3_query_sharded"] = False
+                metadata["files"] = [name for name in metadata["files"] if not name.startswith("stage3_")]
+                for variant, run in (("dense", dense_run), ("sparse", sparse_run)):
+                    if run:
+                        for extension in ("json", "trec"):
+                            name = f"stage2_{variant}_run.{extension}"
+                            if name not in metadata["files"]:
+                                metadata["files"].append(name)
             if select_alpha:
                 metadata["stage2"]["alpha_selection"] = alpha_reporter.selection
                 metadata["files"].extend(["stage2_alpha_sweep.csv", "alpha_selection.json"])
@@ -4087,13 +4146,15 @@ def main() -> None:
                 metadata["adaptive_views"] = dict(selection_file=str(Path(args.view_selection_file).resolve()),
                                                    selection_modality=selection["selection_modality"],
                                                    selected=selection["selected"], views_fingerprint=selection["views_fingerprint"])
+                if selection.get("calibration"):
+                    metadata["adaptive_views"]["selection_calibration"] = selection["calibration"]["configuration"]
                 from stc_sparse import enabled as stc_enabled, configuration as stc_configuration
                 if stc_enabled(args):
-                    model_args, _ = _retrieval_namespaces(args, eol_type="disassembleeol_separate", calculate_type="concat", sparse_manual=False)
+                    model_args, _ = _retrieval_namespaces(args, eol_type=retrieval_eol_type(args), calculate_type="concat", sparse_manual=False)
                     metadata["stc_sparse"] = stc_configuration(model_args)
                 from lens_sparse import enabled as lens_enabled, configuration as lens_configuration
                 if lens_enabled(args):
-                    model_args, _ = _retrieval_namespaces(args, eol_type="disassembleeol_separate", calculate_type="concat", sparse_manual=False)
+                    model_args, _ = _retrieval_namespaces(args, eol_type=retrieval_eol_type(args), calculate_type="concat", sparse_manual=False)
                     metadata["lens_sparse"] = lens_configuration(model_args)
             with (output_dir / "pipeline_metadata.json").open("w", encoding="utf-8") as handle:
                 json.dump(metadata, handle, ensure_ascii=False, indent=2)

@@ -8,6 +8,7 @@ import adaptive_view_probability_mass as probability_mass
 
 
 import copy
+from contextlib import contextmanager
 import importlib
 import json
 from pathlib import Path
@@ -24,6 +25,18 @@ import adaptive_views as views
 import adaptive_view_shuffle as option_shuffle
 import stc_sparse as stc
 import lens_sparse as lens
+
+
+ADAPTIVE_EOL_TYPES = ("disassembleeol_separate", "disassembleeol_separate_origin_text")
+
+
+def validate_encoding_method(eol_type, calculate_type, sparse_manual, task, *, family=None):
+    if eol_type not in ADAPTIVE_EOL_TYPES or calculate_type != "concat" or sparse_manual:
+        raise ValueError("Adaptive views require disassembleeol_separate or disassembleeol_separate_origin_text, "
+                         "calculate_type=concat and sparse_manual=false")
+    if eol_type == "disassembleeol_separate_origin_text":
+        if task != "ir" or (family is not None and family not in {"llava_llama", "llava_mistral"}):
+            raise ValueError("Adaptive original-text sparse encoding currently supports LLaVA IR only")
 
 
 def pipeline_module():
@@ -75,21 +88,238 @@ def context_and_whole(record, task, data, family=None):
     return context, whole
 
 
+def validate_sparse_print(data, top_k, *, print_format="json", print_timing="immediate", lens_mode=False):
+    if not getattr(data, "print_sparse", False):
+        return
+    if type(top_k) is not int or top_k < 1:
+        raise ValueError("--print_sparse_top_k must be a positive integer when --print_sparse is enabled")
+    if print_format not in ("text", "json"):
+        raise ValueError("--print_sparse_format must be text or json")
+    if print_timing not in ("immediate", "end"):
+        raise ValueError("--print_sparse_timing must be immediate or end")
+    if lens_mode:
+        raise ValueError("--print_sparse token diagnostics do not support the LENS cluster vocabulary")
+
+
+def collect_encoding_records(api, args, task, kind, *, prompt_constraints_mode=False,
+                             print_sparse=False, print_sparse_sample_id=None):
+    """Check the full dataset on every rank before replacing any corpus outputs."""
+    from qwen_vl_pipeline import dataset_records
+    records, error = None, None
+    try:
+        dataset = api.build_dataset(args)
+        records = dataset_records(dataset, task, kind, prompt_constraints_mode=prompt_constraints_mode)
+        if print_sparse and print_sparse_sample_id:
+            count = sum(str(record["id"]) == str(print_sparse_sample_id) for record in records)
+            if count != 1:
+                raise ValueError(f"--print_sparse_sample_id={print_sparse_sample_id!r} matched {count} samples; "
+                                 "expected exactly one. Check the dataset, split and encode_type.")
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+    worker_errors(error)
+    return records
+
+
+@contextmanager
+def sparse_print_log(encoder, rank):
+    """Each rank owns one fresh log; close it even if encoding fails."""
+    directory = getattr(encoder, "print_sparse_log_dir", None)
+    if not getattr(encoder.data, "print_sparse", False) or not directory:
+        yield
+        return
+    directory = Path(directory).expanduser().resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"sparse_tokens_rank{rank}.jsonl"
+    previous = getattr(encoder, "sparse_print_stream", None)
+    with path.open("w", encoding="utf-8") as stream:
+        encoder.sparse_print_stream = stream
+        try:
+            prefix = getattr(encoder, "sparse_print_log_prefix", "[adaptive sparse log]")
+            print(f"{prefix} rank={rank} file={path}", flush=True)
+            yield
+        finally:
+            encoder.sparse_print_stream = previous
+
+
+def _defer_sparse_print(encoder):
+    # An empty target keeps the existing streaming mode; never buffer the corpus.
+    return (getattr(encoder.data, "print_sparse", False)
+            and getattr(encoder, "print_sparse_timing", "immediate") == "end"
+            and bool(getattr(encoder, "print_sparse_sample_id", None)))
+
+
+def _emit_sparse_record(encoder, record, payloads):
+    """Render CPU payloads to the console only; never write the JSONL a second time."""
+    prefix = getattr(encoder, "sparse_print_prefix", "[adaptive sparse]")
+    print_format = getattr(encoder, "print_sparse_format", "json")
+    if getattr(encoder, "print_sparse_sample_id", None) and print_format == "text":
+        summary = prefix + " sample_id=" + json.dumps(str(record["id"]), ensure_ascii=False)
+        if record.get("image") is not None:
+            summary += " image=" + json.dumps(str(record["image"]), ensure_ascii=False)
+        if record.get("image") is None or record.get("text"):
+            summary += " caption=" + json.dumps(record.get("text") or "", ensure_ascii=False)
+        print(summary, flush=True)
+    for payload in payloads:
+        if print_format == "json":
+            message = prefix + " " + json.dumps(payload, ensure_ascii=False, allow_nan=False)
+        else:
+            sample_id = json.dumps(payload["sample_id"], ensure_ascii=False)
+            aspect = json.dumps(payload["aspect"], ensure_ascii=False)
+            tokens = ", ".join(
+                f"{json.dumps(token['token'], ensure_ascii=False)} "
+                f"(id={token['token_id']}, weight={token['weight']:.6g})"
+                for token in payload["top_tokens"])
+            source = (f" token_source=retained_text retained_tokens={payload['retained_token_count']}"
+                      if payload.get("token_source") == "retained_text" else "")
+            message = (f"{prefix} rank={payload['rank']} sample_id={sample_id} modality={payload['modality']} "
+                       f"view={payload['view']} aspect={aspect}{source}\n"
+                       f"  Top-{payload['top_k']} tokens (log1p_relu): {tokens}")
+            if payload.get("token_source") == "retained_text" and not payload["top_tokens"]:
+                message += "\n  No retained text tokens; sparse encoding keeps its existing fallback."
+        print(message, flush=True)
+
+
+def finish_sparse_print(encoder):
+    """Collect only target CPU payloads after saving, before distributed teardown."""
+    if not _defer_sparse_print(encoder) or getattr(encoder, "_sparse_print_finished", False):
+        return
+    pending = getattr(encoder, "_sparse_print_pending", [])
+    rank = dist.get_rank() if dist.is_initialized() else 0
+    if dist.is_initialized():
+        gathered = [None] * dist.get_world_size()
+        dist.all_gather_object(gathered, pending)
+    else:
+        gathered = [pending]
+    records = [record for worker in gathered for record in worker]
+    if not records:
+        raise ValueError(f"No sparse token results collected for sample {encoder.print_sparse_sample_id!r}; "
+                         "check the dataset, encode_type and completed encoding batches")
+    if rank == 0:
+        prefix = getattr(encoder, "sparse_print_prefix", "[adaptive sparse]")
+        summary_prefix = prefix.rstrip("]") + " summary]"
+        print(f"{summary_prefix} encoding completed; target={encoder.print_sparse_sample_id}; "
+              f"records={len(records)}", flush=True)
+        for entry in records:
+            _emit_sparse_record(encoder, entry["record"], entry["payloads"])
+    encoder._sparse_print_pending = []
+    encoder._sparse_print_finished = True
+
+
+def print_sparse_views(encoder, records, values):
+    """Print activated vocabulary weights without filtering, quantization or merging."""
+    if not getattr(encoder.data, "print_sparse", False):
+        return
+    top_k = encoder.print_sparse_top_k
+    print_format = getattr(encoder, "print_sparse_format", "json")
+    validate_sparse_print(encoder.data, top_k, print_format=print_format,
+                          print_timing=getattr(encoder, "print_sparse_timing", "immediate"),
+                          lens_mode=lens.enabled(encoder.model_args))
+    if len(values) != len(records):
+        raise ValueError("Sparse diagnostic batch does not match its sample records")
+    if not hasattr(encoder, "_sparse_print_vocabulary"):
+        encoder._sparse_print_vocabulary = {
+            index: token for token, index in encoder.processor.tokenizer.get_vocab().items()}
+    vocabulary = encoder._sparse_print_vocabulary
+    selected = ([dict(label="single", aspect="whole input")]
+                if getattr(encoder, "single_view_repeat", None) else encoder.selected)
+    rank = dist.get_rank() if dist.is_initialized() else 0
+    target_id = getattr(encoder, "print_sparse_sample_id", None)
+    stream = getattr(encoder, "sparse_print_stream", None)
+    for record, row in zip(records, values):
+        show_console = not target_id or str(record["id"]) == str(target_id)
+        if not show_console and stream is None:
+            continue
+        if row.ndim != 2 or len(row) != len(selected):
+            raise ValueError("Sparse diagnostic rows do not match the selected views")
+        known_ids = sorted(index for index in vocabulary if 0 <= index < row.shape[-1])
+        if not known_ids:
+            raise ValueError("Tokenizer has no tokens in the sparse output vocabulary")
+        retained_ids = record.get("_sparse_retained_token_ids")
+        if retained_ids is not None:
+            retained_ids = [int(index) for index in retained_ids]
+            if (len(selected) != 1 or len(set(retained_ids)) != len(retained_ids)
+                    or any(index not in vocabulary or not 0 <= index < row.shape[-1] for index in retained_ids)):
+                raise ValueError("Invalid retained original-text token IDs for PromptEOL diagnostics")
+            # Extraction already ranks these IDs, including its existing tie order.
+            selected_ids = retained_ids[:top_k]
+            token_ids = torch.tensor(selected_ids, dtype=torch.long, device=row.device)
+            weights = row.detach()[:, token_ids]
+            indices = [selected_ids]
+        else:
+            token_ids = torch.tensor(known_ids, dtype=torch.long, device=row.device)
+            weights, positions = row.detach()[:, token_ids].topk(min(top_k, len(known_ids)), dim=-1)
+            indices = token_ids[positions].cpu().tolist()
+        weights = weights.float().cpu().tolist()
+        modality = ("image_text" if record.get("text") else "image") if record.get("image") is not None else "text"
+        payloads = []
+        for view, ids, scores in zip(selected, indices, weights):
+            payload = dict(rank=rank, sample_id=str(record["id"]), modality=modality,
+                           view=view["label"], aspect=view["aspect"], top_k=len(ids), weight_type="log1p_relu",
+                           top_tokens=[dict(token_id=index, token=vocabulary[index], weight=score)
+                                       for index, score in zip(ids, scores)])
+            if retained_ids is not None:
+                payload.update(token_source="retained_text", retained_token_count=len(retained_ids))
+            if getattr(encoder, "single_view_repeat", None):
+                payload["single_view_repeat"] = encoder.single_view_repeat
+            # Validate finite weights in either format; keep the original JSON schema.
+            json.dumps(payload, ensure_ascii=False, allow_nan=False)
+            if stream is not None:
+                stream.write(json.dumps(dict(payload, sample_text=record.get("text") or ""),
+                                        ensure_ascii=False, allow_nan=False) + "\n")
+            if not show_console:
+                continue
+            payloads.append(payload)
+        if show_console:
+            if _defer_sparse_print(encoder):
+                if not hasattr(encoder, "_sparse_print_pending"):
+                    encoder._sparse_print_pending = []
+                # Keep strings/numbers only, never images or device tensors.
+                metadata = dict(id=str(record["id"]), text=str(record.get("text") or ""))
+                if record.get("image") is not None:
+                    metadata["image"] = str(record["image"])
+                encoder._sparse_print_pending.append(dict(record=metadata, payloads=payloads))
+            else:
+                _emit_sparse_record(encoder, record, payloads)
+    if stream is not None:
+        stream.flush()
+
+
 class AdaptiveEncoder:
     """One packed forward: one whole-input dense view and K isolated sparse views."""
-    def __init__(self, model, processor, model_args, data, task, selection):
+    def __init__(self, model, processor, model_args, data, task, selection, *, print_sparse_top_k=10,
+                 print_sparse_format="json", print_sparse_sample_id=None, print_sparse_log_dir=None,
+                 print_sparse_timing="immediate"):
+        validate_sparse_print(data, print_sparse_top_k, print_format=print_sparse_format,
+                              print_timing=print_sparse_timing, lens_mode=lens.enabled(model_args))
         lens.validate(model_args)
         self.model, self.processor, self.model_args, self.data, self.task = model, processor, model_args, data, task
+        self.print_sparse_top_k = print_sparse_top_k
+        self.print_sparse_format = print_sparse_format
+        self.print_sparse_timing = print_sparse_timing
+        self.print_sparse_sample_id = print_sparse_sample_id
+        self.print_sparse_log_dir = print_sparse_log_dir
+        self.sparse_data = data
+        if getattr(data, "print_sparse", False):
+            # Only this adaptive encoder replaces the legacy unlabelled printer.
+            self.sparse_data = copy.copy(data)
+            self.sparse_data.print_sparse = False
         from dense_representation import configure_model, enabled
         configure_model(model, enabled(model_args), getattr(model_args, "model_name_or_path", ""))
         self.family = views.family_of(model.config)
+        validate_encoding_method(model_args.eol_type, model_args.calculate_type, data.sparse_manual,
+                                 task, family=self.family)
         self.selected = selection["selected"]
+        self.selection = selection
+        self.single_view_repeat = None
+        if getattr(model_args, "single_view_repeat_selected_count", False):
+            from single_view_repeat import configuration
+            self.single_view_repeat = configuration(model_args, data, task, selection, family=self.family)
         count = len(views.view_pool(views.pool_mode(selection)))
         if not 1 <= len(self.selected) <= count:
             raise ValueError(f"Adaptive encoding requires 1..{count} selected views")
         self.last_prompts = []
         if stc.enabled(model_args):
-            self.stc_encoder = stc.SparseEncoder(processor.tokenizer, data, model_args, family=self.family)
+            self.stc_encoder = stc.SparseEncoder(processor.tokenizer, self.sparse_data, model_args, family=self.family)
         if lens.enabled(model_args):
             self.lens_encoder = lens.SparseEncoder(processor.tokenizer, data, model_args, family=self.family)
         configure_processor(model.config, processor, data.reps_loc)
@@ -104,8 +334,8 @@ class AdaptiveEncoder:
         for record in records:
             context, whole = context_and_whole(record, self.task, self.data, self.family)
             from freeret_prompt_constraints import augment
-            row = [augment(block, self.model_args, self.data.dataset_name, record)
-                   for block in [whole, *instructions(self.selected, record)]]
+            view_blocks = [whole] if self.single_view_repeat else [whole, *instructions(self.selected, record)]
+            row = [augment(block, self.model_args, self.data.dataset_name, record) for block in view_blocks]
             contexts.append(prompt_constraints.augment_context(context, self.model_args, self.data.dataset_name))
             blocks.append(row)
         if self.family.startswith("qwen"):
@@ -128,7 +358,7 @@ class AdaptiveEncoder:
         if start_token not in vocab or end_token not in vocab:
             raise ValueError(f"Missing LLaVA {self.family} view delimiters in the checkpoint tokenizer")
         spans = []
-        block_count = len(self.selected) + 1
+        block_count = 1 if self.single_view_repeat else len(self.selected) + 1
         for row in inputs["input_ids"]:
             starts = (row == vocab[start_token]).nonzero(as_tuple=True)[0].tolist()[-block_count:]
             ends = (row == vocab[end_token]).nonzero(as_tuple=True)[0].tolist()[-block_count:]
@@ -141,8 +371,11 @@ class AdaptiveEncoder:
     def encode(self, records):
         if lens.enabled(self.model_args):
             with self.lens_encoder.activate(self.model):
-                return self._encode(records)
-        return self._encode(records)
+                result = self._encode(records)
+        else:
+            result = self._encode(records)
+        print_sparse_views(self, records, result[0])
+        return result
 
     def _encode(self, records):
         import freeret_full_prompt as full_prompt
@@ -177,12 +410,15 @@ class AdaptiveEncoder:
                 ends = torch.tensor([end - 2 for _, end in spans], device=output.logits.device)
                 logits.append(output.logits[row, ends])
                 hidden.append(output.hidden_states[-1][row, ends.to(output.hidden_states[-1].device)])
-        sparse = [torch.log1p(torch.relu(row[1:])) for row in logits]
+        sparse = [torch.log1p(torch.relu(row[:1] if self.single_view_repeat else row[1:])) for row in logits]
         dense = F.normalize(torch.stack([row[0] for row in hidden]), dim=-1)
         return sparse, dense
 
 
 def sparse_vectors(encoder, records, logits):
+    if getattr(encoder, "single_view_repeat", None):
+        from single_view_repeat import sparse_vectors as single_vectors
+        return single_vectors(encoder, records, logits)
     if lens.enabled(getattr(encoder, "model_args", None)):
         return [encoder.lens_encoder.vector(row, record) for row, record in zip(logits, records)]
     if stc.enabled(getattr(encoder, "model_args", None)):
@@ -200,15 +436,16 @@ def uncompressed_sparse_vectors(encoder, records, logits, *, allowed_token_ids=N
                 for row, record in zip(logits, records)]
     from encode import get_text_valid_disassemble_tokens_values, get_img_valid_disassemble_tokens_values
     vocabulary = {value: key for key, value in encoder.processor.tokenizer.get_vocab().items()}
+    data = getattr(encoder, "sparse_data", encoder.data)
     result = []
     for row, record in zip(logits, records):
         if record.get("image") is None:
             tokens, weights = get_text_valid_disassemble_tokens_values(
                 record.get("text", ""), encoder.processor.tokenizer, row, vocabulary,
-                encoder.data, None, None, encoder.model_args, allowed_token_ids=allowed_token_ids)
+                data, None, None, encoder.model_args, allowed_token_ids=allowed_token_ids)
         else:
             tokens, weights = get_img_valid_disassemble_tokens_values(
-                encoder.processor, row, vocabulary, encoder.data, None, None, encoder.model_args,
+                encoder.processor, row, vocabulary, data, None, None, encoder.model_args,
                 allowed_token_ids=allowed_token_ids)
         vector = {}
         for token, weight in zip(tokens, weights):
@@ -247,6 +484,9 @@ def encoding_configuration(model_args, data, task, kind, identity, selection):
                          selection_modality=selection["selection_modality"],
                          selected=selection["selected"], views_fingerprint=selection["views_fingerprint"],
                          renderer=views.digest(renderers), encoding=fields)
+    if getattr(model_args, "single_view_repeat_selected_count", False):
+        from single_view_repeat import configuration as repeat_configuration, FIELD
+        configuration[FIELD] = repeat_configuration(model_args, data, task, selection, family=identity["family"])
     if views.is_pmi_selection(selection):
         configuration["selection_calibration"] = selection["calibration"]["configuration"]
     configuration = probability_mass.add_metadata(configuration, selection)
@@ -276,7 +516,16 @@ def artifact_dirs(model_args, data, training, selection):
             bases = [path.with_name(path.name.removesuffix("_llava_base")) for path in bases]
     stc_config = stc.configuration(model_args)
     lens_config = lens.configuration(model_args)
-    return [mode_path(artifact_dir(lens.mark_path(stc.mark_path(option_shuffle.mark_path(path / "adaptive_views" / selection["views_fingerprint"][:16], selection.get(option_shuffle.FIELD)), stc_config), lens_config),
+    repeat_config = None
+    if getattr(model_args, "single_view_repeat_selected_count", False):
+        from single_view_repeat import configuration as repeat_configuration
+        repeat_config = repeat_configuration(model_args, data, training.task_type, selection)
+    def repeat_path(path):
+        if repeat_config is None:
+            return path
+        from single_view_repeat import mark_path
+        return mark_path(path, repeat_config)
+    return [mode_path(artifact_dir(lens.mark_path(stc.mark_path(option_shuffle.mark_path(repeat_path(path / "adaptive_views" / selection["views_fingerprint"][:16]), selection.get(option_shuffle.FIELD)), stc_config), lens_config),
                                   getattr(data, "llava_image_mode", "anyres")), enabled(model_args), prompt_constraints.enabled(model_args), full_prompt.enabled(model_args))
             for path in bases]
 
@@ -293,6 +542,8 @@ def make_args(model_args, data, training, options):
         query = "image"
     args = api._parser().parse_args(["--dataset-name", data.dataset_name, "--task-type", task, "--query-type", query])
     args.adaptive_views = True
+    args.retrieval_eol_type = model_args.eol_type
+    args.single_view_repeat_selected_count = getattr(model_args, "single_view_repeat_selected_count", False)
     stc.copy_options(model_args, args, dtype=getattr(model_args, "stc_dtype", "float16"))
     lens.copy_options(model_args, args, dtype=getattr(model_args, "lens_dtype", "float16"), data=data)
     args.use_freeret_dense = getattr(model_args, "use_freeret_dense", False)
@@ -403,25 +654,39 @@ def worker_errors(error):
 
 
 def write_shard(encoder, records, data, roots, rank):
-    dense_parts, identifiers = [], []
-    from tqdm import tqdm
-    with (roots[1] / "collection" / f"corpus_{rank}.jsonl").open("w", encoding="utf-8") as stream:
-        for start in tqdm(range(0, len(records), data.per_device_batch_size), desc="Adaptive corpus encoding"):
-            batch = records[start:start + data.per_device_batch_size]
-            logits, dense = encoder.encode(batch)
-            vectors = sparse_vectors(encoder, batch, logits)
-            dense_parts.append(dense.float().cpu().numpy())
-            identifiers.extend(str(record["id"]) for record in batch)
-            for record, vector in zip(batch, vectors):
-                stream.write(json.dumps(dict(id=str(record["id"]), contents="", vector=vector), ensure_ascii=False) + "\n")
-    hidden_size = getattr(encoder.model.config, "text_config", encoder.model.config).hidden_size
-    dense = np.concatenate(dense_parts) if dense_parts else np.empty((0, hidden_size), dtype="float32")
-    with (roots[0] / f"corpus_{rank}.pkl").open("wb") as stream:
-        pickle.dump((dense, identifiers), stream)
+    with sparse_print_log(encoder, rank):
+        dense_parts, identifiers = [], []
+        from tqdm import tqdm
+        with (roots[1] / "collection" / f"corpus_{rank}.jsonl").open("w", encoding="utf-8") as stream:
+            for start in tqdm(range(0, len(records), data.per_device_batch_size), desc="Adaptive corpus encoding"):
+                batch = records[start:start + data.per_device_batch_size]
+                logits, dense = encoder.encode(batch)
+                vectors = sparse_vectors(encoder, batch, logits)
+                dense_parts.append(dense.float().cpu().numpy())
+                identifiers.extend(str(record["id"]) for record in batch)
+                for record, vector in zip(batch, vectors):
+                    stream.write(json.dumps(dict(id=str(record["id"]), contents="", vector=vector), ensure_ascii=False) + "\n")
+        hidden_size = getattr(encoder.model.config, "text_config", encoder.model.config).hidden_size
+        dense = np.concatenate(dense_parts) if dense_parts else np.empty((0, hidden_size), dtype="float32")
+        with (roots[0] / f"corpus_{rank}.pkl").open("wb") as stream:
+            pickle.dump((dense, identifiers), stream)
 
 
 def run_encode(model_args, data, training, options, *, selection_strategy=None):
-    from qwen_vl_pipeline import init_process, dataset_records
+    from qwen_vl_pipeline import init_process
+    if getattr(model_args, "single_view_repeat_selected_count", False):
+        from single_view_repeat import validate
+        validate(model_args, data, training.task_type)
+        for name in ("view_overlap_selection", "use_stc_sparse", "use_lens_sparse"):
+            if getattr(options, name, False):
+                raise ValueError(f"Single-view repetition is incompatible with {name}")
+    print_top_k = getattr(options, "print_sparse_top_k", 10)
+    print_format = getattr(options, "print_sparse_format", "json")
+    print_timing = getattr(options, "print_sparse_timing", "immediate")
+    print_sample_id = getattr(options, "print_sparse_sample_id", None)
+    print_log_dir = getattr(options, "print_sparse_log_dir", None)
+    validate_sparse_print(data, print_top_k, print_format=print_format, print_timing=print_timing,
+                          lens_mode=lens.enabled(options) or lens.enabled(model_args))
     lens.validate(options)
     if lens.enabled(options):
         if selection_strategy is not None:
@@ -446,8 +711,7 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
         selection_strategy = probability_mass.ProbabilityMassStrategy(options, model_args, data, training.task_type)
     if training.task_type not in {"ir", "tbpr", "t2it", "it2t"}:
         raise ValueError("Adaptive views support ITR/ir, TBPR, t2it and it2t only")
-    if (model_args.eol_type, model_args.calculate_type) != ("disassembleeol_separate", "concat") or data.sparse_manual:
-        raise ValueError("Adaptive views require disassembleeol_separate+concat and sparse_manual=false")
+    validate_encoding_method(model_args.eol_type, model_args.calculate_type, data.sparse_manual, training.task_type)
     if (getattr(model_args, "use_output_embedding_cluster", False)
             or getattr(data, "sparse_type", "single") != "single"
             or getattr(data, "sparse_logits_multiply_view_count", False)):
@@ -528,6 +792,8 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
         configure_processor(runtime.encoder.config, runtime.processor, data.reps_loc)
         identity = views.model_identity(model_args.model_name_or_path, runtime.encoder.config, runtime.processor,
                                         dtype=args.retrieval_dtype, lora=args.retrieval_lora_model_path)
+        validate_encoding_method(model_args.eol_type, model_args.calculate_type, data.sparse_manual,
+                                 training.task_type, family=identity["family"])
         sampling = views.selection_sampling(options, mode, model_config=runtime.encoder.config) if preselected is None else preselected["sampling"]
         if preselected is not None:
             views.require_equal(dict(examples=preselected.get(views.examples.FIELD)),
@@ -604,13 +870,19 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
             raise ValueError("STC does not support an overlap view selection file")
         if lens.enabled(model_args) and views.is_overlap_selection(selection):
             raise ValueError("LENS does not support an overlap view selection file")
+        all_records = collect_encoding_records(
+            api, args, training.task_type, training.encode_type,
+            prompt_constraints_mode=prompt_constraints.enabled(model_args),
+            print_sparse=getattr(data, "print_sparse", False), print_sparse_sample_id=print_sample_id)
         roots = artifact_dirs(model_args, data, training, selection)
         root_action(rank, lambda: prepare_outputs(roots))
         error = None
         try:
-            encoder = AdaptiveEncoder(runtime.encoder, runtime.processor, model_args, data, training.task_type, selection)
-            dataset = api.build_dataset(args)
-            records = dataset_records(dataset, training.task_type, training.encode_type, prompt_constraints_mode=prompt_constraints.enabled(model_args))[rank::world]
+            encoder = AdaptiveEncoder(runtime.encoder, runtime.processor, model_args, data, training.task_type, selection,
+                                      print_sparse_top_k=print_top_k, print_sparse_format=print_format,
+                                      print_sparse_sample_id=print_sample_id, print_sparse_log_dir=print_log_dir,
+                                      print_sparse_timing=print_timing)
+            records = all_records[rank::world]
             expected = metadata(model_args, data, training.task_type, training.encode_type, identity, selection)
             write_shard(encoder, records, data, roots, rank)
         except Exception as exc:
@@ -646,7 +918,11 @@ def run_encode(model_args, data, training, options, *, selection_strategy=None):
                 print("STC dimensions:", encoder.stc_encoder.count)
                 print("STC mapping fingerprint:", encoder.stc_encoder.vocabulary.fingerprint)
             print(f'Build index: python -B src/adaptive_views.py index --sparse-root "{roots[1]}"')
+            if getattr(options, "adaptive_artifacts_file", None):
+                from adaptive_artifacts import publish
+                publish(options.adaptive_artifacts_file, roots, selection_path, expected, selection["fingerprint"])
         root_action(rank, complete)
+        finish_sparse_print(encoder)
         return roots, selection
     finally:
         api._release_retrieval_runtime(runtime)
@@ -657,6 +933,9 @@ def _query_encoding_settings(args, api, selection, *, eol_type, calculate_type, 
     probability_mass.validate_requested(selection, getattr(args, "view_probability_mass", None),
                                         getattr(args, "view_probability_mass_threshold", None))
     settings = api._qwen_encoding_settings(args, eol_type, calculate_type, sparse_manual)
+    if getattr(args, "single_view_repeat_selected_count", False):
+        from single_view_repeat import selection_configuration, FIELD
+        settings[FIELD] = selection_configuration(selection)
     if probability_mass.is_selection(selection):
         settings = probability_mass.add_metadata(settings, selection)
         settings["views_fingerprint"] = selection["views_fingerprint"]
@@ -665,8 +944,7 @@ def _query_encoding_settings(args, api, selection, *, eol_type, calculate_type, 
 
 def encode_queries(args, runtime, api, *, eol_type, calculate_type, sparse_manual, progress_prefix,
                    requested_query_ids=None, timing=None):
-    if (eol_type, calculate_type, sparse_manual) != ("disassembleeol_separate", "concat", False):
-        raise ValueError("Adaptive queries require sparse_concat")
+    validate_encoding_method(eol_type, calculate_type, sparse_manual, args.task_type)
     configure_processor(runtime.encoder.config, runtime.processor, args.retrieval_reps_loc)
     identity = views.model_identity(args.retrieval_model_name_or_path, runtime.encoder.config, runtime.processor,
                                     dtype=args.retrieval_dtype, lora=args.retrieval_lora_model_path)
@@ -719,12 +997,20 @@ def validate_encoded(args, encoded, paths, api, *, eol_type, calculate_type, spa
 def preflight(args, api, *, mark_output=True):
     """Validate candidate artifacts; only the main experiment marks the result path."""
     probability_mass.enabled(args)
+    repeat_mode = bool(getattr(args, "single_view_repeat_selected_count", False))
+    eol_type = getattr(args, "retrieval_eol_type", "disassembleeol_separate")
+    validate_encoding_method(eol_type, "concat", False, args.task_type)
     if args.task_type not in {"ir", "tbpr", "t2it", "it2t"} or args.stage1_method != "sparse_concat":
         raise ValueError("Adaptive views require ITR/ir, TBPR or fused-modal sparse_concat retrieval")
     if args.sparse_logits_multiply_view_count:
         raise ValueError("Adaptive views do not support the x5 sparse ablation")
-    if any(getattr(args, key) for key in ("stage1_run", "stage1_command", "stage2_run", "ranker_run", "val_stage1_run")):
-        raise ValueError("Adaptive mode executes all three stages; precomputed runs are supported with the mode disabled")
+    stop_after_stage2 = getattr(args, "stop_after_stage2", False)
+    run_inputs = ("stage1_run", "stage1_command", "stage2_run", "val_stage1_run")
+    if not stop_after_stage2:
+        run_inputs += ("ranker_run",)
+    if any(getattr(args, key) for key in run_inputs):
+        stages = "both retrieval stages" if stop_after_stage2 else "all three stages"
+        raise ValueError(f"Adaptive mode executes {stages}; precomputed runs are supported with the mode disabled")
     if not args.view_selection_file:
         raise ValueError("--adaptive-views requires --view-selection-file from encode_adaptive_views.py")
     from stage2_retrieval_mode import method as stage2_method, artifact_paths as stage2_artifact_paths
@@ -733,15 +1019,29 @@ def preflight(args, api, *, mark_output=True):
         raise ValueError("Adaptive views require Stage-1 sparse and Stage-2 dense artifacts; hybrid also requires Stage-2 sparse")
     stc.bind_corpus(args)
     lens.bind_corpus(args)
-    if args.rerank_template not in {"relevant", "what_caption_generation"}:
-        raise ValueError("Adaptive mode uses what_caption_generation reranking")
-    args.rerank_template = "what_caption_generation"
+    if not stop_after_stage2:
+        if args.rerank_template == "relevant":
+            args.rerank_template = "what_caption_generation"
+        if args.rerank_template not in {"what_caption_generation", "query_relevant", "reverse_query_relevant"}:
+            raise ValueError("Adaptive mode supports what_caption_generation, query_relevant or "
+                             f"reverse_query_relevant reranking; received {args.rerank_template!r}")
+        if args.rerank_template == "reverse_query_relevant" and args.task_type not in {"ir", "tbpr"}:
+            raise ValueError("Adaptive reverse_query_relevant reranking supports IR and TBPR only; "
+                             f"received task_type={args.task_type!r}")
+        if args.rerank_template in {"query_relevant", "reverse_query_relevant"}:
+            if args.rerank_type != "pointwise":
+                raise ValueError(f"Adaptive {args.rerank_template} reranking requires --rerank-type pointwise")
+            if args.modify_type != "no":
+                raise ValueError(f"Adaptive {args.rerank_template} reranking requires --modify-type no")
+            if getattr(args, "use_rerank_prior_cache", False):
+                raise ValueError(f"Adaptive {args.rerank_template} reranking does not support --use-rerank-prior-cache")
     from qwen_vl_pipeline import corpus_kind
     identity = load_model_identity(args.retrieval_model_name_or_path, dtype=args.retrieval_dtype,
                                    min_pixels=args.retrieval_qwen_min_pixels, max_pixels=args.retrieval_qwen_max_pixels,
                                    reps_loc=args.retrieval_reps_loc,
                                    image_mode=getattr(args, "retrieval_llava_image_mode", "anyres"),
                                    lora=args.retrieval_lora_model_path)
+    validate_encoding_method(eol_type, "concat", False, args.task_type, family=identity["family"])
     selection = views.load_selection(args.view_selection_file, identity=identity, dataset=args.dataset_name, view_selection_token_variants=getattr(args, "view_selection_token_variants", False), view_selection_prefix_tokens=getattr(args, "view_selection_prefix_tokens", False))
     if stc.enabled(args) and views.is_overlap_selection(selection):
         raise ValueError("STC does not support overlap selections")
@@ -753,15 +1053,22 @@ def preflight(args, api, *, mark_output=True):
     requested_run = getattr(args,"view_selection_run_id",None)
     if requested_run and (shuffle is None or shuffle["run_id"] != option_shuffle.validate_run_id(requested_run)):
         raise ValueError("Selection file does not belong to the requested VIEW_SELECTION_RUN_ID")
-    if mark_output and stage2_method(args) == "dense" and args.output_dir is not None:
+    if mark_output and not repeat_mode and stage2_method(args) == "dense" and args.output_dir is not None:
         from stage2_retrieval_mode import adaptive_output_path
         args.output_dir = str(adaptive_output_path(args.output_dir, selection))
-    elif mark_output and shuffle is not None and args.output_dir is not None:
+    elif mark_output and not repeat_mode and shuffle is not None and args.output_dir is not None:
         args.output_dir = str(option_shuffle.mark_path(args.output_dir,shuffle))
-    if mark_output and stage2_method(args) == "hybrid" and probability_mass.is_selection(selection) and args.output_dir is not None:
+    if mark_output and not repeat_mode and stage2_method(args) == "hybrid" and probability_mass.is_selection(selection) and args.output_dir is not None:
         args.output_dir = str(probability_mass.mark_output(args.output_dir, selection))
-    model_args, data = api._retrieval_namespaces(args, eol_type="disassembleeol_separate", calculate_type="concat", sparse_manual=False)
+    model_args, data = api._retrieval_namespaces(args, eol_type=eol_type, calculate_type="concat", sparse_manual=False)
     expected = metadata(model_args, data, args.task_type, corpus_kind(args.task_type, args.query_type), identity, selection)
+    if getattr(args, "single_view_repeat_selected_count", False):
+        from single_view_repeat import mark_path, FIELD
+        args.single_view_repeat_configuration = expected["configuration"][FIELD]
+        if mark_output and args.output_dir is not None:
+            from stage2_retrieval_mode import adaptive_output_path
+            args.output_dir = str(adaptive_output_path(
+                mark_path(args.output_dir, args.single_view_repeat_configuration), selection))
     if mark_output and stc.enabled(args) and args.output_dir is not None:
         args.output_dir = str(stc.mark_path(args.output_dir, expected["configuration"][stc.FIELD]))
     if mark_output and lens.enabled(args) and args.output_dir is not None:

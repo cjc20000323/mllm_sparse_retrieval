@@ -71,6 +71,7 @@ class Settings:
     use_freeret_full_prompt: bool = False
     token_variants: bool = False
     prefix_tokens: bool = False
+    single_view_repeat: bool = False
 
     @classmethod
     def from_environment(cls, group, env=None, *, overlap_only=False, exact_encoding=False):
@@ -112,7 +113,8 @@ class Settings:
                    boolean(env.get("DRY_RUN", "false")), overlap_only, selection_root or None,
                    boolean(env.get("USE_FREERET_DENSE", "false")), boolean(env.get("USE_FREERET_PROMPT_CONSTRAINTS", "false")) and not full,
                    exact_encoding, env if exact_encoding else None, full,
-                   boolean(env.get("USE_VIEW_TOKEN_VARIANTS", "false")), prefixed)
+                   boolean(env.get("USE_VIEW_TOKEN_VARIANTS", "false")), prefixed,
+                   boolean(env.get("SINGLE_VIEW_REPEAT_SELECTED_COUNT", "false")))
 
 
 @dataclass(frozen=True)
@@ -151,6 +153,14 @@ def check_artifact(root, manifest, configuration, *, selection=None, resolver=No
     if not isinstance(fingerprint, str) or not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
         raise ValueError(f"Invalid views_fingerprint at {root}")
     expected_names = {fingerprint[:16], fingerprint[:16] + "_llava_base"}
+    if configuration.get("single_view_repeat") is not None:
+        from single_view_repeat import mark_path, validate_saved
+        if selection is None:
+            selection = validate_index_selection(root, manifest, resolver=resolver,
+                view_selection_token_variants=view_selection_token_variants,
+                view_selection_prefix_tokens=view_selection_prefix_tokens)
+        validate_saved(configuration, selection)
+        expected_names = {mark_path(Path(name), configuration["single_view_repeat"]).name for name in expected_names}
     from adaptive_view_shuffle import mark_path, FIELD, validate
     from adaptive_views import view_pool, pool_mode
     shuffle = configuration.get(FIELD)
@@ -188,6 +198,10 @@ def discover(settings, *, incompatible=None, non_overlap=None):
         try:
             manifest = json.loads(path.read_text(encoding="utf-8"))
             configuration = manifest["configuration"]
+            if (configuration.get("single_view_repeat") is not None) != getattr(settings, "single_view_repeat", False):
+                if path.parent.resolve() == settings.sparse_root.resolve():
+                    raise ValueError("Explicit single-view repetition mode differs from SINGLE_VIEW_REPEAT_SELECTED_COUNT")
+                continue
             if (configuration.get("version") == PREFIX_VERSION) != settings.prefix_tokens:
                 if path.parent.resolve() == settings.sparse_root.resolve():
                     raise ValueError("Explicit adaptive encoding prefix-token mode differs from USE_VIEW_PREFIX_TOKENS")

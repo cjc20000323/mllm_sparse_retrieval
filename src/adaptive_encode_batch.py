@@ -38,6 +38,7 @@ DEFAULTS = {
     "VIEW_EXAMPLE_MODE": "auto", "VIEW_EXAMPLE_MAX_TOKENS": "0",
     "DEEPSPEED_BIN": "deepspeed", "USE_FREERET_DENSE": "false", "USE_FREERET_PROMPT_CONSTRAINTS": "false", "USE_FREERET_FULL_PROMPT": "false",
     "SHUFFLE_VIEW_OPTIONS": "false",
+    "SINGLE_VIEW_REPEAT_SELECTED_COUNT": "false",
     "USE_HIERARCHICAL_VIEWS": "false",
     "USE_VIEW_TOKEN_VARIANTS": "false",
     "USE_VIEW_PREFIX_TOKENS": "false",
@@ -79,6 +80,13 @@ def split_name(value, name):
 
 def encoding_controls(env):
     controls = {name: env.get(name) or default for name, default in DEFAULTS.items()}
+    controls["SINGLE_VIEW_REPEAT_SELECTED_COUNT"] = str(boolean(
+        controls["SINGLE_VIEW_REPEAT_SELECTED_COUNT"], "SINGLE_VIEW_REPEAT_SELECTED_COUNT")).lower()
+    if controls["SINGLE_VIEW_REPEAT_SELECTED_COUNT"] == "true":
+        for name in ("SPARSE_VALUE_MEAN", "USE_FREERET_FULL_PROMPT", "USE_STC_SPARSE", "USE_LENS_SPARSE",
+                     "USE_VIEW_OVERLAP_SELECTION"):
+            if boolean(env.get(name, "false"), name):
+                raise ValueError(f"Single-view repetition is incompatible with {name}")
     controls["USE_VIEW_PROBABILITY_MASS"] = str(boolean(controls["USE_VIEW_PROBABILITY_MASS"], "USE_VIEW_PROBABILITY_MASS")).lower()
     if controls["USE_VIEW_PROBABILITY_MASS"] == "true":
         from adaptive_view_probability_mass import configuration
@@ -274,6 +282,9 @@ def prepare_jobs(settings):
         raise ValueError("Shuffled encoding starts a new experiment; omit VIEW_SELECTION_FILE or choose a nonexistent file")
     jobs, skipped = [], []
     for family, dataset, kind in product(settings.families, settings.datasets, settings.kinds):
+        if settings.controls.get("SINGLE_VIEW_REPEAT_SELECTED_COUNT") == "true":
+            if family not in {"llava_llama", "llava_mistral"} or dataset not in {"flickr", "coco"} or settings.encoder != "ordinary":
+                raise ValueError("Single-view repetition supports ordinary LLaVA Flickr/COCO IR encoding only")
         model = settings.models[family]
         required = dict.fromkeys((model / "config.json", *annotation_files(settings.data_root, dataset, settings.split),
                                   *annotation_files(settings.data_root, dataset, settings.selection_split)))

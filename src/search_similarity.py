@@ -87,7 +87,7 @@ ENABLE_RETRIEVAL_SIMILARITY_STATS = os.environ.get(
 ).lower() in {'1', 'true', 'yes', 'y', 'on'}
 RETRIEVAL_SIMILARITY_STATS_DIR_NAME = 'retrieval_similarity_prompteol_separate'
 RETRIEVAL_SIMILARITY_CONFIGURATIONS = {
-    ('prompteol', 'separate'): (RETRIEVAL_SIMILARITY_STATS_DIR_NAME, False),
+    ('prompteol', 'separate'): (RETRIEVAL_SIMILARITY_STATS_DIR_NAME, True),
     ('disassembleeol_separate', 'concat'): (
         'retrieval_similarity_disassembleeol_separate_concat', True
     ),
@@ -229,6 +229,7 @@ def _save_test_runs_for_similarity(
             'eol_type': model_args.eol_type,
             'calculate_type': model_args.calculate_type,
             'sparse_manual': bool(data_args.sparse_manual),
+            'llava_image_mode': data_args.llava_image_mode,
             'search_depth': search_args.depth,
             'test_run_directory': run_directory,
         },
@@ -607,6 +608,9 @@ def main():
     search_args: PromptRepsLLMSearchArguments
     training_args: TrainingArguments
 
+    from llava_resolution import configure_search, search_result_dir, lucene_index_dir, validate_checkpoint
+    validate_checkpoint(model_args.model_name_or_path, data_args.llava_image_mode)
+
     if ENABLE_RETRIEVAL_SIMILARITY_STATS:
         _similarity_stats_configuration(model_args)
 
@@ -751,6 +755,11 @@ def main():
         )
         encoder = encoder.merge_and_unload()
 
+    processor = configure_search(encoder, processor, data_args, search_args, training_args.task_type)
+
+    def llava_result_dir(path):
+        return search_result_dir(path, data_args.llava_image_mode)
+
     # The test dataset always stays data_args.dataset_name.  When requested,
     # only the validation dataset is taken from the fixed cross-dataset map.
     val_dataset_name = data_args.dataset_name
@@ -890,7 +899,7 @@ def main():
                                                                             ngpu=num_gpus)
 
         if val_sparse_retriever_indices:
-            val_sparse_retriever = LuceneImpactSearcher(os.path.join(val_sparse_retriever_indices[i], 'index'), None)
+            val_sparse_retriever = LuceneImpactSearcher(lucene_index_dir(val_sparse_retriever_indices[i]), None)
             val_analyzer = JWhiteSpaceAnalyzer()
             val_sparse_retriever.set_analyzer(val_analyzer)
 
@@ -1979,61 +1988,61 @@ def main():
             )
             if training_args.task_type == 'cir':
                 os.makedirs(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                     exist_ok=True)
 
                 output_path = os.path.join(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                     f'0_{i + 1}_0_{10 - i - 1}_val.csv')
             elif training_args.task_type == 'tbpr':
                 if data_args.prompt_generation:
                     os.makedirs(
-                        path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                        llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}'),
                         exist_ok=True)
 
                     output_path = os.path.join(
-                        path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                        llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}'),
                         f'0_{i + 1}_0_{10 - i - 1}_val.csv')
                 else:
                     os.makedirs(
-                        path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                        llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                         exist_ok=True)
 
                     output_path = os.path.join(
-                        path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                        llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[14:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                         f'0_{i + 1}_0_{10 - i - 1}_val.csv')
             elif training_args.task_type == 't2it':
                 os.makedirs(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                     exist_ok=True)
 
                 output_path = os.path.join(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                     f'0_{i + 1}_0_{10 - i - 1}_val.csv')
             elif training_args.task_type == 'it2t':
                 os.makedirs(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                     exist_ok=True)
 
                 output_path = os.path.join(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                     f'0_{i + 1}_0_{10 - i - 1}_val.csv')
             else:
                 if data_args.prompt_generation:
                     os.makedirs(
-                        path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                        llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}'),
                         exist_ok=True)
 
                     output_path = os.path.join(
-                        path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                        llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}'),
                         f'0_{i + 1}_0_{10 - i - 1}_val.csv')
                 else:
                     os.makedirs(
-                        path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                        llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                         exist_ok=True)
 
                     output_path = os.path.join(
-                        path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                        llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                         f'0_{i + 1}_0_{10 - i - 1}_val.csv')
 
             val_metric = RecallMetrics(val_dataset, val_dense_run, val_sparse_run, val_fusion_run[i], val_look_up,
@@ -2133,7 +2142,7 @@ def main():
                                                                             ngpu=num_gpus)
 
         if sparse_retriever_indices:
-            sparse_retriever = LuceneImpactSearcher(os.path.join(sparse_retriever_indices[i], 'index'), None)
+            sparse_retriever = LuceneImpactSearcher(lucene_index_dir(sparse_retriever_indices[i]), None)
             analyzer = JWhiteSpaceAnalyzer()
             sparse_retriever.set_analyzer(analyzer)
 
@@ -4477,61 +4486,61 @@ def main():
         )
         if training_args.task_type == 'cir':
             os.makedirs(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                 exist_ok=True)
 
             output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                 f'0_{i + 1}_0_{10 - i - 1}_test.csv')
         elif training_args.task_type == 'tbpr':
             if data_args.prompt_generation:
                 os.makedirs(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                    llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}'),
                     exist_ok=True)
 
                 output_path = os.path.join(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                    llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}'),
                     f'0_{i + 1}_0_{10 - i - 1}_test.csv')
             else:
                 os.makedirs(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                     exist_ok=True)
 
                 output_path = os.path.join(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                     f'0_{i + 1}_0_{10 - i - 1}_test.csv')
         elif training_args.task_type == 't2it':
             os.makedirs(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                 exist_ok=True)
 
             output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                 f'0_{i + 1}_0_{10 - i - 1}_test.csv')
         elif training_args.task_type == 'it2t':
             os.makedirs(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                 exist_ok=True)
 
             output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                 f'0_{i + 1}_0_{10 - i - 1}_test.csv')
         else:
             if data_args.prompt_generation:
                 os.makedirs(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                    llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}'),
                     exist_ok=True)
 
                 output_path = os.path.join(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                    llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}'),
                     f'0_{i + 1}_0_{10 - i - 1}_test.csv')
             else:
                 os.makedirs(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                     exist_ok=True)
 
                 output_path = os.path.join(
-                    path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                    llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                     f'0_{i + 1}_0_{10 - i - 1}_test.csv')
 
         metric = RecallMetrics(dataset, dense_run, sparse_run, fusion_run[i], look_up, lookup_indices, search_args)
@@ -4580,33 +4589,33 @@ def main():
 
     if training_args.task_type == 'cir':
         output_path = os.path.join(
-            path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.cir_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
             f'best.csv')
     elif training_args.task_type == 'tbpr':
         if data_args.prompt_generation:
             output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}'),
                 f'best.csv')
         else:
             output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.tbpr_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                 f'best.csv')
     elif training_args.task_type == 't2it':
         output_path = os.path.join(
-            path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
             f'best.csv')
     elif training_args.task_type == 'it2t':
         output_path = os.path.join(
-            path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+            llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
             f'best.csv')
     else:
         if data_args.prompt_generation:
             output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}',
+                llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}_{data_args.prompt_generation_model}'),
                 f'best.csv')
         else:
             output_path = os.path.join(
-                path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}',
+                llava_result_dir(path_prefix + f'search_results/{model_args.model_name_or_path[model_begin_indice:]}/{data_args.dataset_name}/{search_args.query_type}/{filtered}/{model_args.calculate_type}/{data_args.prompt_type}/{data_args.num_expended_tokens}_{manual}_{data_args.sparse_length}_{data_args.sparse_value_type}_{cluster}_{data_args.reps_loc}_{model_args.eol_type}_{data_args.sparse_lower_or_upper}_{use_sparse_value_mean}_{data_args.sparse_type}'),
                 f'best.csv')
 
     _save_test_runs_for_similarity(

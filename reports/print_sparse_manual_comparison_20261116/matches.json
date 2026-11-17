@@ -1,0 +1,868 @@
+{
+  "validation": "passed",
+  "captured_at_utc": "2026-11-16T10:01:59.257678+00:00",
+  "comparison": "lowercase only; preserve tokenizer prefix; exclude zero-weight matches and pure whitespace/punctuation",
+  "population": {
+    "single_image": 1000,
+    "text_false": 5000,
+    "text_true": 5000,
+    "adaptive_images": 1000,
+    "adaptive_rows": 6000,
+    "candidate_captions": 1433,
+    "candidate_images": 695,
+    "candidate_histogram": {
+      "4": 1,
+      "3": 17,
+      "2": 199,
+      "1": 1216
+    },
+    "captions_with_added_terms": 163
+  },
+  "cases": [
+    {
+      "imgid": "3245",
+      "filename": "2088705195.jpg",
+      "caption": "Two silhouetted people paddle a canoe on the ocean during sunset.",
+      "sentid": "16227",
+      "figure": "example_3245.png",
+      "distinct_match_count": 4,
+      "added_dimension_count": 0,
+      "terms": [
+        {
+          "canonical_term": "▁p",
+          "term_kind": "word_piece",
+          "text_false": [
+            {
+              "rank": 2,
+              "token_id": 284,
+              "token": "▁p",
+              "weight": 2.117760419845581
+            }
+          ],
+          "text_true": [
+            {
+              "rank": 2,
+              "token_id": 367,
+              "token": "▁P",
+              "weight": 2.709611415863037
+            }
+          ],
+          "adaptive_occurrences": [
+            {
+              "view": "J",
+              "aspect": "high-level semantics, such as events, activities and functions",
+              "rank": 5,
+              "token_id": 367,
+              "token": "▁P",
+              "weight": 2.607421875,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+                "line": 349
+              }
+            },
+            {
+              "view": "C",
+              "aspect": "people, such as number of people, appearance and pose",
+              "rank": 4,
+              "token_id": 367,
+              "token": "▁P",
+              "weight": 2.63671875,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+                "line": 351
+              }
+            }
+          ],
+          "stored_weights": {
+            "image_true": 240,
+            "text_false": 212,
+            "text_true": 483,
+            "adaptive_image": 1017
+          },
+          "added_to_final_sparse": false
+        },
+        {
+          "canonical_term": "▁can",
+          "term_kind": "word_piece",
+          "text_false": [
+            {
+              "rank": 1,
+              "token_id": 541,
+              "token": "▁can",
+              "weight": 2.132686138153076
+            }
+          ],
+          "text_true": [
+            {
+              "rank": 1,
+              "token_id": 2418,
+              "token": "▁Can",
+              "weight": 2.756840467453003
+            }
+          ],
+          "adaptive_occurrences": [
+            {
+              "view": "J",
+              "aspect": "high-level semantics, such as events, activities and functions",
+              "rank": 6,
+              "token_id": 2418,
+              "token": "▁Can",
+              "weight": 2.59765625,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+                "line": 349
+              }
+            },
+            {
+              "view": "C",
+              "aspect": "people, such as number of people, appearance and pose",
+              "rank": 5,
+              "token_id": 2418,
+              "token": "▁Can",
+              "weight": 2.611328125,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+                "line": 351
+              }
+            }
+          ],
+          "stored_weights": {
+            "image_true": 247,
+            "text_false": 213,
+            "text_true": 489,
+            "adaptive_image": 1019
+          },
+          "added_to_final_sparse": false
+        },
+        {
+          "canonical_term": "▁two",
+          "term_kind": "complete_word",
+          "text_false": [
+            {
+              "rank": 3,
+              "token_id": 989,
+              "token": "▁two",
+              "weight": 1.8256827592849731
+            }
+          ],
+          "text_true": [
+            {
+              "rank": 10,
+              "token_id": 6005,
+              "token": "▁Two",
+              "weight": 2.5080738067626953
+            }
+          ],
+          "adaptive_occurrences": [
+            {
+              "view": "C",
+              "aspect": "people, such as number of people, appearance and pose",
+              "rank": 2,
+              "token_id": 6005,
+              "token": "▁Two",
+              "weight": 2.779296875,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+                "line": 351
+              }
+            }
+          ],
+          "stored_weights": {
+            "image_true": 238,
+            "text_false": 183,
+            "text_true": 251,
+            "adaptive_image": 278
+          },
+          "added_to_final_sparse": false
+        },
+        {
+          "canonical_term": "▁sil",
+          "term_kind": "word_piece",
+          "text_false": [
+            {
+              "rank": 4,
+              "token_id": 2958,
+              "token": "▁sil",
+              "weight": 1.7532676458358765
+            }
+          ],
+          "text_true": [
+            {
+              "rank": 6,
+              "token_id": 6044,
+              "token": "▁Sil",
+              "weight": 2.582817554473877
+            }
+          ],
+          "adaptive_occurrences": [
+            {
+              "view": "C",
+              "aspect": "people, such as number of people, appearance and pose",
+              "rank": 6,
+              "token_id": 6044,
+              "token": "▁Sil",
+              "weight": 2.603515625,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+                "line": 351
+              }
+            }
+          ],
+          "stored_weights": {
+            "image_true": 242,
+            "text_false": 175,
+            "text_true": 258,
+            "adaptive_image": 999
+          },
+          "added_to_final_sparse": false
+        }
+      ],
+      "log_sources": {
+        "image_true": {
+          "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/image/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 482
+        },
+        "text_false": {
+          "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_false/text/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 2043
+        },
+        "text_true": {
+          "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/text/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 2043
+        },
+        "adaptive_image": [
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+            "line": 349
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+            "line": 350
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+            "line": 351
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+            "line": 352
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+            "line": 353
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+            "line": 354
+          }
+        ]
+      },
+      "sparse_sources": {
+        "image_true": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean_llava_base/corpus_0.jsonl",
+          "line": 482
+        },
+        "text_false": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_no_manual_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_1.jsonl",
+          "line": 2043
+        },
+        "text_true": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_1.jsonl",
+          "line": 2043
+        },
+        "adaptive_image": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/concat/prompt_5/test/0_no_manual_30_sum_no_cluster_after_pad_disassembleeol_separate_lower_no_mean/adaptive_views/63d32642e1d38b54_llava_base/collection/corpus_0.jsonl",
+          "line": 59
+        }
+      }
+    },
+    {
+      "imgid": "7996",
+      "filename": "2725508159.jpg",
+      "caption": "A girl is kayaking in a blue boat, on a blue lake wearing an orange life jacket.",
+      "sentid": "39982",
+      "figure": "example_7996.png",
+      "distinct_match_count": 3,
+      "added_dimension_count": 2,
+      "terms": [
+        {
+          "canonical_term": "▁girl",
+          "term_kind": "complete_word",
+          "text_false": [
+            {
+              "rank": 2,
+              "token_id": 2746,
+              "token": "▁girl",
+              "weight": 2.22377872467041
+            }
+          ],
+          "text_true": [
+            {
+              "rank": 2,
+              "token_id": 10850,
+              "token": "▁Girl",
+              "weight": 2.7007317543029785
+            }
+          ],
+          "adaptive_occurrences": [
+            {
+              "view": "C",
+              "aspect": "people, such as number of people, appearance and pose",
+              "rank": 9,
+              "token_id": 10850,
+              "token": "▁Girl",
+              "weight": 2.62109375,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+                "line": 729
+              }
+            }
+          ],
+          "stored_weights": {
+            "image_true": 257,
+            "text_false": 222,
+            "text_true": 492,
+            "adaptive_image": 262
+          },
+          "added_to_final_sparse": false
+        },
+        {
+          "canonical_term": "▁orange",
+          "term_kind": "complete_word",
+          "text_false": [
+            {
+              "rank": 3,
+              "token_id": 14545,
+              "token": "▁orange",
+              "weight": 1.7950093746185303
+            }
+          ],
+          "text_true": [
+            {
+              "rank": 4,
+              "token_id": 21853,
+              "token": "▁Orange",
+              "weight": 2.5751137733459473
+            }
+          ],
+          "adaptive_occurrences": [
+            {
+              "view": "D",
+              "aspect": "clothing, such as category, color, material and style",
+              "rank": 1,
+              "token_id": 21853,
+              "token": "▁Orange",
+              "weight": 2.779296875,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+                "line": 731
+              }
+            }
+          ],
+          "stored_weights": {
+            "image_true": 0,
+            "text_false": 180,
+            "text_true": 258,
+            "adaptive_image": 278
+          },
+          "added_to_final_sparse": true
+        },
+        {
+          "canonical_term": "▁life",
+          "term_kind": "complete_word",
+          "text_false": [
+            {
+              "rank": 4,
+              "token_id": 1411,
+              "token": "▁life",
+              "weight": 1.7286088466644287
+            }
+          ],
+          "text_true": [
+            {
+              "rank": 10,
+              "token_id": 5372,
+              "token": "▁Life",
+              "weight": 2.467172145843506
+            }
+          ],
+          "adaptive_occurrences": [
+            {
+              "view": "D",
+              "aspect": "clothing, such as category, color, material and style",
+              "rank": 2,
+              "token_id": 5372,
+              "token": "▁Life",
+              "weight": 2.7578125,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+                "line": 731
+              }
+            }
+          ],
+          "stored_weights": {
+            "image_true": 0,
+            "text_false": 173,
+            "text_true": 247,
+            "adaptive_image": 276
+          },
+          "added_to_final_sparse": true
+        }
+      ],
+      "log_sources": {
+        "image_true": {
+          "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/image/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 65
+        },
+        "text_false": {
+          "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_false/text/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 1167
+        },
+        "text_true": {
+          "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/text/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 1167
+        },
+        "adaptive_image": [
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 727
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 728
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 729
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 730
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 731
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 732
+          }
+        ]
+      },
+      "sparse_sources": {
+        "image_true": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean_llava_base/corpus_1.jsonl",
+          "line": 65
+        },
+        "text_false": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_no_manual_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_1.jsonl",
+          "line": 1167
+        },
+        "text_true": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_1.jsonl",
+          "line": 1167
+        },
+        "adaptive_image": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/concat/prompt_5/test/0_no_manual_30_sum_no_cluster_after_pad_disassembleeol_separate_lower_no_mean/adaptive_views/63d32642e1d38b54_llava_base/collection/corpus_1.jsonl",
+          "line": 122
+        }
+      }
+    },
+    {
+      "imgid": "12949",
+      "filename": "3350177228.jpg",
+      "caption": "A man in orange working under dim lighting.",
+      "sentid": "64748",
+      "figure": "example_12949.png",
+      "distinct_match_count": 3,
+      "added_dimension_count": 1,
+      "terms": [
+        {
+          "canonical_term": "▁working",
+          "term_kind": "complete_word",
+          "text_false": [
+            {
+              "rank": 3,
+              "token_id": 2739,
+              "token": "▁working",
+              "weight": 1.823162317276001
+            }
+          ],
+          "text_true": [
+            {
+              "rank": 4,
+              "token_id": 18847,
+              "token": "▁Working",
+              "weight": 2.510615110397339
+            }
+          ],
+          "adaptive_occurrences": [
+            {
+              "view": "C",
+              "aspect": "people, such as number of people, appearance and pose",
+              "rank": 10,
+              "token_id": 18847,
+              "token": "▁Working",
+              "weight": 2.53125,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+                "line": 1251
+              }
+            }
+          ],
+          "stored_weights": {
+            "image_true": 252,
+            "text_false": 182,
+            "text_true": 251,
+            "adaptive_image": 505
+          },
+          "added_to_final_sparse": false
+        },
+        {
+          "canonical_term": "▁dim",
+          "term_kind": "complete_word",
+          "text_false": [
+            {
+              "rank": 1,
+              "token_id": 3987,
+              "token": "▁dim",
+              "weight": 2.066664934158325
+            }
+          ],
+          "text_true": [
+            {
+              "rank": 7,
+              "token_id": 18752,
+              "token": "▁Dim",
+              "weight": 2.4803390502929688
+            }
+          ],
+          "adaptive_occurrences": [
+            {
+              "view": "B",
+              "aspect": "natural environment, such as weather, lighting, season and time",
+              "rank": 6,
+              "token_id": 18752,
+              "token": "▁Dim",
+              "weight": 2.59765625,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+                "line": 1252
+              }
+            }
+          ],
+          "stored_weights": {
+            "image_true": 0,
+            "text_false": 207,
+            "text_true": 248,
+            "adaptive_image": 508
+          },
+          "added_to_final_sparse": true
+        },
+        {
+          "canonical_term": "▁orange",
+          "term_kind": "complete_word",
+          "text_false": [
+            {
+              "rank": 4,
+              "token_id": 14545,
+              "token": "▁orange",
+              "weight": 1.5857213735580444
+            }
+          ],
+          "text_true": [
+            {
+              "rank": 6,
+              "token_id": 21853,
+              "token": "▁Orange",
+              "weight": 2.490748882293701
+            }
+          ],
+          "adaptive_occurrences": [
+            {
+              "view": "D",
+              "aspect": "clothing, such as category, color, material and style",
+              "rank": 1,
+              "token_id": 21853,
+              "token": "▁Orange",
+              "weight": 2.76171875,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+                "line": 1253
+              }
+            }
+          ],
+          "stored_weights": {
+            "image_true": 256,
+            "text_false": 159,
+            "text_true": 249,
+            "adaptive_image": 276
+          },
+          "added_to_final_sparse": false
+        }
+      ],
+      "log_sources": {
+        "image_true": {
+          "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/image/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 360
+        },
+        "text_false": {
+          "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_false/text/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 99
+        },
+        "text_true": {
+          "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/text/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 99
+        },
+        "adaptive_image": [
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 1249
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 1250
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 1251
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 1252
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 1253
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 1254
+          }
+        ]
+      },
+      "sparse_sources": {
+        "image_true": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean_llava_base/corpus_1.jsonl",
+          "line": 360
+        },
+        "text_false": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_no_manual_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl",
+          "line": 99
+        },
+        "text_true": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl",
+          "line": 99
+        },
+        "adaptive_image": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/concat/prompt_5/test/0_no_manual_30_sum_no_cluster_after_pad_disassembleeol_separate_lower_no_mean/adaptive_views/63d32642e1d38b54_llava_base/collection/corpus_1.jsonl",
+          "line": 209
+        }
+      }
+    },
+    {
+      "imgid": "19643",
+      "filename": "4495033915.jpg",
+      "caption": "A man in a blue jacket is taking a picture of a church.",
+      "sentid": "98219",
+      "figure": "example_19643.png",
+      "distinct_match_count": 3,
+      "added_dimension_count": 1,
+      "terms": [
+        {
+          "canonical_term": "▁taking",
+          "term_kind": "complete_word",
+          "text_false": [
+            {
+              "rank": 3,
+              "token_id": 3344,
+              "token": "▁taking",
+              "weight": 2.002324342727661
+            }
+          ],
+          "text_true": [
+            {
+              "rank": 4,
+              "token_id": 20648,
+              "token": "▁Taking",
+              "weight": 2.632338285446167
+            }
+          ],
+          "adaptive_occurrences": [
+            {
+              "view": "J",
+              "aspect": "high-level semantics, such as events, activities and functions",
+              "rank": 9,
+              "token_id": 20648,
+              "token": "▁Taking",
+              "weight": 2.53515625,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+                "line": 1909
+              }
+            },
+            {
+              "view": "C",
+              "aspect": "people, such as number of people, appearance and pose",
+              "rank": 10,
+              "token_id": 20648,
+              "token": "▁Taking",
+              "weight": 2.54296875,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+                "line": 1911
+              }
+            }
+          ],
+          "stored_weights": {
+            "image_true": 240,
+            "text_false": 200,
+            "text_true": 263,
+            "adaptive_image": 508
+          },
+          "added_to_final_sparse": false
+        },
+        {
+          "canonical_term": "▁man",
+          "term_kind": "complete_word",
+          "text_false": [
+            {
+              "rank": 2,
+              "token_id": 676,
+              "token": "▁man",
+              "weight": 2.032968044281006
+            }
+          ],
+          "text_true": [
+            {
+              "rank": 3,
+              "token_id": 2213,
+              "token": "▁Man",
+              "weight": 2.658947467803955
+            }
+          ],
+          "adaptive_occurrences": [
+            {
+              "view": "C",
+              "aspect": "people, such as number of people, appearance and pose",
+              "rank": 2,
+              "token_id": 2213,
+              "token": "▁Man",
+              "weight": 2.775390625,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+                "line": 1911
+              }
+            }
+          ],
+          "stored_weights": {
+            "image_true": 247,
+            "text_false": 203,
+            "text_true": 266,
+            "adaptive_image": 529
+          },
+          "added_to_final_sparse": false
+        },
+        {
+          "canonical_term": "▁blue",
+          "term_kind": "complete_word",
+          "text_false": [
+            {
+              "rank": 5,
+              "token_id": 5045,
+              "token": "▁blue",
+              "weight": 1.7586658000946045
+            }
+          ],
+          "text_true": [
+            {
+              "rank": 10,
+              "token_id": 8836,
+              "token": "▁Blue",
+              "weight": 2.4901015758514404
+            }
+          ],
+          "adaptive_occurrences": [
+            {
+              "view": "D",
+              "aspect": "clothing, such as category, color, material and style",
+              "rank": 2,
+              "token_id": 8836,
+              "token": "▁Blue",
+              "weight": 2.703125,
+              "source": {
+                "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+                "line": 1913
+              }
+            }
+          ],
+          "stored_weights": {
+            "image_true": 0,
+            "text_false": 176,
+            "text_true": 249,
+            "adaptive_image": 270
+          },
+          "added_to_final_sparse": true
+        }
+      ],
+      "log_sources": {
+        "image_true": {
+          "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/image/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 97
+        },
+        "text_false": {
+          "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_false/text/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 907
+        },
+        "text_true": {
+          "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_manual_true/text/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 907
+        },
+        "adaptive_image": [
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 1909
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 1910
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 1911
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 1912
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 1913
+          },
+          {
+            "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+            "line": 1914
+          }
+        ]
+      },
+      "sparse_sources": {
+        "image_true": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean_llava_base/corpus_1.jsonl",
+          "line": 97
+        },
+        "text_false": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_no_manual_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl",
+          "line": 907
+        },
+        "text_true": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl",
+          "line": 907
+        },
+        "adaptive_image": {
+          "file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/image/no_filter/concat/prompt_5/test/0_no_manual_30_sum_no_cluster_after_pad_disassembleeol_separate_lower_no_mean/adaptive_views/63d32642e1d38b54_llava_base/collection/corpus_1.jsonl",
+          "line": 319
+        }
+      }
+    }
+  ]
+}

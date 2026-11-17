@@ -851,6 +851,10 @@ def main():
     parser.set_defaults(view_selection_token_variants=os.environ.get("USE_VIEW_TOKEN_VARIANTS", "false"), view_selection_prefix_tokens=os.environ.get("USE_VIEW_PREFIX_TOKENS", "false"))
 
     model_args, data_args, training_args, adaptive_args = parser.parse_args_into_dataclasses()
+    if model_args.single_view_repeat_selected_count and not adaptive_args.adaptive_views:
+        raise ValueError("--single_view_repeat_selected_count requires --adaptive_views")
+    if adaptive_args.adaptive_artifacts_file and not adaptive_args.adaptive_views:
+        raise ValueError("--adaptive_artifacts_file requires --adaptive_views")
     if adaptive_args.view_selection_prefix_tokens and not adaptive_args.adaptive_views:
         raise ValueError("--view_selection_prefix_tokens requires --adaptive_views")
     if adaptive_args.use_lens_sparse and not adaptive_args.adaptive_views:

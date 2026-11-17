@@ -154,6 +154,18 @@ CHOICE_INSTRUCTION = (
 @dataclass
 class AdaptiveViewArguments:
     adaptive_views: bool = False
+    print_sparse_top_k: int = field(default=10, metadata={
+        "help": "Tokens to print per selected adaptive view when --print_sparse is enabled; does not change sparse encoding"})
+    print_sparse_format: str = field(default="json", metadata={
+        "choices": ("text", "json"),
+        "help": "Console format for per-view sparse token diagnostics; does not change sparse encoding"})
+    print_sparse_timing: str = field(default="immediate", metadata={
+        "choices": ("immediate", "end"),
+        "help": "Print the target during encoding or summarize it after successful completion"})
+    print_sparse_sample_id: Optional[str] = field(default=None, metadata={
+        "help": "Only print this dataset sample ID to the console; empty prints all samples, without filtering encoding"})
+    print_sparse_log_dir: Optional[str] = field(default=None, metadata={
+        "help": "Save all per-view token diagnostics to sparse_tokens_rank<N>.jsonl in this directory"})
     view_selection_token_variants: bool = field(default=False, metadata={"help": "Opt in to vocabulary-variant probability sums; false preserves the original single-token scorer and caches"})
     view_selection_prefix_tokens: bool = field(default=False, metadata={"help": "Use only Ġ+uppercase option for llava_llama or ▁+uppercase option for llava_mistral; mutually exclusive with token variants"})
     use_stc_sparse: bool = False
@@ -198,6 +210,8 @@ class AdaptiveViewArguments:
     view_selection_seed: int = 42
     view_selection_split: Optional[str] = None
     adaptive_data_root: str = "/root/autodl-tmp"
+    adaptive_artifacts_file: Optional[str] = field(default=None, metadata={
+        "help": "Optionally publish completed Dense/Sparse paths and the locked selection for subsequent scripts"})
 
 
 def digest(value):
@@ -1534,6 +1548,9 @@ def validate_index_selection(root, manifest, *, resolver=None, view_selection_to
             or pool_mode(selection) != pool_mode(configuration)
             or is_pmi_selection(selection) != (configuration.get("selection_calibration", {}).get("method") == "pmi")):
         raise ValueError(f"Adaptive manifest/selection fingerprint or configuration mismatch: {root}")
+    if configuration.get("single_view_repeat") is not None:
+        from single_view_repeat import validate_saved
+        validate_saved(configuration, selection)
     require_equal({"calibration": configuration.get("selection_calibration")},
                   {"calibration": selection.get("calibration", {}).get("configuration")}, "Adaptive index calibration")
     if configuration.get(option_shuffle.FIELD) != selection.get(option_shuffle.FIELD):

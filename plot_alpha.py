@@ -26,18 +26,12 @@ hybrid_flickr_t2i_mistral = [59.7, 62.0, 63.5, 65.0, 65.5, 65.7, 65.0, 64.2, 62.
 hybrid_flickr_i2t_mistral = [70.9, 73.1, 74.2, 75.0, 74.8, 75.4, 75.2, 74.5, 73.6]
 hybrid_rstpreid_mistral = [9.4, 9.9, 10.7, 10.6, 11.2, 11.5, 11.1, 10.8, 10.6]
 
-hybrid_flickr_t2i_llama = [53.2, 55.8, 58.0, 59.8, 61.1, 62.0, 62.2, 61.8, 60.3]
-hybrid_flickr_i2t_llama = [58.0, 60.8, 64.3, 67.0, 69.9, 72.1, 72.3, 73.6, 73.1]
-hybrid_rstpreid_llama = [7.0, 7.5, 7.9, 7.6, 7.7, 7.5, 7.8, 7.7]
-
 fig, ax = plt.subplots(1, 1, figsize=(20, 5))
 
 colors = ["#f57c6e", "#f2b56f", "#fae69e", "#84c3b7", "#88d8db", "#71b7ed", "#b8aeeb", " #f2a7da"]
 ax.plot(alpha, hybrid_flickr_t2i_mistral, label='image retrieval', color=colors[0], linestyle='-', linewidth=3, marker='o', markersize=8)
 ax.plot(alpha, hybrid_flickr_i2t_mistral, label='text retrieval', color=colors[1], linestyle='-', linewidth=3, marker='o', markersize=8)
 # ax.plot(alpha, hybrid_rstpreid_mistral, label='rstpreid', color=colors[2], linestyle='-', linewidth=3, markersize=8)
-# ax.plot(alpha, hybrid_flickr_t2i_llama, label='image retrieval llama', color=colors[2], linestyle='-', linewidth=3, markersize=8)
-# ax.plot(alpha, hybrid_flickr_i2t_llama, label='text retrieval llama', color=colors[3], linestyle='-', linewidth=3, markersize=8)
 ax.set_xlabel('alpha', fontsize=25)
 ax.set_ylabel('recall@1', fontsize=25)
 ax.tick_params(axis='both', which='major', labelsize=30)

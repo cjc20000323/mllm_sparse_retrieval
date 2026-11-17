@@ -1,0 +1,1839 @@
+{
+  "captured_at_utc": "2026-11-16T11:59:12.463146+00:00",
+  "model": "llava-hf-llava-v1.6-mistral-7b-hf",
+  "records": {
+    "16227": [
+      {
+        "payload": {
+          "rank": 0,
+          "sample_id": "16227",
+          "modality": "text",
+          "view": "J",
+          "aspect": "high-level semantics, such as events, activities and functions",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 367,
+              "token": "▁P",
+              "weight": 2.80078125
+            },
+            {
+              "token_id": 2418,
+              "token": "▁Can",
+              "weight": 2.76953125
+            },
+            {
+              "token_id": 7057,
+              "token": "▁Sun",
+              "weight": 2.646484375
+            },
+            {
+              "token_id": 14392,
+              "token": "▁Row",
+              "weight": 2.626953125
+            },
+            {
+              "token_id": 6044,
+              "token": "▁Sil",
+              "weight": 2.59765625
+            },
+            {
+              "token_id": 6653,
+              "token": "▁Event",
+              "weight": 2.576171875
+            },
+            {
+              "token_id": 17399,
+              "token": "▁Kay",
+              "weight": 2.560546875
+            },
+            {
+              "token_id": 28705,
+              "token": "▁",
+              "weight": 2.537109375
+            },
+            {
+              "token_id": 3268,
+              "token": "▁Bo",
+              "weight": 2.533203125
+            },
+            {
+              "token_id": 318,
+              "token": "▁S",
+              "weight": 2.515625
+            }
+          ],
+          "sample_text": "Two silhouetted people paddle a canoe on the ocean during sunset."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 1747
+        }
+      },
+      {
+        "payload": {
+          "rank": 0,
+          "sample_id": "16227",
+          "modality": "text",
+          "view": "A",
+          "aspect": "scene, such as location, indoor or outdoor setting and terrain",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 18608,
+              "token": "▁Ocean",
+              "weight": 2.86328125
+            },
+            {
+              "token_id": 4655,
+              "token": "▁Out",
+              "weight": 2.697265625
+            },
+            {
+              "token_id": 2418,
+              "token": "▁Can",
+              "weight": 2.6796875
+            },
+            {
+              "token_id": 8632,
+              "token": "▁Water",
+              "weight": 2.6640625
+            },
+            {
+              "token_id": 7057,
+              "token": "▁Sun",
+              "weight": 2.658203125
+            },
+            {
+              "token_id": 11404,
+              "token": "▁Beach",
+              "weight": 2.640625
+            },
+            {
+              "token_id": 11759,
+              "token": "▁Sea",
+              "weight": 2.564453125
+            },
+            {
+              "token_id": 25116,
+              "token": "▁Outside",
+              "weight": 2.544921875
+            },
+            {
+              "token_id": 367,
+              "token": "▁P",
+              "weight": 2.5390625
+            },
+            {
+              "token_id": 14716,
+              "token": "▁Location",
+              "weight": 2.52734375
+            }
+          ],
+          "sample_text": "Two silhouetted people paddle a canoe on the ocean during sunset."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 1748
+        }
+      },
+      {
+        "payload": {
+          "rank": 0,
+          "sample_id": "16227",
+          "modality": "text",
+          "view": "C",
+          "aspect": "people, such as number of people, appearance and pose",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 28705,
+              "token": "▁",
+              "weight": 2.896484375
+            },
+            {
+              "token_id": 6005,
+              "token": "▁Two",
+              "weight": 2.822265625
+            },
+            {
+              "token_id": 12376,
+              "token": "▁Cou",
+              "weight": 2.75390625
+            },
+            {
+              "token_id": 6044,
+              "token": "▁Sil",
+              "weight": 2.6640625
+            },
+            {
+              "token_id": 367,
+              "token": "▁P",
+              "weight": 2.625
+            },
+            {
+              "token_id": 2213,
+              "token": "▁Man",
+              "weight": 2.560546875
+            },
+            {
+              "token_id": 5619,
+              "token": "▁People",
+              "weight": 2.5546875
+            },
+            {
+              "token_id": 1387,
+              "token": "▁There",
+              "weight": 2.515625
+            },
+            {
+              "token_id": 2387,
+              "token": "▁One",
+              "weight": 2.50390625
+            },
+            {
+              "token_id": 2418,
+              "token": "▁Can",
+              "weight": 2.486328125
+            }
+          ],
+          "sample_text": "Two silhouetted people paddle a canoe on the ocean during sunset."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 1749
+        }
+      },
+      {
+        "payload": {
+          "rank": 0,
+          "sample_id": "16227",
+          "modality": "text",
+          "view": "B",
+          "aspect": "natural environment, such as weather, lighting, season and time",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 7057,
+              "token": "▁Sun",
+              "weight": 2.791015625
+            },
+            {
+              "token_id": 13211,
+              "token": "▁Summer",
+              "weight": 2.666015625
+            },
+            {
+              "token_id": 2984,
+              "token": "▁Cal",
+              "weight": 2.625
+            },
+            {
+              "token_id": 394,
+              "token": "▁W",
+              "weight": 2.615234375
+            },
+            {
+              "token_id": 3066,
+              "token": "▁Ser",
+              "weight": 2.580078125
+            },
+            {
+              "token_id": 13832,
+              "token": "▁Cloud",
+              "weight": 2.578125
+            },
+            {
+              "token_id": 4127,
+              "token": "▁Even",
+              "weight": 2.576171875
+            },
+            {
+              "token_id": 12168,
+              "token": "▁Fall",
+              "weight": 2.56640625
+            },
+            {
+              "token_id": 18608,
+              "token": "▁Ocean",
+              "weight": 2.564453125
+            },
+            {
+              "token_id": 3745,
+              "token": "▁Aut",
+              "weight": 2.53515625
+            }
+          ],
+          "sample_text": "Two silhouetted people paddle a canoe on the ocean during sunset."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 1750
+        }
+      },
+      {
+        "payload": {
+          "rank": 0,
+          "sample_id": "16227",
+          "modality": "text",
+          "view": "D",
+          "aspect": "clothing, such as category, color, material and style",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 6044,
+              "token": "▁Sil",
+              "weight": 2.7265625
+            },
+            {
+              "token_id": 8194,
+              "token": "▁Cas",
+              "weight": 2.6796875
+            },
+            {
+              "token_id": 394,
+              "token": "▁W",
+              "weight": 2.60546875
+            },
+            {
+              "token_id": 11093,
+              "token": "▁Sport",
+              "weight": 2.58984375
+            },
+            {
+              "token_id": 12361,
+              "token": "▁Dark",
+              "weight": 2.587890625
+            },
+            {
+              "token_id": 3635,
+              "token": "▁None",
+              "weight": 2.56640625
+            },
+            {
+              "token_id": 4655,
+              "token": "▁Out",
+              "weight": 2.556640625
+            },
+            {
+              "token_id": 1366,
+              "token": "▁Cl",
+              "weight": 2.54296875
+            },
+            {
+              "token_id": 8632,
+              "token": "▁Water",
+              "weight": 2.52734375
+            },
+            {
+              "token_id": 318,
+              "token": "▁S",
+              "weight": 2.51953125
+            }
+          ],
+          "sample_text": "Two silhouetted people paddle a canoe on the ocean during sunset."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 1751
+        }
+      },
+      {
+        "payload": {
+          "rank": 0,
+          "sample_id": "16227",
+          "modality": "text",
+          "view": "I",
+          "aspect": "spatial layout, such as foreground and background, distance and direction",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 7257,
+              "token": "▁Fore",
+              "weight": 2.685546875
+            },
+            {
+              "token_id": 24316,
+              "token": "▁Background",
+              "weight": 2.66015625
+            },
+            {
+              "token_id": 13794,
+              "token": "▁Front",
+              "weight": 2.642578125
+            },
+            {
+              "token_id": 6044,
+              "token": "▁Sil",
+              "weight": 2.61328125
+            },
+            {
+              "token_id": 7057,
+              "token": "▁Sun",
+              "weight": 2.59765625
+            },
+            {
+              "token_id": 2418,
+              "token": "▁Can",
+              "weight": 2.587890625
+            },
+            {
+              "token_id": 5619,
+              "token": "▁People",
+              "weight": 2.5546875
+            },
+            {
+              "token_id": 18537,
+              "token": "▁Close",
+              "weight": 2.548828125
+            },
+            {
+              "token_id": 8549,
+              "token": "▁Far",
+              "weight": 2.546875
+            },
+            {
+              "token_id": 384,
+              "token": "▁D",
+              "weight": 2.544921875
+            }
+          ],
+          "sample_text": "Two silhouetted people paddle a canoe on the ocean during sunset."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 1752
+        }
+      }
+    ],
+    "64748": [
+      {
+        "payload": {
+          "rank": 0,
+          "sample_id": "64748",
+          "modality": "text",
+          "view": "J",
+          "aspect": "high-level semantics, such as events, activities and functions",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 2213,
+              "token": "▁Man",
+              "weight": 2.73046875
+            },
+            {
+              "token_id": 5066,
+              "token": "▁Work",
+              "weight": 2.634765625
+            },
+            {
+              "token_id": 18752,
+              "token": "▁Dim",
+              "weight": 2.5859375
+            },
+            {
+              "token_id": 6653,
+              "token": "▁Event",
+              "weight": 2.568359375
+            },
+            {
+              "token_id": 21853,
+              "token": "▁Orange",
+              "weight": 2.544921875
+            },
+            {
+              "token_id": 24066,
+              "token": "▁Activity",
+              "weight": 2.541015625
+            },
+            {
+              "token_id": 9531,
+              "token": "▁Light",
+              "weight": 2.529296875
+            },
+            {
+              "token_id": 11347,
+              "token": "▁Function",
+              "weight": 2.525390625
+            },
+            {
+              "token_id": 20370,
+              "token": "▁Events",
+              "weight": 2.501953125
+            },
+            {
+              "token_id": 18847,
+              "token": "▁Working",
+              "weight": 2.478515625
+            }
+          ],
+          "sample_text": "A man in orange working under dim lighting."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 6265
+        }
+      },
+      {
+        "payload": {
+          "rank": 0,
+          "sample_id": "64748",
+          "modality": "text",
+          "view": "A",
+          "aspect": "scene, such as location, indoor or outdoor setting and terrain",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 18752,
+              "token": "▁Dim",
+              "weight": 2.671875
+            },
+            {
+              "token_id": 21853,
+              "token": "▁Orange",
+              "weight": 2.66015625
+            },
+            {
+              "token_id": 1756,
+              "token": "▁Ind",
+              "weight": 2.65625
+            },
+            {
+              "token_id": 6605,
+              "token": "▁Under",
+              "weight": 2.646484375
+            },
+            {
+              "token_id": 7721,
+              "token": "▁Gar",
+              "weight": 2.64453125
+            },
+            {
+              "token_id": 320,
+              "token": "▁T",
+              "weight": 2.544921875
+            },
+            {
+              "token_id": 2213,
+              "token": "▁Man",
+              "weight": 2.53515625
+            },
+            {
+              "token_id": 5066,
+              "token": "▁Work",
+              "weight": 2.51171875
+            },
+            {
+              "token_id": 12361,
+              "token": "▁Dark",
+              "weight": 2.509765625
+            },
+            {
+              "token_id": 6827,
+              "token": "▁Bas",
+              "weight": 2.5078125
+            }
+          ],
+          "sample_text": "A man in orange working under dim lighting."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 6266
+        }
+      },
+      {
+        "payload": {
+          "rank": 0,
+          "sample_id": "64748",
+          "modality": "text",
+          "view": "C",
+          "aspect": "people, such as number of people, appearance and pose",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 28705,
+              "token": "▁",
+              "weight": 2.830078125
+            },
+            {
+              "token_id": 2213,
+              "token": "▁Man",
+              "weight": 2.8046875
+            },
+            {
+              "token_id": 2387,
+              "token": "▁One",
+              "weight": 2.720703125
+            },
+            {
+              "token_id": 393,
+              "token": "▁L",
+              "weight": 2.6484375
+            },
+            {
+              "token_id": 21853,
+              "token": "▁Orange",
+              "weight": 2.6171875
+            },
+            {
+              "token_id": 23304,
+              "token": "▁Male",
+              "weight": 2.6015625
+            },
+            {
+              "token_id": 6441,
+              "token": "▁Person",
+              "weight": 2.587890625
+            },
+            {
+              "token_id": 1770,
+              "token": "▁No",
+              "weight": 2.55078125
+            },
+            {
+              "token_id": 16096,
+              "token": "▁Single",
+              "weight": 2.54296875
+            },
+            {
+              "token_id": 1387,
+              "token": "▁There",
+              "weight": 2.509765625
+            }
+          ],
+          "sample_text": "A man in orange working under dim lighting."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 6267
+        }
+      },
+      {
+        "payload": {
+          "rank": 0,
+          "sample_id": "64748",
+          "modality": "text",
+          "view": "B",
+          "aspect": "natural environment, such as weather, lighting, season and time",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 18752,
+              "token": "▁Dim",
+              "weight": 2.822265625
+            },
+            {
+              "token_id": 12361,
+              "token": "▁Dark",
+              "weight": 2.7109375
+            },
+            {
+              "token_id": 21853,
+              "token": "▁Orange",
+              "weight": 2.677734375
+            },
+            {
+              "token_id": 13951,
+              "token": "▁Winter",
+              "weight": 2.603515625
+            },
+            {
+              "token_id": 16887,
+              "token": "▁Season",
+              "weight": 2.599609375
+            },
+            {
+              "token_id": 10357,
+              "token": "▁Night",
+              "weight": 2.583984375
+            },
+            {
+              "token_id": 384,
+              "token": "▁D",
+              "weight": 2.57421875
+            },
+            {
+              "token_id": 5235,
+              "token": "▁Over",
+              "weight": 2.572265625
+            },
+            {
+              "token_id": 6605,
+              "token": "▁Under",
+              "weight": 2.55859375
+            },
+            {
+              "token_id": 3745,
+              "token": "▁Aut",
+              "weight": 2.544921875
+            }
+          ],
+          "sample_text": "A man in orange working under dim lighting."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 6268
+        }
+      },
+      {
+        "payload": {
+          "rank": 0,
+          "sample_id": "64748",
+          "modality": "text",
+          "view": "D",
+          "aspect": "clothing, such as category, color, material and style",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 21853,
+              "token": "▁Orange",
+              "weight": 2.75390625
+            },
+            {
+              "token_id": 475,
+              "token": "▁J",
+              "weight": 2.6875
+            },
+            {
+              "token_id": 5066,
+              "token": "▁Work",
+              "weight": 2.642578125
+            },
+            {
+              "token_id": 550,
+              "token": "▁V",
+              "weight": 2.630859375
+            },
+            {
+              "token_id": 2213,
+              "token": "▁Man",
+              "weight": 2.5625
+            },
+            {
+              "token_id": 4299,
+              "token": "▁Jack",
+              "weight": 2.5546875
+            },
+            {
+              "token_id": 2387,
+              "token": "▁One",
+              "weight": 2.55078125
+            },
+            {
+              "token_id": 1366,
+              "token": "▁Cl",
+              "weight": 2.541015625
+            },
+            {
+              "token_id": 4655,
+              "token": "▁Out",
+              "weight": 2.53515625
+            },
+            {
+              "token_id": 19412,
+              "token": "▁Safety",
+              "weight": 2.53515625
+            }
+          ],
+          "sample_text": "A man in orange working under dim lighting."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 6269
+        }
+      },
+      {
+        "payload": {
+          "rank": 0,
+          "sample_id": "64748",
+          "modality": "text",
+          "view": "I",
+          "aspect": "spatial layout, such as foreground and background, distance and direction",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 18752,
+              "token": "▁Dim",
+              "weight": 2.681640625
+            },
+            {
+              "token_id": 2213,
+              "token": "▁Man",
+              "weight": 2.654296875
+            },
+            {
+              "token_id": 24316,
+              "token": "▁Background",
+              "weight": 2.6484375
+            },
+            {
+              "token_id": 7257,
+              "token": "▁Fore",
+              "weight": 2.619140625
+            },
+            {
+              "token_id": 21853,
+              "token": "▁Orange",
+              "weight": 2.59765625
+            },
+            {
+              "token_id": 13794,
+              "token": "▁Front",
+              "weight": 2.587890625
+            },
+            {
+              "token_id": 18537,
+              "token": "▁Close",
+              "weight": 2.587890625
+            },
+            {
+              "token_id": 384,
+              "token": "▁D",
+              "weight": 2.57421875
+            },
+            {
+              "token_id": 12361,
+              "token": "▁Dark",
+              "weight": 2.55078125
+            },
+            {
+              "token_id": 935,
+              "token": "▁Un",
+              "weight": 2.54296875
+            }
+          ],
+          "sample_text": "A man in orange working under dim lighting."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 6270
+        }
+      }
+    ],
+    "98219": [
+      {
+        "payload": {
+          "rank": 1,
+          "sample_id": "98219",
+          "modality": "text",
+          "view": "J",
+          "aspect": "high-level semantics, such as events, activities and functions",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 12719,
+              "token": "▁Phot",
+              "weight": 2.7578125
+            },
+            {
+              "token_id": 27872,
+              "token": "▁Picture",
+              "weight": 2.751953125
+            },
+            {
+              "token_id": 6381,
+              "token": "▁Church",
+              "weight": 2.720703125
+            },
+            {
+              "token_id": 8890,
+              "token": "▁Take",
+              "weight": 2.701171875
+            },
+            {
+              "token_id": 20648,
+              "token": "▁Taking",
+              "weight": 2.65234375
+            },
+            {
+              "token_id": 9218,
+              "token": "▁Capt",
+              "weight": 2.625
+            },
+            {
+              "token_id": 16555,
+              "token": "▁Photo",
+              "weight": 2.623046875
+            },
+            {
+              "token_id": 2213,
+              "token": "▁Man",
+              "weight": 2.607421875
+            },
+            {
+              "token_id": 6653,
+              "token": "▁Event",
+              "weight": 2.5625
+            },
+            {
+              "token_id": 16660,
+              "token": "▁Visit",
+              "weight": 2.5
+            }
+          ],
+          "sample_text": "A man in a blue jacket is taking a picture of a church."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 9565
+        }
+      },
+      {
+        "payload": {
+          "rank": 1,
+          "sample_id": "98219",
+          "modality": "text",
+          "view": "A",
+          "aspect": "scene, such as location, indoor or outdoor setting and terrain",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 6381,
+              "token": "▁Church",
+              "weight": 2.82421875
+            },
+            {
+              "token_id": 4655,
+              "token": "▁Out",
+              "weight": 2.7109375
+            },
+            {
+              "token_id": 25116,
+              "token": "▁Outside",
+              "weight": 2.658203125
+            },
+            {
+              "token_id": 14716,
+              "token": "▁Location",
+              "weight": 2.55859375
+            },
+            {
+              "token_id": 1756,
+              "token": "▁Ind",
+              "weight": 2.5234375
+            },
+            {
+              "token_id": 689,
+              "token": "▁Ch",
+              "weight": 2.48046875
+            },
+            {
+              "token_id": 8836,
+              "token": "▁Blue",
+              "weight": 2.4609375
+            },
+            {
+              "token_id": 3805,
+              "token": "▁City",
+              "weight": 2.435546875
+            },
+            {
+              "token_id": 27872,
+              "token": "▁Picture",
+              "weight": 2.427734375
+            },
+            {
+              "token_id": 22007,
+              "token": "▁Urban",
+              "weight": 2.421875
+            }
+          ],
+          "sample_text": "A man in a blue jacket is taking a picture of a church."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 9566
+        }
+      },
+      {
+        "payload": {
+          "rank": 1,
+          "sample_id": "98219",
+          "modality": "text",
+          "view": "C",
+          "aspect": "people, such as number of people, appearance and pose",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 28705,
+              "token": "▁",
+              "weight": 2.900390625
+            },
+            {
+              "token_id": 2213,
+              "token": "▁Man",
+              "weight": 2.796875
+            },
+            {
+              "token_id": 2387,
+              "token": "▁One",
+              "weight": 2.728515625
+            },
+            {
+              "token_id": 393,
+              "token": "▁L",
+              "weight": 2.69921875
+            },
+            {
+              "token_id": 6441,
+              "token": "▁Person",
+              "weight": 2.619140625
+            },
+            {
+              "token_id": 16096,
+              "token": "▁Single",
+              "weight": 2.619140625
+            },
+            {
+              "token_id": 23304,
+              "token": "▁Male",
+              "weight": 2.595703125
+            },
+            {
+              "token_id": 1387,
+              "token": "▁There",
+              "weight": 2.572265625
+            },
+            {
+              "token_id": 6849,
+              "token": "▁Sol",
+              "weight": 2.5546875
+            },
+            {
+              "token_id": 1770,
+              "token": "▁No",
+              "weight": 2.541015625
+            }
+          ],
+          "sample_text": "A man in a blue jacket is taking a picture of a church."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 9567
+        }
+      },
+      {
+        "payload": {
+          "rank": 1,
+          "sample_id": "98219",
+          "modality": "text",
+          "view": "B",
+          "aspect": "natural environment, such as weather, lighting, season and time",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 7057,
+              "token": "▁Sun",
+              "weight": 2.67578125
+            },
+            {
+              "token_id": 13832,
+              "token": "▁Cloud",
+              "weight": 2.66796875
+            },
+            {
+              "token_id": 13951,
+              "token": "▁Winter",
+              "weight": 2.638671875
+            },
+            {
+              "token_id": 16676,
+              "token": "▁Clear",
+              "weight": 2.609375
+            },
+            {
+              "token_id": 16887,
+              "token": "▁Season",
+              "weight": 2.607421875
+            },
+            {
+              "token_id": 13211,
+              "token": "▁Summer",
+              "weight": 2.60546875
+            },
+            {
+              "token_id": 816,
+              "token": "▁We",
+              "weight": 2.603515625
+            },
+            {
+              "token_id": 9199,
+              "token": "▁Spring",
+              "weight": 2.6015625
+            },
+            {
+              "token_id": 5235,
+              "token": "▁Over",
+              "weight": 2.580078125
+            },
+            {
+              "token_id": 935,
+              "token": "▁Un",
+              "weight": 2.5625
+            }
+          ],
+          "sample_text": "A man in a blue jacket is taking a picture of a church."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 9568
+        }
+      },
+      {
+        "payload": {
+          "rank": 1,
+          "sample_id": "98219",
+          "modality": "text",
+          "view": "D",
+          "aspect": "clothing, such as category, color, material and style",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 8836,
+              "token": "▁Blue",
+              "weight": 2.791015625
+            },
+            {
+              "token_id": 4299,
+              "token": "▁Jack",
+              "weight": 2.740234375
+            },
+            {
+              "token_id": 2213,
+              "token": "▁Man",
+              "weight": 2.67578125
+            },
+            {
+              "token_id": 8194,
+              "token": "▁Cas",
+              "weight": 2.646484375
+            },
+            {
+              "token_id": 3092,
+              "token": "▁Co",
+              "weight": 2.615234375
+            },
+            {
+              "token_id": 11093,
+              "token": "▁Sport",
+              "weight": 2.57421875
+            },
+            {
+              "token_id": 7670,
+              "token": "▁Men",
+              "weight": 2.55078125
+            },
+            {
+              "token_id": 2674,
+              "token": "▁Su",
+              "weight": 2.517578125
+            },
+            {
+              "token_id": 1366,
+              "token": "▁Cl",
+              "weight": 2.505859375
+            },
+            {
+              "token_id": 3291,
+              "token": "▁Je",
+              "weight": 2.505859375
+            }
+          ],
+          "sample_text": "A man in a blue jacket is taking a picture of a church."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 9569
+        }
+      },
+      {
+        "payload": {
+          "rank": 1,
+          "sample_id": "98219",
+          "modality": "text",
+          "view": "I",
+          "aspect": "spatial layout, such as foreground and background, distance and direction",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 6381,
+              "token": "▁Church",
+              "weight": 2.701171875
+            },
+            {
+              "token_id": 2213,
+              "token": "▁Man",
+              "weight": 2.66796875
+            },
+            {
+              "token_id": 24316,
+              "token": "▁Background",
+              "weight": 2.65234375
+            },
+            {
+              "token_id": 7257,
+              "token": "▁Fore",
+              "weight": 2.623046875
+            },
+            {
+              "token_id": 13794,
+              "token": "▁Front",
+              "weight": 2.607421875
+            },
+            {
+              "token_id": 384,
+              "token": "▁D",
+              "weight": 2.564453125
+            },
+            {
+              "token_id": 26271,
+              "token": "▁Lay",
+              "weight": 2.560546875
+            },
+            {
+              "token_id": 8549,
+              "token": "▁Far",
+              "weight": 2.521484375
+            },
+            {
+              "token_id": 28705,
+              "token": "▁",
+              "weight": 2.5
+            },
+            {
+              "token_id": 18537,
+              "token": "▁Close",
+              "weight": 2.478515625
+            }
+          ],
+          "sample_text": "A man in a blue jacket is taking a picture of a church."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 9570
+        }
+      }
+    ],
+    "39982": [
+      {
+        "payload": {
+          "rank": 1,
+          "sample_id": "39982",
+          "modality": "text",
+          "view": "J",
+          "aspect": "high-level semantics, such as events, activities and functions",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 17399,
+              "token": "▁Kay",
+              "weight": 2.72265625
+            },
+            {
+              "token_id": 10850,
+              "token": "▁Girl",
+              "weight": 2.65234375
+            },
+            {
+              "token_id": 6653,
+              "token": "▁Event",
+              "weight": 2.609375
+            },
+            {
+              "token_id": 20370,
+              "token": "▁Events",
+              "weight": 2.568359375
+            },
+            {
+              "token_id": 3268,
+              "token": "▁Bo",
+              "weight": 2.55078125
+            },
+            {
+              "token_id": 28705,
+              "token": "▁",
+              "weight": 2.5390625
+            },
+            {
+              "token_id": 367,
+              "token": "▁P",
+              "weight": 2.517578125
+            },
+            {
+              "token_id": 24066,
+              "token": "▁Activity",
+              "weight": 2.486328125
+            },
+            {
+              "token_id": 446,
+              "token": "▁k",
+              "weight": 2.478515625
+            },
+            {
+              "token_id": 8703,
+              "token": "▁Lake",
+              "weight": 2.470703125
+            }
+          ],
+          "sample_text": "A girl is kayaking in a blue boat, on a blue lake wearing an orange life jacket."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 3649
+        }
+      },
+      {
+        "payload": {
+          "rank": 1,
+          "sample_id": "39982",
+          "modality": "text",
+          "view": "A",
+          "aspect": "scene, such as location, indoor or outdoor setting and terrain",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 8703,
+              "token": "▁Lake",
+              "weight": 2.8125
+            },
+            {
+              "token_id": 4655,
+              "token": "▁Out",
+              "weight": 2.74609375
+            },
+            {
+              "token_id": 8632,
+              "token": "▁Water",
+              "weight": 2.7265625
+            },
+            {
+              "token_id": 17399,
+              "token": "▁Kay",
+              "weight": 2.716796875
+            },
+            {
+              "token_id": 8836,
+              "token": "▁Blue",
+              "weight": 2.705078125
+            },
+            {
+              "token_id": 25116,
+              "token": "▁Outside",
+              "weight": 2.615234375
+            },
+            {
+              "token_id": 393,
+              "token": "▁L",
+              "weight": 2.591796875
+            },
+            {
+              "token_id": 14716,
+              "token": "▁Location",
+              "weight": 2.583984375
+            },
+            {
+              "token_id": 1418,
+              "token": "▁On",
+              "weight": 2.490234375
+            },
+            {
+              "token_id": 16250,
+              "token": "▁Body",
+              "weight": 2.490234375
+            }
+          ],
+          "sample_text": "A girl is kayaking in a blue boat, on a blue lake wearing an orange life jacket."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 3650
+        }
+      },
+      {
+        "payload": {
+          "rank": 1,
+          "sample_id": "39982",
+          "modality": "text",
+          "view": "C",
+          "aspect": "people, such as number of people, appearance and pose",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 28705,
+              "token": "▁",
+              "weight": 2.865234375
+            },
+            {
+              "token_id": 10850,
+              "token": "▁Girl",
+              "weight": 2.783203125
+            },
+            {
+              "token_id": 2387,
+              "token": "▁One",
+              "weight": 2.650390625
+            },
+            {
+              "token_id": 393,
+              "token": "▁L",
+              "weight": 2.642578125
+            },
+            {
+              "token_id": 1387,
+              "token": "▁There",
+              "weight": 2.521484375
+            },
+            {
+              "token_id": 18375,
+              "token": "▁Fem",
+              "weight": 2.51953125
+            },
+            {
+              "token_id": 16096,
+              "token": "▁Single",
+              "weight": 2.50390625
+            },
+            {
+              "token_id": 6441,
+              "token": "▁Person",
+              "weight": 2.498046875
+            },
+            {
+              "token_id": 330,
+              "token": "▁A",
+              "weight": 2.486328125
+            },
+            {
+              "token_id": 8978,
+              "token": "▁Number",
+              "weight": 2.4765625
+            }
+          ],
+          "sample_text": "A girl is kayaking in a blue boat, on a blue lake wearing an orange life jacket."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 3651
+        }
+      },
+      {
+        "payload": {
+          "rank": 1,
+          "sample_id": "39982",
+          "modality": "text",
+          "view": "B",
+          "aspect": "natural environment, such as weather, lighting, season and time",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 13211,
+              "token": "▁Summer",
+              "weight": 2.783203125
+            },
+            {
+              "token_id": 7057,
+              "token": "▁Sun",
+              "weight": 2.765625
+            },
+            {
+              "token_id": 16676,
+              "token": "▁Clear",
+              "weight": 2.671875
+            },
+            {
+              "token_id": 9199,
+              "token": "▁Spring",
+              "weight": 2.64453125
+            },
+            {
+              "token_id": 22311,
+              "token": "▁Bright",
+              "weight": 2.61328125
+            },
+            {
+              "token_id": 13832,
+              "token": "▁Cloud",
+              "weight": 2.595703125
+            },
+            {
+              "token_id": 22277,
+              "token": "▁Nice",
+              "weight": 2.595703125
+            },
+            {
+              "token_id": 8836,
+              "token": "▁Blue",
+              "weight": 2.5859375
+            },
+            {
+              "token_id": 5399,
+              "token": "▁Day",
+              "weight": 2.572265625
+            },
+            {
+              "token_id": 12168,
+              "token": "▁Fall",
+              "weight": 2.513671875
+            }
+          ],
+          "sample_text": "A girl is kayaking in a blue boat, on a blue lake wearing an orange life jacket."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 3652
+        }
+      },
+      {
+        "payload": {
+          "rank": 1,
+          "sample_id": "39982",
+          "modality": "text",
+          "view": "D",
+          "aspect": "clothing, such as category, color, material and style",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 5372,
+              "token": "▁Life",
+              "weight": 2.7421875
+            },
+            {
+              "token_id": 21853,
+              "token": "▁Orange",
+              "weight": 2.6640625
+            },
+            {
+              "token_id": 1366,
+              "token": "▁Cl",
+              "weight": 2.61328125
+            },
+            {
+              "token_id": 4299,
+              "token": "▁Jack",
+              "weight": 2.61328125
+            },
+            {
+              "token_id": 393,
+              "token": "▁L",
+              "weight": 2.572265625
+            },
+            {
+              "token_id": 10850,
+              "token": "▁Girl",
+              "weight": 2.5703125
+            },
+            {
+              "token_id": 4655,
+              "token": "▁Out",
+              "weight": 2.5625
+            },
+            {
+              "token_id": 550,
+              "token": "▁V",
+              "weight": 2.533203125
+            },
+            {
+              "token_id": 8194,
+              "token": "▁Cas",
+              "weight": 2.51953125
+            },
+            {
+              "token_id": 2387,
+              "token": "▁One",
+              "weight": 2.513671875
+            }
+          ],
+          "sample_text": "A girl is kayaking in a blue boat, on a blue lake wearing an orange life jacket."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 3653
+        }
+      },
+      {
+        "payload": {
+          "rank": 1,
+          "sample_id": "39982",
+          "modality": "text",
+          "view": "I",
+          "aspect": "spatial layout, such as foreground and background, distance and direction",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 10850,
+              "token": "▁Girl",
+              "weight": 2.654296875
+            },
+            {
+              "token_id": 7257,
+              "token": "▁Fore",
+              "weight": 2.650390625
+            },
+            {
+              "token_id": 13794,
+              "token": "▁Front",
+              "weight": 2.58984375
+            },
+            {
+              "token_id": 24316,
+              "token": "▁Background",
+              "weight": 2.587890625
+            },
+            {
+              "token_id": 8703,
+              "token": "▁Lake",
+              "weight": 2.53125
+            },
+            {
+              "token_id": 18537,
+              "token": "▁Close",
+              "weight": 2.501953125
+            },
+            {
+              "token_id": 28705,
+              "token": "▁",
+              "weight": 2.48046875
+            },
+            {
+              "token_id": 1770,
+              "token": "▁No",
+              "weight": 2.4765625
+            },
+            {
+              "token_id": 560,
+              "token": "▁In",
+              "weight": 2.47265625
+            },
+            {
+              "token_id": 384,
+              "token": "▁D",
+              "weight": 2.455078125
+            }
+          ],
+          "sample_text": "A girl is kayaking in a blue boat, on a blue lake wearing an orange life jacket."
+        },
+        "source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+          "line": 3654
+        }
+      }
+    ]
+  },
+  "sources": {
+    "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl": {
+      "bytes": 13569310,
+      "mtime_ns": 1794825203242635797,
+      "sha256": "3215205d85b4918bd15044a01fd43178d8534c55c7294ac7a09d8942bce11ecb"
+    },
+    "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl": {
+      "bytes": 13573524,
+      "mtime_ns": 1794825196501903213,
+      "sha256": "7988da46331fbcc61ce18dbc9d04c968afbfda533075a3d50b5788b67f61cefc"
+    }
+  },
+  "manifest": {
+    "path": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/concat/prompt_5/test/0_no_manual_30_sum_no_cluster_after_pad_disassembleeol_separate_lower_no_mean/adaptive_views/63d32642e1d38b54_llava_base/adaptive_views_manifest.json",
+    "sha256": "42432b20f6a2e6c204967def82ffa79667b6f1b7e7335235788f563c41d31a9d",
+    "configuration": {
+      "version": 12,
+      "model": {
+        "checkpoint": {
+          "path": "/autodl-fs/data/checkpoints/llava-hf-llava-v1.6-mistral-7b-hf",
+          "files": [
+            {
+              "name": "config.json",
+              "size": 1253,
+              "mtime_ns": 1784533565414439203
+            },
+            {
+              "name": "model-00001-of-00004.safetensors",
+              "size": 4921618144,
+              "mtime_ns": 1784533616255701182
+            },
+            {
+              "name": "model-00002-of-00004.safetensors",
+              "size": 4915917568,
+              "mtime_ns": 1784533672470246117
+            },
+            {
+              "name": "model-00003-of-00004.safetensors",
+              "size": 4915917576,
+              "mtime_ns": 1784533720077078006
+            },
+            {
+              "name": "model-00004-of-00004.safetensors",
+              "size": 380134008,
+              "mtime_ns": 1784533620036988547
+            }
+          ]
+        },
+        "adapter": null,
+        "family": "llava_mistral",
+        "dtype": "float16",
+        "tokenizer": "TokenizersBackend",
+        "vocab": "34284baa7621ae295ed8999ee971814774f699f91d242482a291aedefd8c97d1",
+        "chat_template": "{% for message in messages %}{% if message['role'] == 'system' %}{{ '<<SYS>>\n' + message['content'][0]['text'] + '\n<</SYS>>\n\n' }}{% elif message['role'] == 'user' %}{{ '[INST] ' }}{# Render all images first #}{% for content in message['content'] | selectattr('type', 'equalto', 'image') %}{{ '<image>\n' }}{% endfor %}{# Render all text next #}{% for content in message['content'] | selectattr('type', 'equalto', 'text') %}{{ content['text'] }}{% endfor %}{{' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ ' ' + message['content'][0]['text'] + '</s> '}}{% else %}{{ raise_exception('Only user and assistant roles are supported!') }}{% endif %}{% endfor %}",
+        "image_processor": "BaseOnlyLlavaNextImageProcessorFast",
+        "vision": {
+          "size": {
+            "shortest_edge": 336
+          },
+          "min_pixels": null,
+          "max_pixels": null,
+          "patch_size": null,
+          "temporal_patch_size": null,
+          "merge_size": null,
+          "image_grid_pinpoints": [
+            [
+              336,
+              672
+            ],
+            [
+              672,
+              336
+            ],
+            [
+              672,
+              672
+            ],
+            [
+              1008,
+              336
+            ],
+            [
+              336,
+              1008
+            ]
+          ],
+          "crop_size": {
+            "height": 336,
+            "width": 336
+          },
+          "image_mean": [
+            0.48145466,
+            0.4578275,
+            0.40821073
+          ],
+          "image_std": [
+            0.26862954,
+            0.26130258,
+            0.27577711
+          ],
+          "do_resize": true,
+          "do_rescale": true,
+          "rescale_factor": 0.00392156862745098,
+          "do_normalize": true,
+          "llava_resolution": {
+            "version": 1,
+            "mode": "base",
+            "model_type": "llava_next",
+            "image_size": 336,
+            "patch_size": 14,
+            "vision_feature_select_strategy": "default",
+            "visual_tokens_per_image": 577
+          }
+        },
+        "processor_options": {
+          "patch_size": 14,
+          "num_additional_image_tokens": 1,
+          "vision_feature_select_strategy": "default",
+          "image_token": "<image>"
+        }
+      },
+      "dataset": "flickr",
+      "split": "test",
+      "task": "ir",
+      "kind": "text",
+      "method": [
+        "disassembleeol_separate",
+        "concat"
+      ],
+      "selection_modality": "both",
+      "selected": [
+        {
+          "label": "J",
+          "aspect": "high-level semantics, such as events, activities and functions"
+        },
+        {
+          "label": "A",
+          "aspect": "scene, such as location, indoor or outdoor setting and terrain"
+        },
+        {
+          "label": "C",
+          "aspect": "people, such as number of people, appearance and pose"
+        },
+        {
+          "label": "B",
+          "aspect": "natural environment, such as weather, lighting, season and time"
+        },
+        {
+          "label": "D",
+          "aspect": "clothing, such as category, color, material and style"
+        },
+        {
+          "label": "I",
+          "aspect": "spatial layout, such as foreground and background, distance and direction"
+        }
+      ],
+      "views_fingerprint": "63d32642e1d38b54de2e094dd40aace05ddc06f80c376efb7cb1f7548eb72425",
+      "renderer": "dc1207a17f7ee9b6a30cc2d35f4e857d5f52f51fd0a8681b78c486e7de1b7bb8",
+      "encoding": {
+        "reps_loc": "after_pad",
+        "sparse_length": 30,
+        "text_sparse_length": 30,
+        "image_sparse_length": 30,
+        "sparse_value_type": "sum",
+        "sparse_lower_or_upper": "lower",
+        "sparse_value_mean": false,
+        "sparse_manual": false,
+        "is_filtered": false,
+        "num_expended_tokens": 0,
+        "tbpr_type": "type",
+        "cir_type": "type"
+      },
+      "selection_strategy": "cumulative_probability",
+      "probability_mass_configuration": {
+        "strategy": "cumulative_probability",
+        "version": 2,
+        "threshold": 0.9,
+        "comparison": "le",
+        "tolerance": 1e-12,
+        "minimum_selected_count": 1
+      },
+      "view_pool_mode": "hierarchical_v1",
+      "example_sampling": {
+        "version": 1,
+        "mode": "auto",
+        "max_tokens": 0,
+        "context_limit": 32768,
+        "effective_max_tokens": 32768,
+        "answer_tokens": 1,
+        "input_limit": 32767
+      }
+    }
+  }
+}

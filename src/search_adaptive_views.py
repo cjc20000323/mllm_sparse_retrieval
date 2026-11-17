@@ -1,4 +1,4 @@
-"""Full-corpus adaptive-view search. No view selection, overlap or reranking."""
+"""Full-corpus search with locked adaptive views and optional ranking agreement statistics."""
 from __future__ import annotations
 
 import argparse
@@ -23,9 +23,10 @@ TASKS = {"flickr": "ir", "coco": "ir", "CUHK-PEDES": "tbpr", "ICFG-PEDES": "tbpr
 ENCODING_DEFAULTS = dict(reps_loc="after_pad", sparse_length=40, text_sparse_length=40,
     image_sparse_length=40, sparse_value_type="sum", sparse_lower_or_upper="lower",
     sparse_value_mean=False, is_filtered=False, num_expended_tokens=0, tbpr_type="origin_type", cir_type="type")
+SIMILARITY_REPORT_NAME = "dense_sparse_similarity_test.csv"
 OUTPUT_FILES = tuple(f"{method}_run.{extension}" for method in ("dense", "sparse", "hybrid")
                      for extension in ("json", "trec")) + ("recall_metrics.csv", "recall_metrics.json",
-                     "alpha_sweep.csv", "run_metadata.json")
+                     "alpha_sweep.csv", "run_metadata.json", SIMILARITY_REPORT_NAME, "test_runs_no_manual.pkl")
 
 
 def boolean(value):
@@ -76,6 +77,8 @@ def parser():
     add("depth", type=int, default=1000)
     add("alpha", type=float, default=0.5, help="Dense weight; sparse weight is 1-alpha")
     add("use_fixed_alpha", type=boolean, nargs="?", const=True, default=True)
+    add("retrieval_similarity_stats", type=boolean, nargs="?", const=True, default=False,
+        help="Report full-corpus dense/sparse Overlap, Spearman and RBO after gathering all queries")
     add("retrieval_batch_size", type=int, default=1)
     add("threads", type=int, default=16)
     add("use_gpu", type=boolean, nargs="?", const=True, default=False, help="GPU FAISS; the query model uses CUDA when available")
@@ -113,6 +116,8 @@ class Experiment:
 
 def prepare(args, *, identity_loader=None, backend=None):
     """Read-only preflight, including the exact saved selection and model processor identity."""
+    if getattr(args, "retrieval_similarity_stats", False) and not (args.passage_reps and args.sparse_index):
+        raise ValueError("retrieval_similarity_stats requires both passage_reps and sparse_index")
     import adaptive_view_encoding as default_backend
     backend = backend or default_backend
     api = backend.pipeline_module()
@@ -178,6 +183,12 @@ def prepare(args, *, identity_loader=None, backend=None):
     for name, default in ENCODING_DEFAULTS.items():
         if getattr(args, name) is None:
             setattr(args, name, config["encoding"].get(name, default))
+    method = config.get("method")
+    if not isinstance(method, list) or len(method) != 2:
+        raise ValueError("Adaptive corpus must record its [eol_type, calculate_type] method")
+    eol_type, calculate_type = method
+    backend.validate_encoding_method(eol_type, calculate_type, config["encoding"].get("sparse_manual", False),
+                                     args.task_type, family=identity["family"])
     for name, key in (("use_freeret_dense", "dense_representation"),
                       ("use_freeret_prompt_constraints", "freeret_prompt_constraints"),
                       ("use_freeret_full_prompt", "freeret_full_prompt")):
@@ -199,6 +210,7 @@ def prepare(args, *, identity_loader=None, backend=None):
     a.retrieval_dtype, a.retrieval_device_map = args.dtype, "none"
     a.retrieval_reps_loc, a.retrieval_batch_size = args.reps_loc, args.retrieval_batch_size
     a.retrieval_llava_image_mode = args.llava_image_mode
+    a.retrieval_eol_type = eol_type
     a.retrieval_qwen_min_pixels, a.retrieval_qwen_max_pixels = args.qwen_min_pixels, args.qwen_max_pixels
     for name in (*ENCODING_DEFAULTS, "use_freeret_dense", "use_freeret_prompt_constraints", "use_freeret_full_prompt"):
         setattr(a, name, getattr(args, name))
@@ -206,7 +218,7 @@ def prepare(args, *, identity_loader=None, backend=None):
     a.view_selection_token_variants = args.view_selection_token_variants
     stc.copy_options(args, a, dtype=args.dtype)
     lens.copy_options(args, a, dtype=args.dtype)
-    model, data = api._retrieval_namespaces(a, eol_type="disassembleeol_separate", calculate_type="concat", sparse_manual=False)
+    model, data = api._retrieval_namespaces(a, eol_type=eol_type, calculate_type=calculate_type, sparse_manual=False)
     data.llava_image_mode = args.llava_image_mode
     actual_identity = identity_loader(args.model_name_or_path, dtype=args.dtype, reps_loc=args.reps_loc,
         min_pixels=args.qwen_min_pixels, max_pixels=args.qwen_max_pixels, image_mode=args.llava_image_mode,
@@ -264,7 +276,7 @@ def prepare_validation(args, target, **kwargs):
 
 def run_configuration(experiment, validation=None):
     a = experiment.args
-    return dict(version=1, method="adaptive_full_corpus_search", dataset=a.dataset_name, split=a.dataset_split,
+    config = dict(version=1, method="adaptive_full_corpus_search", dataset=a.dataset_name, split=a.dataset_split,
         direction=direction(a.task_type, a.query_type), corpus_fingerprint=experiment.expected["fingerprint"],
         selection_fingerprint=experiment.selection["fingerprint"], views_fingerprint=experiment.selection["views_fingerprint"],
         dense_root=str(experiment.dense_root) if experiment.dense_root else None,
@@ -277,6 +289,41 @@ def run_configuration(experiment, validation=None):
             selection_fingerprint=validation.selection["fingerprint"], dataset=validation.args.dataset_name,
             split=validation.args.dataset_split, dense_root=str(validation.dense_root), sparse_root=str(validation.sparse_root)),
         encoding=experiment.expected["configuration"])
+    if getattr(a, "retrieval_similarity_stats", False):
+        config["retrieval_similarity_stats"] = similarity_configuration()
+    return config
+
+
+def similarity_configuration():
+    from compute_retrieval_similarity import TOP_KS, DEFAULT_RBO_P
+    # Version 2 aligns the CSV labels and saved-run format with search_similarity.
+    return dict(version=2, top_k=list(TOP_KS), rbo_p=DEFAULT_RBO_P)
+
+
+def write_similarity_report(experiment, runs, output):
+    """Write the ordinary no_manual report with the locked adaptive provenance."""
+    from compute_retrieval_similarity import compute_run_similarity
+    settings = similarity_configuration()
+    args = experiment.args
+    eol_type, calculate_type = experiment.expected["configuration"]["method"]
+    metadata = dict(
+        dataset_name=args.dataset_name, query_type=args.query_type, eol_type=eol_type,
+        calculate_type=calculate_type, sparse_manual=False, llava_image_mode=args.llava_image_mode,
+        search_depth=args.depth, test_run_directory=str(output), adaptive_views=True,
+        dataset_split=args.dataset_split, corpus_fingerprint=experiment.expected["fingerprint"],
+        selection_fingerprint=experiment.selection["fingerprint"], views_fingerprint=experiment.selection["views_fingerprint"],
+        selection_file=str(experiment.selection_path), run_metadata_file=str(output / "run_metadata.json"))
+    output.mkdir(parents=True, exist_ok=True)
+    run_file = output / "test_runs_no_manual.pkl"
+    payload = dict(dense_run={qid: dict(docs=scores) for qid, scores in runs["dense"].items()},
+                   sparse_run={qid: dict(docs=scores) for qid, scores in runs["sparse"].items()}, metadata=metadata)
+    with run_file.open("wb") as stream:
+        pickle.dump(payload, stream, protocol=pickle.HIGHEST_PROTOCOL)
+    print(f"Saved test runs for similarity analysis to: {run_file}", flush=True)
+    path = compute_run_similarity(runs["dense"], runs["sparse"], output / SIMILARITY_REPORT_NAME,
+        condition="no_manual", rbo_p=settings["rbo_p"], metadata=metadata, run_path=run_file)
+    print(f"Saved dense/sparse similarity report to: {path}", flush=True)
+    return dict(file=str(Path(path).resolve()), run_file=str(run_file.resolve()), **settings)
 
 
 def output_location(experiment, config):
@@ -502,7 +549,7 @@ def execute(args):
             records = api._qwen_query_records(a, api._query_records(a, dataset))
             if not records or len({row["id"] for row in records}) != len(records):
                 raise ValueError("Queries must be nonempty and have unique IDs")
-            model, data = api._retrieval_namespaces(a, eol_type="disassembleeol_separate", calculate_type="concat", sparse_manual=False)
+            model, data = api._retrieval_namespaces(a, eol_type=a.retrieval_eol_type, calculate_type="concat", sparse_manual=False)
             data.llava_image_mode = experiment.args.llava_image_mode
             backend.configure_processor(runtime.encoder.config, runtime.processor, data.reps_loc)
             encoder = backend.AdaptiveEncoder(runtime.encoder, runtime.processor, model, data, a.task_type, experiment.selection)
@@ -541,6 +588,8 @@ def execute(args):
                 write_trec_run(run, output / f"{name}_run.trec", "adaptive_" + name)
             report = dict(alpha=alpha if "hybrid" in runs else None, alpha_selection_source=source,
                 metrics=metrics, query_count=len(query_ids))
+            if getattr(target.args, "retrieval_similarity_stats", False):
+                report["retrieval_similarity_stats"] = write_similarity_report(target, runs, output)
             write_csv(output / "recall_metrics.csv", metric_rows(metrics, target, report["alpha"], source))
             views.atomic_json(output / "recall_metrics.json", report)
             if sweep:

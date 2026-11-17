@@ -31,9 +31,9 @@ WIDTH_RATIOS = (1.4, 1)
 METHODS = ("RGP", "CGP", "Modified\nCGP", "FreeRet")
 CONDITIONS = ("t2i", "i2t")
 # Same rows/columns as bias.py, including FreeRet [t2i, i2t] = [80.1, 68.4].
-RECALL_SCORES = np.array([[75.0, 83.2, 83.2, 80.1], [79.2, 69.4, 78.1, 68.4]])
+RECALL_SCORES = np.array([[76.3, 82.0, 82.0, 80.0], [76.1, 66.2, 74.1, 69.5]])
 COLORS = ("#f57c6e", "#f2b56f")
-HYBRID_BASELINES = ((70.6, "blue", "i2t hybrid"), (62.9, "green", "t2i hybrid"))
+HYBRID_BASELINES = ((64.9, "blue", "i2t hybrid"), (60.8, "green", "t2i hybrid"))
 PLOT_STYLE = {
     "font.family": "DejaVu Sans", "font.size": 12,
     "pdf.fonttype": 42, "ps.fonttype": 42,

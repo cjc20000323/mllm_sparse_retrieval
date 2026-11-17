@@ -12,7 +12,7 @@ X_LABELS = [
 ]
 
 
-def plot_compare(data, dense_score, output_path):
+def plot_compare(data, dense_score, output_path, ylabel="r@1"):
     df = pd.DataFrame(data)
 
     n_groups = len(df)
@@ -58,19 +58,20 @@ def plot_compare(data, dense_score, output_path):
                 clip_on=False,
             )
 
-    max_score = max(df.iloc[:, 1:].to_numpy().max(), dense_score)
-    ax.set_ylim(0, max_score + 20)
-    ax.set_ylabel("r@1", fontsize=21, labelpad=4)
+    ax.set_ylim(0, 100)
+    ax.set_yticks(np.arange(0, 101, 20))
+    ax.set_ylabel(ylabel, fontsize=21, labelpad=4)
     ax.set_xticks(index + n_groups * group_bar_width / 2)
     ax.set_xticklabels(X_LABELS, fontsize=15)
     ax.tick_params(axis="y", labelsize=16)
     ax.tick_params(axis="x", pad=2)
     ax.margins(x=0.05)
     ax.legend(
-        loc="upper center",
+        loc="lower center",
         ncol=3,
         fontsize=16,
-        bbox_to_anchor=(0.5, 0.99),
+        bbox_to_anchor=(0.5, 1.02),
+        borderaxespad=0,
         frameon=False,
         handlelength=1.7,
         handletextpad=0.5,
@@ -85,13 +86,14 @@ def main():
     plot_compare(
         {
             "Condition": ["Sparse", "Hybrid"],
-            "SSE(T) PTT(I) r@1": [25.0, 68.4],
-            "PTT(T) PTT(I) r@1": [54.0, 66.0],
-            "MPP(SSE(T) PTT(I)) r@1": [31.2, 69.4],
-            "MPP(PTT(T) PTT(I)) r@1": [62.7, 70.4],
+            "SSE(T) PTT(I) r@5": [45.9, 86.0],
+            "PTT(T) PTT(I) r@5": [77.7, 85.0],
+            "MPP(SSE(T) PTT(I)) r@5": [43.1, 85.8],
+            "MPP(PTT(T) PTT(I)) r@5": [75.9, 87.5],
         },
-        dense_score=66.2,
+        dense_score=85.8,
         output_path="compare_flickr.pdf",
+        ylabel="r@5",
     )
 
     plot_compare(
@@ -102,7 +104,7 @@ def main():
             "MPP(SSE(T) PTT(I)) r@1": [28.2, 73.6],
             "MPP(PTT(T) PTT(I)) r@1": [68.4, 75.4],
         },
-        dense_score=72.3,
+        dense_score=69.3,
         output_path="compare_i2t_flickr.pdf",
     )
 

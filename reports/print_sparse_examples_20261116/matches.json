@@ -1,0 +1,357 @@
+[
+  {
+    "imgid": "4402",
+    "filename": "2268207503.jpg",
+    "caption": "An old man in a green shirt is walking down a paved path with three small children.",
+    "sentid": "22011",
+    "figure": "example_4402.png",
+    "matches": [
+      {
+        "word": "children",
+        "view": "J",
+        "rank": 8,
+        "token": "▁Children",
+        "token_id": 12708,
+        "image_weight": 2.560546875,
+        "retained_text_token": {
+          "token_id": 2436,
+          "token": "▁children",
+          "weight": 1.5760750770568848
+        },
+        "original_text_sparse_weight": 158,
+        "summary_text_sparse_weight": 243,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 427
+        }
+      },
+      {
+        "word": "three",
+        "view": "C",
+        "rank": 6,
+        "token": "▁Three",
+        "token_id": 9673,
+        "image_weight": 2.611328125,
+        "retained_text_token": {
+          "token_id": 1712,
+          "token": "▁three",
+          "weight": 1.3222765922546387
+        },
+        "original_text_sparse_weight": 132,
+        "summary_text_sparse_weight": 230,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 429
+        }
+      },
+      {
+        "word": "old",
+        "view": "C",
+        "rank": 7,
+        "token": "▁Old",
+        "token_id": 7470,
+        "image_weight": 2.587890625,
+        "retained_text_token": {
+          "token_id": 1571,
+          "token": "▁old",
+          "weight": 1.9614143371582031
+        },
+        "original_text_sparse_weight": 196,
+        "summary_text_sparse_weight": 263,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 429
+        }
+      },
+      {
+        "word": "man",
+        "view": "C",
+        "rank": 9,
+        "token": "▁Man",
+        "token_id": 2213,
+        "image_weight": 2.5625,
+        "retained_text_token": {
+          "token_id": 676,
+          "token": "▁man",
+          "weight": 1.852996587753296
+        },
+        "original_text_sparse_weight": 185,
+        "summary_text_sparse_weight": 250,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 429
+        }
+      },
+      {
+        "word": "green",
+        "view": "B",
+        "rank": 10,
+        "token": "▁Green",
+        "token_id": 6248,
+        "image_weight": 2.5546875,
+        "retained_text_token": {
+          "token_id": 5344,
+          "token": "▁green",
+          "weight": 0.38174858689308167
+        },
+        "original_text_sparse_weight": 38,
+        "summary_text_sparse_weight": 212,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 430
+        }
+      },
+      {
+        "word": "green",
+        "view": "D",
+        "rank": 5,
+        "token": "▁Green",
+        "token_id": 6248,
+        "image_weight": 2.55859375,
+        "retained_text_token": {
+          "token_id": 5344,
+          "token": "▁green",
+          "weight": 0.38174858689308167
+        },
+        "original_text_sparse_weight": 38,
+        "summary_text_sparse_weight": 212,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 431
+        }
+      },
+      {
+        "word": "children",
+        "view": "D",
+        "rank": 7,
+        "token": "▁Children",
+        "token_id": 12708,
+        "image_weight": 2.52734375,
+        "retained_text_token": {
+          "token_id": 2436,
+          "token": "▁children",
+          "weight": 1.5760750770568848
+        },
+        "original_text_sparse_weight": 158,
+        "summary_text_sparse_weight": 243,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 431
+        }
+      }
+    ],
+    "text_source": {
+      "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+      "line": 1749
+    },
+    "baseline_source": {
+      "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_token_logs/.ipynb_checkpoints/sparse_tokens_rank0-checkpoint.jsonl",
+      "line": 440
+    }
+  },
+  {
+    "imgid": "27726",
+    "filename": "6275000713.jpg",
+    "caption": "Four dark-haired adolescent boys, three wearing blue and one wearing red, are playing soccer on a green grass field.",
+    "sentid": "138630",
+    "figure": "example_27726.png",
+    "matches": [
+      {
+        "word": "field",
+        "view": "A",
+        "rank": 1,
+        "token": "▁Field",
+        "token_id": 8246,
+        "image_weight": 2.857421875,
+        "retained_text_token": {
+          "token_id": 1834,
+          "token": "▁field",
+          "weight": 1.5204359292984009
+        },
+        "original_text_sparse_weight": 152,
+        "summary_text_sparse_weight": 246,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 2696
+        }
+      },
+      {
+        "word": "four",
+        "view": "C",
+        "rank": 4,
+        "token": "▁Four",
+        "token_id": 9611,
+        "image_weight": 2.724609375,
+        "retained_text_token": {
+          "token_id": 2308,
+          "token": "▁four",
+          "weight": 2.0081090927124023
+        },
+        "original_text_sparse_weight": 201,
+        "summary_text_sparse_weight": 263,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 2697
+        }
+      },
+      {
+        "word": "green",
+        "view": "B",
+        "rank": 10,
+        "token": "▁Green",
+        "token_id": 6248,
+        "image_weight": 2.56640625,
+        "retained_text_token": {
+          "token_id": 5344,
+          "token": "▁green",
+          "weight": 1.3848284482955933
+        },
+        "original_text_sparse_weight": 138,
+        "summary_text_sparse_weight": 236,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 2698
+        }
+      },
+      {
+        "word": "blue",
+        "view": "D",
+        "rank": 7,
+        "token": "▁Blue",
+        "token_id": 8836,
+        "image_weight": 2.642578125,
+        "retained_text_token": {
+          "token_id": 5045,
+          "token": "▁blue",
+          "weight": 1.5152989625930786
+        },
+        "original_text_sparse_weight": 152,
+        "summary_text_sparse_weight": 240,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 2699
+        }
+      },
+      {
+        "word": "field",
+        "view": "I",
+        "rank": 5,
+        "token": "▁Field",
+        "token_id": 8246,
+        "image_weight": 2.556640625,
+        "retained_text_token": {
+          "token_id": 1834,
+          "token": "▁field",
+          "weight": 1.5204359292984009
+        },
+        "original_text_sparse_weight": 152,
+        "summary_text_sparse_weight": 246,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 2700
+        }
+      }
+    ],
+    "text_source": {
+      "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+      "line": 1428
+    },
+    "baseline_source": {
+      "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_token_logs/.ipynb_checkpoints/sparse_tokens_rank0-checkpoint.jsonl",
+      "line": 143
+    }
+  },
+  {
+    "imgid": "28142",
+    "filename": "6589292543.jpg",
+    "caption": "A very young boy wearing a green long-sleeve shirt is laying on a bed at a store.",
+    "sentid": "140712",
+    "figure": "example_28142.png",
+    "matches": [
+      {
+        "word": "store",
+        "view": "A",
+        "rank": 6,
+        "token": "▁Store",
+        "token_id": 13229,
+        "image_weight": 2.615234375,
+        "retained_text_token": {
+          "token_id": 4143,
+          "token": "▁store",
+          "weight": 1.5663347244262695
+        },
+        "original_text_sparse_weight": 157,
+        "summary_text_sparse_weight": 246,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 2756
+        }
+      },
+      {
+        "word": "young",
+        "view": "C",
+        "rank": 10,
+        "token": "▁Young",
+        "token_id": 9465,
+        "image_weight": 2.630859375,
+        "retained_text_token": {
+          "token_id": 2518,
+          "token": "▁young",
+          "weight": 1.8098244667053223
+        },
+        "original_text_sparse_weight": 181,
+        "summary_text_sparse_weight": 244,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 2757
+        }
+      },
+      {
+        "word": "green",
+        "view": "D",
+        "rank": 1,
+        "token": "▁Green",
+        "token_id": 6248,
+        "image_weight": 2.732421875,
+        "retained_text_token": {
+          "token_id": 5344,
+          "token": "▁green",
+          "weight": 1.1647365093231201
+        },
+        "original_text_sparse_weight": 116,
+        "summary_text_sparse_weight": 231,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 2759
+        }
+      },
+      {
+        "word": "long",
+        "view": "D",
+        "rank": 9,
+        "token": "▁Long",
+        "token_id": 6428,
+        "image_weight": 2.6015625,
+        "retained_text_token": {
+          "token_id": 1043,
+          "token": "▁long",
+          "weight": 0.5579402446746826
+        },
+        "original_text_sparse_weight": 56,
+        "summary_text_sparse_weight": 217,
+        "image_source": {
+          "file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "line": 2759
+        }
+      }
+    ],
+    "text_source": {
+      "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+      "line": 2436
+    },
+    "baseline_source": {
+      "file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_token_logs/.ipynb_checkpoints/sparse_tokens_rank0-checkpoint.jsonl",
+      "line": 312
+    }
+  }
+]

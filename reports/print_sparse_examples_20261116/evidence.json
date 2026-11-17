@@ -1,0 +1,2117 @@
+{
+  "model": "llava-hf-llava-v1.6-mistral-7b-hf",
+  "dataset": "flickr",
+  "split": "test",
+  "baseline_image_count": 500,
+  "adaptive_image_count": 1000,
+  "text_source": "saved sparse representation; compare words case-insensitively without the tokenizer prefix",
+  "records": [
+    {
+      "caption": {
+        "imgid": "4402",
+        "filename": "2268207503.jpg",
+        "caption": "An old man in a green shirt is walking down a paved path with three small children.",
+        "sentid": "22011"
+      },
+      "original": {
+        "id": "22011",
+        "content": "",
+        "vector": {
+          "▁walking": 198,
+          "▁old": 196,
+          "▁man": 185,
+          "▁children": 158,
+          "▁three": 132,
+          "▁path": 124,
+          "▁p": 106,
+          "▁green": 38,
+          "▁small": 8,
+          "▁shirt": 0,
+          "aved": 0
+        },
+        "_file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_no_manual_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl",
+        "_line": 1749
+      },
+      "summary": {
+        "id": "22011",
+        "content": "",
+        "vector": {
+          "▁walk": 271,
+          "▁old": 263,
+          "▁family": 261,
+          "▁eld": 259,
+          "▁man": 250,
+          "▁st": 248,
+          "▁the": 245,
+          "▁yes": 243,
+          "▁children": 243,
+          "▁father": 243,
+          "▁grand": 243,
+          "▁no": 242,
+          "▁": 242,
+          "▁group": 241,
+          "▁n": 240,
+          "▁a": 239,
+          "▁nothing": 238,
+          "▁he": 237,
+          "▁none": 237,
+          "▁child": 236,
+          "▁m": 236,
+          "▁path": 236,
+          "▁w": 233,
+          "▁they": 233,
+          "▁v": 233,
+          "▁\"": 233,
+          "▁story": 233,
+          "▁par": 233,
+          "▁care": 233,
+          "▁h": 232,
+          "▁p": 231,
+          "▁ped": 231,
+          "▁happy": 231,
+          "▁l": 231,
+          "▁her": 231,
+          "▁esc": 230,
+          "▁age": 230,
+          "▁three": 230,
+          "▁short": 229,
+          "▁five": 229,
+          "▁ger": 229,
+          "▁four": 228,
+          "▁o": 228,
+          "▁adult": 228,
+          "▁un": 227,
+          "▁gu": 227,
+          "▁people": 227,
+          "▁picture": 226,
+          "▁nice": 226,
+          "▁jour": 226,
+          "▁taking": 226,
+          "▁one": 225,
+          "▁an": 225,
+          "▁s": 225,
+          "▁t": 224,
+          "▁not": 224,
+          "▁in": 223,
+          "▁ex": 223,
+          "▁out": 223,
+          "▁there": 223,
+          "▁this": 222,
+          "▁senior": 222,
+          "▁little": 222,
+          "▁lead": 221,
+          "▁parent": 221,
+          "▁b": 220,
+          "▁e": 220,
+          "▁day": 220,
+          "▁guy": 220,
+          "▁it": 220,
+          "▁te": 220,
+          "▁travel": 219,
+          "▁f": 219,
+          "▁g": 219,
+          "▁j": 219,
+          "▁sc": 219,
+          "▁bab": 219,
+          "▁easy": 219,
+          "▁men": 218,
+          "▁fun": 218,
+          "▁famil": 218,
+          "▁walker": 218,
+          "▁harm": 217,
+          "▁c": 217,
+          "▁description": 217,
+          "▁slow": 217,
+          "▁i": 217,
+          "▁pass": 217,
+          "▁acc": 216,
+          "▁el": 216,
+          "▁expl": 216,
+          "▁mult": 216,
+          "▁gr": 215,
+          "▁enjoy": 215,
+          "▁going": 215,
+          "▁good": 215,
+          "▁desc": 215,
+          "▁gent": 214,
+          "▁on": 214,
+          "▁ste": 214,
+          "▁true": 214,
+          "▁take": 214,
+          "▁play": 214,
+          "▁guide": 214,
+          "▁sen": 214,
+          "▁summary": 214,
+          "▁describe": 213,
+          "▁life": 213,
+          "▁help": 213,
+          "▁speed": 213,
+          "▁all": 213,
+          "▁compan": 213,
+          "▁inter": 212,
+          "▁elderly": 212,
+          "▁dad": 212,
+          "▁green": 212,
+          "▁se": 211,
+          "▁qu": 211,
+          "▁cross": 211,
+          "▁d": 211,
+          "▁together": 210,
+          "▁go": 210,
+          "▁great": 210,
+          "▁sure": 210,
+          "▁str": 209,
+          "▁two": 209,
+          "▁guard": 209,
+          "▁me": 209
+        },
+        "_file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl",
+        "_line": 1749
+      },
+      "single_image": {
+        "rank": 0,
+        "sample_id": "4402",
+        "modality": "image",
+        "view": "whole",
+        "aspect": "prompteol",
+        "top_k": 10,
+        "weight_type": "log1p_relu",
+        "top_tokens": [
+          {
+            "token_id": 4120,
+            "token": "▁Park",
+            "weight": 2.7261152267456055
+          },
+          {
+            "token_id": 11228,
+            "token": "▁Path",
+            "weight": 2.6880600452423096
+          },
+          {
+            "token_id": 320,
+            "token": "▁T",
+            "weight": 2.686464786529541
+          },
+          {
+            "token_id": 9863,
+            "token": "▁Walk",
+            "weight": 2.6540119647979736
+          },
+          {
+            "token_id": 5383,
+            "token": "▁Street",
+            "weight": 2.6379406452178955
+          },
+          {
+            "token_id": 365,
+            "token": "▁B",
+            "weight": 2.617053508758545
+          },
+          {
+            "token_id": 7356,
+            "token": "▁Road",
+            "weight": 2.6107587814331055
+          },
+          {
+            "token_id": 15256,
+            "token": "▁Side",
+            "weight": 2.6009521484375
+          },
+          {
+            "token_id": 367,
+            "token": "▁P",
+            "weight": 2.576303005218506
+          },
+          {
+            "token_id": 1770,
+            "token": "▁No",
+            "weight": 2.5655500888824463
+          }
+        ],
+        "sample_text": "",
+        "_file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_token_logs/.ipynb_checkpoints/sparse_tokens_rank0-checkpoint.jsonl",
+        "_line": 440
+      },
+      "adaptive_image": [
+        {
+          "rank": 0,
+          "sample_id": "4402",
+          "modality": "image",
+          "view": "J",
+          "aspect": "high-level semantics, such as events, activities and functions",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 9863,
+              "token": "▁Walk",
+              "weight": 2.814453125
+            },
+            {
+              "token_id": 2316,
+              "token": "▁Par",
+              "weight": 2.6875
+            },
+            {
+              "token_id": 662,
+              "token": "▁St",
+              "weight": 2.638671875
+            },
+            {
+              "token_id": 10712,
+              "token": "▁Family",
+              "weight": 2.630859375
+            },
+            {
+              "token_id": 4120,
+              "token": "▁Park",
+              "weight": 2.619140625
+            },
+            {
+              "token_id": 24779,
+              "token": "▁Cele",
+              "weight": 2.568359375
+            },
+            {
+              "token_id": 365,
+              "token": "▁B",
+              "weight": 2.56640625
+            },
+            {
+              "token_id": 12708,
+              "token": "▁Children",
+              "weight": 2.560546875
+            },
+            {
+              "token_id": 367,
+              "token": "▁P",
+              "weight": 2.54296875
+            },
+            {
+              "token_id": 6785,
+              "token": "▁Fun",
+              "weight": 2.5390625
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 427
+        },
+        {
+          "rank": 0,
+          "sample_id": "4402",
+          "modality": "image",
+          "view": "A",
+          "aspect": "scene, such as location, indoor or outdoor setting and terrain",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 4120,
+              "token": "▁Park",
+              "weight": 2.771484375
+            },
+            {
+              "token_id": 11228,
+              "token": "▁Path",
+              "weight": 2.751953125
+            },
+            {
+              "token_id": 4655,
+              "token": "▁Out",
+              "weight": 2.75
+            },
+            {
+              "token_id": 5383,
+              "token": "▁Street",
+              "weight": 2.693359375
+            },
+            {
+              "token_id": 7356,
+              "token": "▁Road",
+              "weight": 2.685546875
+            },
+            {
+              "token_id": 15256,
+              "token": "▁Side",
+              "weight": 2.68359375
+            },
+            {
+              "token_id": 367,
+              "token": "▁P",
+              "weight": 2.666015625
+            },
+            {
+              "token_id": 9863,
+              "token": "▁Walk",
+              "weight": 2.6640625
+            },
+            {
+              "token_id": 25116,
+              "token": "▁Outside",
+              "weight": 2.62109375
+            },
+            {
+              "token_id": 15777,
+              "token": "▁Forest",
+              "weight": 2.533203125
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 428
+        },
+        {
+          "rank": 0,
+          "sample_id": "4402",
+          "modality": "image",
+          "view": "C",
+          "aspect": "people, such as number of people, appearance and pose",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 28705,
+              "token": "▁",
+              "weight": 2.7890625
+            },
+            {
+              "token_id": 10712,
+              "token": "▁Family",
+              "weight": 2.673828125
+            },
+            {
+              "token_id": 20010,
+              "token": "▁Woman",
+              "weight": 2.646484375
+            },
+            {
+              "token_id": 5619,
+              "token": "▁People",
+              "weight": 2.640625
+            },
+            {
+              "token_id": 6005,
+              "token": "▁Two",
+              "weight": 2.62109375
+            },
+            {
+              "token_id": 9673,
+              "token": "▁Three",
+              "weight": 2.611328125
+            },
+            {
+              "token_id": 7470,
+              "token": "▁Old",
+              "weight": 2.587890625
+            },
+            {
+              "token_id": 9863,
+              "token": "▁Walk",
+              "weight": 2.5703125
+            },
+            {
+              "token_id": 2213,
+              "token": "▁Man",
+              "weight": 2.5625
+            },
+            {
+              "token_id": 5926,
+              "token": "▁Group",
+              "weight": 2.546875
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 429
+        },
+        {
+          "rank": 0,
+          "sample_id": "4402",
+          "modality": "image",
+          "view": "B",
+          "aspect": "natural environment, such as weather, lighting, season and time",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 7057,
+              "token": "▁Sun",
+              "weight": 2.73046875
+            },
+            {
+              "token_id": 5235,
+              "token": "▁Over",
+              "weight": 2.724609375
+            },
+            {
+              "token_id": 13832,
+              "token": "▁Cloud",
+              "weight": 2.708984375
+            },
+            {
+              "token_id": 13211,
+              "token": "▁Summer",
+              "weight": 2.705078125
+            },
+            {
+              "token_id": 9199,
+              "token": "▁Spring",
+              "weight": 2.705078125
+            },
+            {
+              "token_id": 17774,
+              "token": "▁Rain",
+              "weight": 2.6796875
+            },
+            {
+              "token_id": 12168,
+              "token": "▁Fall",
+              "weight": 2.6796875
+            },
+            {
+              "token_id": 16676,
+              "token": "▁Clear",
+              "weight": 2.595703125
+            },
+            {
+              "token_id": 3745,
+              "token": "▁Aut",
+              "weight": 2.57421875
+            },
+            {
+              "token_id": 6248,
+              "token": "▁Green",
+              "weight": 2.5546875
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 430
+        },
+        {
+          "rank": 0,
+          "sample_id": "4402",
+          "modality": "image",
+          "view": "D",
+          "aspect": "clothing, such as category, color, material and style",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 8194,
+              "token": "▁Cas",
+              "weight": 2.7421875
+            },
+            {
+              "token_id": 11530,
+              "token": "▁Short",
+              "weight": 2.607421875
+            },
+            {
+              "token_id": 320,
+              "token": "▁T",
+              "weight": 2.578125
+            },
+            {
+              "token_id": 3291,
+              "token": "▁Je",
+              "weight": 2.5625
+            },
+            {
+              "token_id": 6248,
+              "token": "▁Green",
+              "weight": 2.55859375
+            },
+            {
+              "token_id": 24273,
+              "token": "▁Pink",
+              "weight": 2.55078125
+            },
+            {
+              "token_id": 12708,
+              "token": "▁Children",
+              "weight": 2.52734375
+            },
+            {
+              "token_id": 318,
+              "token": "▁S",
+              "weight": 2.51953125
+            },
+            {
+              "token_id": 9531,
+              "token": "▁Light",
+              "weight": 2.517578125
+            },
+            {
+              "token_id": 3635,
+              "token": "▁None",
+              "weight": 2.515625
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 431
+        },
+        {
+          "rank": 0,
+          "sample_id": "4402",
+          "modality": "image",
+          "view": "I",
+          "aspect": "spatial layout, such as foreground and background, distance and direction",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 11228,
+              "token": "▁Path",
+              "weight": 2.587890625
+            },
+            {
+              "token_id": 320,
+              "token": "▁T",
+              "weight": 2.57421875
+            },
+            {
+              "token_id": 13794,
+              "token": "▁Front",
+              "weight": 2.572265625
+            },
+            {
+              "token_id": 4120,
+              "token": "▁Park",
+              "weight": 2.5703125
+            },
+            {
+              "token_id": 7257,
+              "token": "▁Fore",
+              "weight": 2.560546875
+            },
+            {
+              "token_id": 24316,
+              "token": "▁Background",
+              "weight": 2.556640625
+            },
+            {
+              "token_id": 7356,
+              "token": "▁Road",
+              "weight": 2.5546875
+            },
+            {
+              "token_id": 5383,
+              "token": "▁Street",
+              "weight": 2.552734375
+            },
+            {
+              "token_id": 18537,
+              "token": "▁Close",
+              "weight": 2.544921875
+            },
+            {
+              "token_id": 6119,
+              "token": "▁Cur",
+              "weight": 2.525390625
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 432
+        }
+      ],
+      "text_log": {
+        "rank": 0,
+        "sample_id": "22011",
+        "modality": "text",
+        "view": "whole",
+        "aspect": "prompteol",
+        "top_k": 10,
+        "weight_type": "log1p_relu",
+        "top_tokens": [
+          {
+            "token_id": 7312,
+            "token": "▁walking",
+            "weight": 1.9804625511169434
+          },
+          {
+            "token_id": 1571,
+            "token": "▁old",
+            "weight": 1.9614143371582031
+          },
+          {
+            "token_id": 676,
+            "token": "▁man",
+            "weight": 1.852996587753296
+          },
+          {
+            "token_id": 2436,
+            "token": "▁children",
+            "weight": 1.5760750770568848
+          },
+          {
+            "token_id": 1712,
+            "token": "▁three",
+            "weight": 1.3222765922546387
+          },
+          {
+            "token_id": 2439,
+            "token": "▁path",
+            "weight": 1.2364475727081299
+          },
+          {
+            "token_id": 284,
+            "token": "▁p",
+            "weight": 1.0628231763839722
+          },
+          {
+            "token_id": 5344,
+            "token": "▁green",
+            "weight": 0.38174858689308167
+          },
+          {
+            "token_id": 1741,
+            "token": "▁small",
+            "weight": 0.0842406153678894
+          },
+          {
+            "token_id": 11480,
+            "token": "▁shirt",
+            "weight": 0.0
+          }
+        ],
+        "token_source": "retained_text",
+        "retained_token_count": 11,
+        "sample_text": "An old man in a green shirt is walking down a paved path with three small children.",
+        "_file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+        "_line": 1749
+      },
+      "image_path": "/root/autodl-tmp/data/flickr/flickr30k-images/2268207503.jpg",
+      "searched_images": [],
+      "local_image": "4402.jpg"
+    },
+    {
+      "caption": {
+        "imgid": "27726",
+        "filename": "6275000713.jpg",
+        "caption": "Four dark-haired adolescent boys, three wearing blue and one wearing red, are playing soccer on a green grass field.",
+        "sentid": "138630"
+      },
+      "original": {
+        "id": "138630",
+        "content": "",
+        "vector": {
+          "▁soccer": 223,
+          "▁boys": 207,
+          "▁four": 201,
+          "▁playing": 180,
+          "▁adoles": 157,
+          "▁field": 152,
+          "▁blue": 152,
+          "▁green": 138,
+          "▁red": 105,
+          "-": 94,
+          "▁three": 86,
+          "▁one": 79,
+          "▁grass": 59,
+          "▁dark": 11,
+          "ha": 0,
+          "ired": 0,
+          "▁wearing": 0,
+          "cent": 0
+        },
+        "_file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_no_manual_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_1.jsonl",
+        "_line": 1428
+      },
+      "summary": {
+        "id": "138630",
+        "content": "",
+        "vector": {
+          "▁soc": 271,
+          "▁boys": 267,
+          "▁play": 266,
+          "▁game": 266,
+          "▁four": 263,
+          "▁match": 259,
+          "▁te": 258,
+          "▁team": 252,
+          "▁sports": 252,
+          "▁children": 251,
+          "▁group": 250,
+          "▁un": 249,
+          "▁football": 246,
+          "▁field": 246,
+          "▁yes": 245,
+          "▁": 243,
+          "▁friend": 243,
+          "▁kids": 243,
+          "▁games": 241,
+          "▁blue": 240,
+          "▁sport": 240,
+          "▁boy": 239,
+          "▁nothing": 239,
+          "▁five": 239,
+          "▁they": 239,
+          "▁the": 238,
+          "▁summary": 238,
+          "▁green": 236,
+          "▁youth": 236,
+          "▁int": 236,
+          "▁action": 236,
+          "▁description": 235,
+          "▁friends": 235,
+          "▁in": 234,
+          "▁score": 234,
+          "▁go": 233,
+          "▁ad": 233,
+          "▁young": 232,
+          "▁no": 231,
+          "▁fun": 231,
+          "▁none": 230,
+          "▁\"": 230,
+          "▁f": 229,
+          "▁mat": 229,
+          "▁picture": 229,
+          "▁b": 229,
+          "▁l": 228,
+          "▁color": 228,
+          "▁qu": 228,
+          "▁not": 228,
+          "▁s": 227,
+          "▁g": 227,
+          "▁people": 227,
+          "▁a": 227,
+          "▁red": 227,
+          "▁sc": 226,
+          "▁there": 226,
+          "▁good": 226,
+          "▁pl": 225,
+          "▁introduction": 225,
+          "▁i": 225,
+          "▁short": 224,
+          "▁m": 223,
+          "▁soccer": 223,
+          "▁players": 223,
+          "▁j": 222,
+          "▁activity": 222,
+          "▁t": 222,
+          "▁this": 222,
+          "▁social": 222,
+          "▁describe": 221,
+          "▁so": 221,
+          "▁desc": 221,
+          "▁one": 220,
+          "▁p": 219,
+          "▁ball": 219,
+          "▁girls": 219,
+          "▁men": 219,
+          "▁k": 219,
+          "▁it": 218,
+          "▁three": 218,
+          "▁school": 218,
+          "▁ok": 218,
+          "▁base": 218,
+          "▁report": 218,
+          "▁different": 218,
+          "▁activ": 217,
+          "▁athlet": 217,
+          "▁d": 217,
+          "▁out": 217,
+          "▁mult": 217,
+          "▁[": 216,
+          "▁ex": 216,
+          "▁two": 216,
+          "▁par": 216,
+          "▁comp": 216,
+          "▁h": 215,
+          "▁under": 215,
+          "▁party": 215,
+          "▁squad": 215,
+          "▁rug": 215,
+          "▁all": 215,
+          "▁compet": 215,
+          "▁child": 215,
+          "▁over": 214,
+          "▁con": 214,
+          "▁c": 214,
+          "▁multi": 214,
+          "▁v": 214,
+          "▁united": 214,
+          "▁fr": 213,
+          "▁stadium": 213,
+          "▁st": 213,
+          "▁on": 213,
+          "▁image": 213,
+          "▁okay": 213,
+          "▁inter": 213,
+          "▁fair": 212,
+          "▁pos": 212,
+          "▁bul": 212,
+          "▁sure": 212,
+          "▁story": 212,
+          "▁practice": 212,
+          "▁w": 212,
+          "▁al": 212,
+          "▁to": 212,
+          "▁battle": 211,
+          "▁great": 211
+        },
+        "_file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_1.jsonl",
+        "_line": 1428
+      },
+      "single_image": {
+        "rank": 0,
+        "sample_id": "27726",
+        "modality": "image",
+        "view": "whole",
+        "aspect": "prompteol",
+        "top_k": 10,
+        "weight_type": "log1p_relu",
+        "top_tokens": [
+          {
+            "token_id": 4234,
+            "token": "▁Soc",
+            "weight": 2.8183982372283936
+          },
+          {
+            "token_id": 20344,
+            "token": "▁Boys",
+            "weight": 2.791931629180908
+          },
+          {
+            "token_id": 12708,
+            "token": "▁Children",
+            "weight": 2.7617883682250977
+          },
+          {
+            "token_id": 8279,
+            "token": "▁Game",
+            "weight": 2.730708122253418
+          },
+          {
+            "token_id": 6879,
+            "token": "▁Play",
+            "weight": 2.6816635131835938
+          },
+          {
+            "token_id": 21186,
+            "token": "▁Kids",
+            "weight": 2.6616790294647217
+          },
+          {
+            "token_id": 11036,
+            "token": "▁Boy",
+            "weight": 2.6283979415893555
+          },
+          {
+            "token_id": 13184,
+            "token": "▁Sports",
+            "weight": 2.6216068267822266
+          },
+          {
+            "token_id": 13474,
+            "token": "▁Football",
+            "weight": 2.603846549987793
+          },
+          {
+            "token_id": 6320,
+            "token": "▁Run",
+            "weight": 2.578676700592041
+          }
+        ],
+        "sample_text": "",
+        "_file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_token_logs/.ipynb_checkpoints/sparse_tokens_rank0-checkpoint.jsonl",
+        "_line": 143
+      },
+      "adaptive_image": [
+        {
+          "rank": 0,
+          "sample_id": "27726",
+          "modality": "image",
+          "view": "J",
+          "aspect": "high-level semantics, such as events, activities and functions",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 4234,
+              "token": "▁Soc",
+              "weight": 2.90234375
+            },
+            {
+              "token_id": 8279,
+              "token": "▁Game",
+              "weight": 2.818359375
+            },
+            {
+              "token_id": 6879,
+              "token": "▁Play",
+              "weight": 2.814453125
+            },
+            {
+              "token_id": 6320,
+              "token": "▁Run",
+              "weight": 2.71484375
+            },
+            {
+              "token_id": 12708,
+              "token": "▁Children",
+              "weight": 2.712890625
+            },
+            {
+              "token_id": 13184,
+              "token": "▁Sports",
+              "weight": 2.689453125
+            },
+            {
+              "token_id": 20344,
+              "token": "▁Boys",
+              "weight": 2.66015625
+            },
+            {
+              "token_id": 13474,
+              "token": "▁Football",
+              "weight": 2.65234375
+            },
+            {
+              "token_id": 11093,
+              "token": "▁Sport",
+              "weight": 2.623046875
+            },
+            {
+              "token_id": 15127,
+              "token": "▁Match",
+              "weight": 2.609375
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 2695
+        },
+        {
+          "rank": 0,
+          "sample_id": "27726",
+          "modality": "image",
+          "view": "A",
+          "aspect": "scene, such as location, indoor or outdoor setting and terrain",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 8246,
+              "token": "▁Field",
+              "weight": 2.857421875
+            },
+            {
+              "token_id": 4655,
+              "token": "▁Out",
+              "weight": 2.810546875
+            },
+            {
+              "token_id": 4234,
+              "token": "▁Soc",
+              "weight": 2.783203125
+            },
+            {
+              "token_id": 1778,
+              "token": "▁Gr",
+              "weight": 2.759765625
+            },
+            {
+              "token_id": 4120,
+              "token": "▁Park",
+              "weight": 2.705078125
+            },
+            {
+              "token_id": 25116,
+              "token": "▁Outside",
+              "weight": 2.68359375
+            },
+            {
+              "token_id": 6879,
+              "token": "▁Play",
+              "weight": 2.5859375
+            },
+            {
+              "token_id": 13474,
+              "token": "▁Football",
+              "weight": 2.564453125
+            },
+            {
+              "token_id": 627,
+              "token": "▁Y",
+              "weight": 2.5625
+            },
+            {
+              "token_id": 8993,
+              "token": "▁Stadium",
+              "weight": 2.5546875
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 2696
+        },
+        {
+          "rank": 0,
+          "sample_id": "27726",
+          "modality": "image",
+          "view": "C",
+          "aspect": "people, such as number of people, appearance and pose",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 28705,
+              "token": "▁",
+              "weight": 2.779296875
+            },
+            {
+              "token_id": 20344,
+              "token": "▁Boys",
+              "weight": 2.767578125
+            },
+            {
+              "token_id": 12708,
+              "token": "▁Children",
+              "weight": 2.736328125
+            },
+            {
+              "token_id": 9611,
+              "token": "▁Four",
+              "weight": 2.724609375
+            },
+            {
+              "token_id": 21186,
+              "token": "▁Kids",
+              "weight": 2.673828125
+            },
+            {
+              "token_id": 5926,
+              "token": "▁Group",
+              "weight": 2.654296875
+            },
+            {
+              "token_id": 4234,
+              "token": "▁Soc",
+              "weight": 2.638671875
+            },
+            {
+              "token_id": 11036,
+              "token": "▁Boy",
+              "weight": 2.62109375
+            },
+            {
+              "token_id": 5619,
+              "token": "▁People",
+              "weight": 2.583984375
+            },
+            {
+              "token_id": 9465,
+              "token": "▁Young",
+              "weight": 2.58203125
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 2697
+        },
+        {
+          "rank": 0,
+          "sample_id": "27726",
+          "modality": "image",
+          "view": "B",
+          "aspect": "natural environment, such as weather, lighting, season and time",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 9199,
+              "token": "▁Spring",
+              "weight": 2.740234375
+            },
+            {
+              "token_id": 13211,
+              "token": "▁Summer",
+              "weight": 2.73046875
+            },
+            {
+              "token_id": 12168,
+              "token": "▁Fall",
+              "weight": 2.728515625
+            },
+            {
+              "token_id": 7057,
+              "token": "▁Sun",
+              "weight": 2.666015625
+            },
+            {
+              "token_id": 13832,
+              "token": "▁Cloud",
+              "weight": 2.634765625
+            },
+            {
+              "token_id": 17774,
+              "token": "▁Rain",
+              "weight": 2.6328125
+            },
+            {
+              "token_id": 5235,
+              "token": "▁Over",
+              "weight": 2.623046875
+            },
+            {
+              "token_id": 5399,
+              "token": "▁Day",
+              "weight": 2.607421875
+            },
+            {
+              "token_id": 1778,
+              "token": "▁Gr",
+              "weight": 2.60546875
+            },
+            {
+              "token_id": 6248,
+              "token": "▁Green",
+              "weight": 2.56640625
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 2698
+        },
+        {
+          "rank": 0,
+          "sample_id": "27726",
+          "modality": "image",
+          "view": "D",
+          "aspect": "clothing, such as category, color, material and style",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 4234,
+              "token": "▁Soc",
+              "weight": 2.76171875
+            },
+            {
+              "token_id": 935,
+              "token": "▁Un",
+              "weight": 2.74609375
+            },
+            {
+              "token_id": 20344,
+              "token": "▁Boys",
+              "weight": 2.72265625
+            },
+            {
+              "token_id": 11093,
+              "token": "▁Sport",
+              "weight": 2.701171875
+            },
+            {
+              "token_id": 13184,
+              "token": "▁Sports",
+              "weight": 2.6875
+            },
+            {
+              "token_id": 12708,
+              "token": "▁Children",
+              "weight": 2.6484375
+            },
+            {
+              "token_id": 8836,
+              "token": "▁Blue",
+              "weight": 2.642578125
+            },
+            {
+              "token_id": 6867,
+              "token": "▁Team",
+              "weight": 2.630859375
+            },
+            {
+              "token_id": 11530,
+              "token": "▁Short",
+              "weight": 2.626953125
+            },
+            {
+              "token_id": 21186,
+              "token": "▁Kids",
+              "weight": 2.599609375
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 2699
+        },
+        {
+          "rank": 0,
+          "sample_id": "27726",
+          "modality": "image",
+          "view": "I",
+          "aspect": "spatial layout, such as foreground and background, distance and direction",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 24316,
+              "token": "▁Background",
+              "weight": 2.625
+            },
+            {
+              "token_id": 7257,
+              "token": "▁Fore",
+              "weight": 2.59765625
+            },
+            {
+              "token_id": 18537,
+              "token": "▁Close",
+              "weight": 2.59375
+            },
+            {
+              "token_id": 13794,
+              "token": "▁Front",
+              "weight": 2.556640625
+            },
+            {
+              "token_id": 8246,
+              "token": "▁Field",
+              "weight": 2.556640625
+            },
+            {
+              "token_id": 8549,
+              "token": "▁Far",
+              "weight": 2.552734375
+            },
+            {
+              "token_id": 28705,
+              "token": "▁",
+              "weight": 2.541015625
+            },
+            {
+              "token_id": 11373,
+              "token": "▁Middle",
+              "weight": 2.5390625
+            },
+            {
+              "token_id": 17602,
+              "token": "▁Near",
+              "weight": 2.5390625
+            },
+            {
+              "token_id": 560,
+              "token": "▁In",
+              "weight": 2.5234375
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 2700
+        }
+      ],
+      "text_log": {
+        "rank": 1,
+        "sample_id": "138630",
+        "modality": "text",
+        "view": "whole",
+        "aspect": "prompteol",
+        "top_k": 10,
+        "weight_type": "log1p_relu",
+        "top_tokens": [
+          {
+            "token_id": 22642,
+            "token": "▁soccer",
+            "weight": 2.227996349334717
+          },
+          {
+            "token_id": 8066,
+            "token": "▁boys",
+            "weight": 2.0745468139648438
+          },
+          {
+            "token_id": 2308,
+            "token": "▁four",
+            "weight": 2.0081090927124023
+          },
+          {
+            "token_id": 4543,
+            "token": "▁playing",
+            "weight": 1.7976016998291016
+          },
+          {
+            "token_id": 23988,
+            "token": "▁adoles",
+            "weight": 1.569591999053955
+          },
+          {
+            "token_id": 1834,
+            "token": "▁field",
+            "weight": 1.5204359292984009
+          },
+          {
+            "token_id": 5045,
+            "token": "▁blue",
+            "weight": 1.5152989625930786
+          },
+          {
+            "token_id": 5344,
+            "token": "▁green",
+            "weight": 1.3848284482955933
+          },
+          {
+            "token_id": 2760,
+            "token": "▁red",
+            "weight": 1.0546929836273193
+          },
+          {
+            "token_id": 28733,
+            "token": "-",
+            "weight": 0.9440274834632874
+          }
+        ],
+        "token_source": "retained_text",
+        "retained_token_count": 18,
+        "sample_text": "Four dark-haired adolescent boys, three wearing blue and one wearing red, are playing soccer on a green grass field.",
+        "_file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl",
+        "_line": 1428
+      },
+      "image_path": "/root/autodl-tmp/data/flickr/flickr30k-images/6275000713.jpg",
+      "searched_images": [],
+      "local_image": "27726.jpg"
+    },
+    {
+      "caption": {
+        "imgid": "28142",
+        "filename": "6589292543.jpg",
+        "caption": "A very young boy wearing a green long-sleeve shirt is laying on a bed at a store.",
+        "sentid": "140712"
+      },
+      "original": {
+        "id": "140712",
+        "content": "",
+        "vector": {
+          "▁boy": 190,
+          "▁shirt": 184,
+          "▁laying": 182,
+          "▁young": 181,
+          "▁store": 157,
+          "▁wearing": 145,
+          "▁bed": 144,
+          "▁green": 116,
+          "-": 83,
+          "▁long": 56,
+          "s": 20,
+          "ve": 0,
+          "lee": 0
+        },
+        "_file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_no_manual_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl",
+        "_line": 2436
+      },
+      "summary": {
+        "id": "140712",
+        "content": "",
+        "vector": {
+          "▁shop": 265,
+          "▁sleep": 265,
+          "▁rest": 260,
+          "▁boy": 259,
+          "▁lay": 256,
+          "▁child": 255,
+          "▁s": 253,
+          "▁t": 253,
+          "▁yes": 253,
+          "▁l": 253,
+          "▁no": 249,
+          "▁un": 248,
+          "▁little": 247,
+          "▁looking": 246,
+          "▁store": 246,
+          "▁play": 246,
+          "▁buy": 245,
+          "▁young": 244,
+          "▁w": 244,
+          "▁none": 244,
+          "▁cl": 243,
+          "▁sh": 243,
+          "▁baby": 242,
+          "▁in": 241,
+          "▁ex": 241,
+          "▁new": 240,
+          "▁bed": 239,
+          "▁": 239,
+          "▁a": 238,
+          "▁rel": 238,
+          "▁picture": 238,
+          "▁b": 237,
+          "▁c": 236,
+          "▁children": 236,
+          "▁happy": 236,
+          "▁i": 236,
+          "▁try": 235,
+          "▁birth": 235,
+          "▁vis": 235,
+          "▁nothing": 235,
+          "▁kid": 235,
+          "▁pos": 234,
+          "▁as": 233,
+          "▁st": 233,
+          "▁ad": 233,
+          "▁p": 233,
+          "▁\"": 233,
+          "▁description": 233,
+          "▁customer": 232,
+          "▁bu": 232,
+          "▁lie": 232,
+          "▁todd": 231,
+          "▁dis": 231,
+          "▁green": 231,
+          "▁the": 231,
+          "▁sto": 230,
+          "▁boys": 229,
+          "▁com": 229,
+          "▁he": 229,
+          "▁ill": 229,
+          "▁short": 228,
+          "▁sm": 228,
+          "▁good": 228,
+          "▁nap": 228,
+          "▁wait": 227,
+          "▁not": 227,
+          "▁d": 227,
+          "▁to": 226,
+          "▁sale": 225,
+          "▁on": 224,
+          "▁j": 224,
+          "▁fast": 224,
+          "▁ch": 224,
+          "▁sales": 223,
+          "▁f": 223,
+          "▁very": 223,
+          "▁fat": 223,
+          "▁sad": 222,
+          "▁summary": 222,
+          "▁h": 222,
+          "▁sw": 222,
+          "▁reading": 221,
+          "▁found": 221,
+          "▁visit": 221,
+          "▁one": 221,
+          "▁n": 220,
+          "▁list": 220,
+          "▁small": 220,
+          "▁display": 220,
+          "▁it": 219,
+          "▁hospital": 219,
+          "▁this": 219,
+          "▁son": 218,
+          "▁dr": 218,
+          "▁can": 218,
+          "▁ret": 218,
+          "▁inf": 218,
+          "▁se": 218,
+          "▁att": 218,
+          "▁toy": 218,
+          "▁describe": 218,
+          "▁im": 218,
+          "▁father": 218,
+          "▁re": 217,
+          "▁expl": 217,
+          "▁al": 217,
+          "▁long": 217,
+          "▁e": 217,
+          "▁there": 217,
+          "▁ste": 217,
+          "▁home": 217,
+          "▁girl": 217,
+          "▁nice": 216,
+          "▁test": 215,
+          "▁kids": 215,
+          "▁look": 215,
+          "▁that": 215,
+          "▁mer": 215,
+          "▁gro": 215,
+          "▁taking": 214,
+          "▁fall": 214,
+          "▁sorry": 214,
+          "▁poss": 214,
+          "▁day": 214,
+          "▁bab": 214,
+          "▁m": 213,
+          "▁le": 213,
+          "▁prom": 213
+        },
+        "_file": "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl",
+        "_line": 2436
+      },
+      "single_image": {
+        "rank": 0,
+        "sample_id": "28142",
+        "modality": "image",
+        "view": "whole",
+        "aspect": "prompteol",
+        "top_k": 10,
+        "weight_type": "log1p_relu",
+        "top_tokens": [
+          {
+            "token_id": 11036,
+            "token": "▁Boy",
+            "weight": 2.7745399475097656
+          },
+          {
+            "token_id": 24027,
+            "token": "▁Sleep",
+            "weight": 2.727137804031372
+          },
+          {
+            "token_id": 8183,
+            "token": "▁Child",
+            "weight": 2.7101314067840576
+          },
+          {
+            "token_id": 18719,
+            "token": "▁Baby",
+            "weight": 2.6654906272888184
+          },
+          {
+            "token_id": 9999,
+            "token": "▁Little",
+            "weight": 2.662224292755127
+          },
+          {
+            "token_id": 24201,
+            "token": "▁Todd",
+            "weight": 2.6545615196228027
+          },
+          {
+            "token_id": 7149,
+            "token": "▁Matt",
+            "weight": 2.642400026321411
+          },
+          {
+            "token_id": 367,
+            "token": "▁P",
+            "weight": 2.6295254230499268
+          },
+          {
+            "token_id": 1770,
+            "token": "▁No",
+            "weight": 2.6187634468078613
+          },
+          {
+            "token_id": 12266,
+            "token": "▁Bed",
+            "weight": 2.6187634468078613
+          }
+        ],
+        "sample_text": "",
+        "_file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_token_logs/.ipynb_checkpoints/sparse_tokens_rank0-checkpoint.jsonl",
+        "_line": 312
+      },
+      "adaptive_image": [
+        {
+          "rank": 0,
+          "sample_id": "28142",
+          "modality": "image",
+          "view": "J",
+          "aspect": "high-level semantics, such as events, activities and functions",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 24027,
+              "token": "▁Sleep",
+              "weight": 2.880859375
+            },
+            {
+              "token_id": 9576,
+              "token": "▁Rest",
+              "weight": 2.787109375
+            },
+            {
+              "token_id": 26271,
+              "token": "▁Lay",
+              "weight": 2.7578125
+            },
+            {
+              "token_id": 8183,
+              "token": "▁Child",
+              "weight": 2.732421875
+            },
+            {
+              "token_id": 393,
+              "token": "▁L",
+              "weight": 2.73046875
+            },
+            {
+              "token_id": 11036,
+              "token": "▁Boy",
+              "weight": 2.689453125
+            },
+            {
+              "token_id": 11629,
+              "token": "▁Nap",
+              "weight": 2.662109375
+            },
+            {
+              "token_id": 5855,
+              "token": "▁Rel",
+              "weight": 2.662109375
+            },
+            {
+              "token_id": 9020,
+              "token": "▁Lie",
+              "weight": 2.6328125
+            },
+            {
+              "token_id": 6879,
+              "token": "▁Play",
+              "weight": 2.623046875
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 2755
+        },
+        {
+          "rank": 0,
+          "sample_id": "28142",
+          "modality": "image",
+          "view": "A",
+          "aspect": "scene, such as location, indoor or outdoor setting and terrain",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 1756,
+              "token": "▁Ind",
+              "weight": 2.80859375
+            },
+            {
+              "token_id": 12266,
+              "token": "▁Bed",
+              "weight": 2.798828125
+            },
+            {
+              "token_id": 7149,
+              "token": "▁Matt",
+              "weight": 2.650390625
+            },
+            {
+              "token_id": 11805,
+              "token": "▁Hotel",
+              "weight": 2.638671875
+            },
+            {
+              "token_id": 20726,
+              "token": "▁Inside",
+              "weight": 2.634765625
+            },
+            {
+              "token_id": 13229,
+              "token": "▁Store",
+              "weight": 2.615234375
+            },
+            {
+              "token_id": 24027,
+              "token": "▁Sleep",
+              "weight": 2.5703125
+            },
+            {
+              "token_id": 23395,
+              "token": "▁Floor",
+              "weight": 2.546875
+            },
+            {
+              "token_id": 4655,
+              "token": "▁Out",
+              "weight": 2.5390625
+            },
+            {
+              "token_id": 365,
+              "token": "▁B",
+              "weight": 2.521484375
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 2756
+        },
+        {
+          "rank": 0,
+          "sample_id": "28142",
+          "modality": "image",
+          "view": "C",
+          "aspect": "people, such as number of people, appearance and pose",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 28705,
+              "token": "▁",
+              "weight": 2.857421875
+            },
+            {
+              "token_id": 11036,
+              "token": "▁Boy",
+              "weight": 2.798828125
+            },
+            {
+              "token_id": 8183,
+              "token": "▁Child",
+              "weight": 2.767578125
+            },
+            {
+              "token_id": 24201,
+              "token": "▁Todd",
+              "weight": 2.76171875
+            },
+            {
+              "token_id": 2387,
+              "token": "▁One",
+              "weight": 2.7265625
+            },
+            {
+              "token_id": 1770,
+              "token": "▁No",
+              "weight": 2.671875
+            },
+            {
+              "token_id": 18719,
+              "token": "▁Baby",
+              "weight": 2.66796875
+            },
+            {
+              "token_id": 9999,
+              "token": "▁Little",
+              "weight": 2.66796875
+            },
+            {
+              "token_id": 12827,
+              "token": "▁Small",
+              "weight": 2.646484375
+            },
+            {
+              "token_id": 9465,
+              "token": "▁Young",
+              "weight": 2.630859375
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 2757
+        },
+        {
+          "rank": 0,
+          "sample_id": "28142",
+          "modality": "image",
+          "view": "B",
+          "aspect": "natural environment, such as weather, lighting, season and time",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 13211,
+              "token": "▁Summer",
+              "weight": 2.6875
+            },
+            {
+              "token_id": 13951,
+              "token": "▁Winter",
+              "weight": 2.677734375
+            },
+            {
+              "token_id": 1770,
+              "token": "▁No",
+              "weight": 2.673828125
+            },
+            {
+              "token_id": 1756,
+              "token": "▁Ind",
+              "weight": 2.673828125
+            },
+            {
+              "token_id": 9199,
+              "token": "▁Spring",
+              "weight": 2.626953125
+            },
+            {
+              "token_id": 5399,
+              "token": "▁Day",
+              "weight": 2.62109375
+            },
+            {
+              "token_id": 12168,
+              "token": "▁Fall",
+              "weight": 2.599609375
+            },
+            {
+              "token_id": 7057,
+              "token": "▁Sun",
+              "weight": 2.591796875
+            },
+            {
+              "token_id": 3635,
+              "token": "▁None",
+              "weight": 2.58984375
+            },
+            {
+              "token_id": 935,
+              "token": "▁Un",
+              "weight": 2.587890625
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 2758
+        },
+        {
+          "rank": 0,
+          "sample_id": "28142",
+          "modality": "image",
+          "view": "D",
+          "aspect": "clothing, such as category, color, material and style",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 6248,
+              "token": "▁Green",
+              "weight": 2.732421875
+            },
+            {
+              "token_id": 367,
+              "token": "▁P",
+              "weight": 2.68359375
+            },
+            {
+              "token_id": 318,
+              "token": "▁S",
+              "weight": 2.681640625
+            },
+            {
+              "token_id": 8194,
+              "token": "▁Cas",
+              "weight": 2.669921875
+            },
+            {
+              "token_id": 24201,
+              "token": "▁Todd",
+              "weight": 2.640625
+            },
+            {
+              "token_id": 11530,
+              "token": "▁Short",
+              "weight": 2.625
+            },
+            {
+              "token_id": 11036,
+              "token": "▁Boy",
+              "weight": 2.623046875
+            },
+            {
+              "token_id": 320,
+              "token": "▁T",
+              "weight": 2.619140625
+            },
+            {
+              "token_id": 6428,
+              "token": "▁Long",
+              "weight": 2.6015625
+            },
+            {
+              "token_id": 8183,
+              "token": "▁Child",
+              "weight": 2.595703125
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 2759
+        },
+        {
+          "rank": 0,
+          "sample_id": "28142",
+          "modality": "image",
+          "view": "I",
+          "aspect": "spatial layout, such as foreground and background, distance and direction",
+          "top_k": 10,
+          "weight_type": "log1p_relu",
+          "top_tokens": [
+            {
+              "token_id": 26271,
+              "token": "▁Lay",
+              "weight": 2.6796875
+            },
+            {
+              "token_id": 7257,
+              "token": "▁Fore",
+              "weight": 2.640625
+            },
+            {
+              "token_id": 18537,
+              "token": "▁Close",
+              "weight": 2.63671875
+            },
+            {
+              "token_id": 13794,
+              "token": "▁Front",
+              "weight": 2.62890625
+            },
+            {
+              "token_id": 12266,
+              "token": "▁Bed",
+              "weight": 2.6171875
+            },
+            {
+              "token_id": 24316,
+              "token": "▁Background",
+              "weight": 2.60546875
+            },
+            {
+              "token_id": 17602,
+              "token": "▁Near",
+              "weight": 2.59375
+            },
+            {
+              "token_id": 8183,
+              "token": "▁Child",
+              "weight": 2.55859375
+            },
+            {
+              "token_id": 18365,
+              "token": "▁Left",
+              "weight": 2.55859375
+            },
+            {
+              "token_id": 1263,
+              "token": "▁For",
+              "weight": 2.556640625
+            }
+          ],
+          "sample_text": "",
+          "_file": "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+          "_line": 2760
+        }
+      ],
+      "text_log": {
+        "rank": 0,
+        "sample_id": "140712",
+        "modality": "text",
+        "view": "whole",
+        "aspect": "prompteol",
+        "top_k": 10,
+        "weight_type": "log1p_relu",
+        "top_tokens": [
+          {
+            "token_id": 4531,
+            "token": "▁boy",
+            "weight": 1.9019908905029297
+          },
+          {
+            "token_id": 11480,
+            "token": "▁shirt",
+            "weight": 1.839432954788208
+          },
+          {
+            "token_id": 27587,
+            "token": "▁laying",
+            "weight": 1.8174678087234497
+          },
+          {
+            "token_id": 2518,
+            "token": "▁young",
+            "weight": 1.8098244667053223
+          },
+          {
+            "token_id": 4143,
+            "token": "▁store",
+            "weight": 1.5663347244262695
+          },
+          {
+            "token_id": 8192,
+            "token": "▁wearing",
+            "weight": 1.4505887031555176
+          },
+          {
+            "token_id": 2855,
+            "token": "▁bed",
+            "weight": 1.439538836479187
+          },
+          {
+            "token_id": 5344,
+            "token": "▁green",
+            "weight": 1.1647365093231201
+          },
+          {
+            "token_id": 28733,
+            "token": "-",
+            "weight": 0.8272887468338013
+          },
+          {
+            "token_id": 1043,
+            "token": "▁long",
+            "weight": 0.5579402446746826
+          }
+        ],
+        "token_source": "retained_text",
+        "retained_token_count": 13,
+        "sample_text": "A very young boy wearing a green long-sleeve shirt is laying on a bed at a store.",
+        "_file": "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl",
+        "_line": 2436
+      },
+      "image_path": "/root/autodl-tmp/data/flickr/flickr30k-images/6589292543.jpg",
+      "searched_images": [],
+      "local_image": "28142.jpg"
+    }
+  ],
+  "sources": {
+    "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_token_logs/.ipynb_checkpoints/sparse_tokens_rank0-checkpoint.jsonl": {
+      "sha256": "b41e06203dcc98a39848898067e81400bc1eb70210d99eb218bedd5372db1924",
+      "bytes": 433654,
+      "mtime_ns": 1794816501566531255
+    },
+    "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl": {
+      "sha256": "fa1be129da3c680682aa5d4d0d05deb58c4b5af253fc24c3ef97168e5139b7aa",
+      "bytes": 2033149,
+      "mtime_ns": 1794819282920899942
+    },
+    "/root/autodl-fs/output/llava_base_prompteol_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl": {
+      "sha256": "5adbdcc862ada5d38e04a007a868432d905f2d91efe07133895951c10ab3d33d",
+      "bytes": 2017802,
+      "mtime_ns": 1794819279559807561
+    },
+    "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/.ipynb_checkpoints/sparse_tokens_rank0-checkpoint.jsonl": {
+      "sha256": "ef1f84cb22fa5aea481ed469f9506d3669bf8bcb9dab927be46b1686ffa99181",
+      "bytes": 15153380,
+      "mtime_ns": 1794809773416836810
+    },
+    "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank0.jsonl": {
+      "sha256": "a4d711eaf6ec1914dda90ce552900e3fef5ca56bfd4f1be729ea532b9e98c503",
+      "bytes": 2526090,
+      "mtime_ns": 1794811472683941815
+    },
+    "/root/autodl-fs/output/adaptive_print_sparse/sparse_token_logs/sparse_tokens_rank1.jsonl": {
+      "sha256": "ecf88256a0ed4f3610409a431ea0c3afd553588b5730e0453d3121389bbe0dcf",
+      "bytes": 2526015,
+      "mtime_ns": 1794811471893466518
+    },
+    "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_no_manual_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl": {
+      "sha256": "ad93ee50bc3cbcb1db9352f2de2810b2d6f211315ed4f7740b933806547b730b",
+      "bytes": 490061,
+      "mtime_ns": 1794819284145626503
+    },
+    "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_no_manual_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_1.jsonl": {
+      "sha256": "0521a0583c90a95640eb961734345e4c9711efa199030a7c3edd05b46afbf29b",
+      "bytes": 484977,
+      "mtime_ns": 1794819280290638840
+    },
+    "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_0.jsonl": {
+      "sha256": "84974eb7d2cb49ac633ba8ea04ae5b203f1edcd1e4aba57036f95e667c9acb37",
+      "bytes": 5996017,
+      "mtime_ns": 1794816374980411261
+    },
+    "/root/autodl-fs/sparse_output/llava-hf-llava-v1.6-mistral-7b-hf/flickr/text/no_filter/separate/prompt_5/test/0_manual_128_128_sum_no_cluster_after_pad_prompteol_lower_no_mean/corpus_1.jsonl": {
+      "sha256": "ee15c6b05bbdf180b9ee358cfc17544706a5613a484634e30fcc7e8efbf8ccab",
+      "bytes": 5994073,
+      "mtime_ns": 1794816374036064382
+    }
+  }
+}
